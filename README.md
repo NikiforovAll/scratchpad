@@ -1,6 +1,7 @@
 # scratch
 
 [![npm version](https://img.shields.io/npm/v/scratchpad.svg)](https://www.npmjs.com/package/scratchpad)
+[![npm downloads](https://img.shields.io/npm/dm/scratchpad.svg)](https://www.npmjs.com/package/scratchpad)
 [![license](https://img.shields.io/github/license/nikiforovall/scratchpad.svg)](LICENSE)
 
 CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).
