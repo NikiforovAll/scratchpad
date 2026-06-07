@@ -1,5 +1,10 @@
 # scratch
 
+[![npm version](https://img.shields.io/npm/v/scratchpad.svg)](https://www.npmjs.com/package/scratchpad)
+[![license](https://img.shields.io/github/license/nikiforovall/scratchpad.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/Bun-1.x-fbf0df?logo=bun&logoColor=black)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+
 CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).
 
 A scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.
