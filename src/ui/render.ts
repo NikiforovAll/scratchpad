@@ -262,6 +262,7 @@ export async function renderHtml(view: PadView[], rootLabel: string): Promise<st
     </div>
   </div>
 </div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="data" type="application/json">${data}</script>
 ${vendor}<script>${CLIENT_JS}</script>
 </body>
@@ -546,11 +547,25 @@ function buildTree(preferKey, prevSelJson) {
 // and skipping the preview re-render entirely when the open file is unchanged
 // (buildTree handles that). (When the set of needed vendor bundles GROWS, the
 // launcher re-navigates the whole page instead so highlighting/diagrams load.)
+// Transient bottom-left toast (reload feedback). Re-triggerable: each call resets
+// the auto-dismiss timer; an optional variant ('success' | 'info') tints it.
+let _toastTimer;
+function showToast(msg, variant) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  clearTimeout(_toastTimer);
+  el.classList.remove('toast-success', 'toast-info');
+  el.textContent = msg;
+  if (variant) el.classList.add('toast-' + variant);
+  el.classList.add('visible');
+  _toastTimer = setTimeout(() => el.classList.remove('visible'), 2000);
+}
+
 window.__scratchReload = function (payload) {
   if (!payload || !payload.pads) return;
-  // Nothing on disk changed since last render → do nothing at all (no DOM swap,
-  // no flash). This is the common case when reload is pressed out of habit.
-  if (JSON.stringify(payload) === JSON.stringify(DATA)) return;
+  // Nothing on disk changed since last render → no DOM swap, no flash; just tell
+  // the user it's current. This is the common case when reload is pressed out of habit.
+  if (JSON.stringify(payload) === JSON.stringify(DATA)) { showToast('No changes — up to date', 'info'); return; }
   const key = currentRef ? currentRef.pad.dir + '::' + currentRef.f.path : null;
   const prevSelJson = currentRef ? JSON.stringify(currentRef.f) : null;
   const pv = document.getElementById('preview');
@@ -559,6 +574,7 @@ window.__scratchReload = function (payload) {
   buildTree(key, prevSelJson);
   const pv2 = document.getElementById('preview');
   if (pv2) pv2.scrollTop = scroll;
+  showToast('Reloaded from disk', 'success');
 };
 
 // Auto-detect theme from the OS (works in the glimpse WebView and the browser).
@@ -616,9 +632,13 @@ const closeWindow = webview ? () => webview.postMessage({ __glimpse_close: true 
 // in the browser we just reload the page (the server rebuilds per request).
 function requestReload() {
   if (webview) { try { webview.postMessage({ __scratch_reload: true }); } catch (_) {} }
-  else { location.reload(); }
+  // Browser: full reload (the server rebuilds per request). Stash a flag so the
+  // freshly-loaded page can surface the toast the native path shows inline.
+  else { try { sessionStorage.setItem('scratch_reloaded', '1'); } catch (_) {} location.reload(); }
 }
 document.getElementById('reloadBtn').addEventListener('click', requestReload);
+// Browser reload just happened → show the toast the pre-reload page couldn't.
+try { if (sessionStorage.getItem('scratch_reloaded')) { sessionStorage.removeItem('scratch_reloaded'); showToast('Reloaded from disk', 'success'); } } catch (_) {}
 (function () {
   const btn = document.getElementById('closeBtn');
   if (closeWindow && btn) { btn.style.display = ''; btn.addEventListener('click', closeWindow); }

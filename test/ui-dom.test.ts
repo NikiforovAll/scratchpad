@@ -129,3 +129,31 @@ test("auto-detects dark theme from prefers-color-scheme", async () => {
     teardown();
   }
 });
+
+test("in-place reload shows a toast (success on change, info when unchanged)", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const toast = document.getElementById("toast")!;
+    const w = globalThis as any;
+    // The app script parsed the data island into its internal DATA; reuse it.
+    const data = JSON.parse(document.getElementById("data")!.textContent!);
+
+    // Identical payload → no changes → info toast.
+    w.__scratchReload(data);
+    expect(toast.classList.contains("visible")).toBe(true);
+    expect(toast.classList.contains("toast-info")).toBe(true);
+    expect(toast.textContent).toContain("No changes");
+
+    // Changed payload → reloaded → success toast (variant swaps, not stacks).
+    const changed = JSON.parse(JSON.stringify(data));
+    changed.pads[0].files[0].content = "# Changed\n";
+    w.__scratchReload(changed);
+    expect(toast.classList.contains("visible")).toBe(true);
+    expect(toast.classList.contains("toast-success")).toBe(true);
+    expect(toast.classList.contains("toast-info")).toBe(false);
+    expect(toast.textContent).toContain("Reloaded from disk");
+  } finally {
+    teardown();
+  }
+});

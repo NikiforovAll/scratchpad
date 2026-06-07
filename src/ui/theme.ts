@@ -218,4 +218,17 @@ pre.code { font-family: var(--mono); font-size: 16px; line-height: 1.75;
 .empty .big { font-family: var(--serif); font-size: 20px; color: var(--ink-3); }
 .empty code { background: var(--field); border: 1px solid var(--border);
   border-radius: 4px; padding: 2px 8px; font-size: 12px; color: var(--ink-2); }
+
+/* toast — transient feedback (e.g. reload), bottom-left, auto-dismissed */
+.toast {
+  position: fixed; bottom: 16px; left: 16px; z-index: 10000;
+  background: var(--elevated); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 14px; font-family: var(--mono); font-size: 11px; color: var(--ink-2);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.25);
+  opacity: 0; transform: translateY(10px); pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.toast.visible { opacity: 1; transform: translateY(0); }
+.toast.toast-success { border-color: var(--ember); color: var(--ember); }
+.toast.toast-info { color: var(--ink-2); }
 `;
