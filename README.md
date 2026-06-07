@@ -37,6 +37,17 @@ bun link             # exposes `scratch` globally (needs bun on PATH)
 bun run build        # → dist/scratch(.exe), bundles + compiles
 ```
 
+### Claude Code plugin
+
+This repo doubles as a Claude Code plugin marketplace. It ships the `scratch`
+skill so the agent knows when and how to drive the CLI (the CLI itself still
+comes from the install above):
+
+```
+/plugin marketplace add NikiforovAll/scratchpad
+/plugin install scratchpad@scratchpad
+```
+
 ## Usage
 
 ```bash
