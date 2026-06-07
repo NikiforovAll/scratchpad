@@ -578,8 +578,11 @@ window.__scratchReload = function (payload) {
 };
 
 // Auto-detect theme from the OS (works in the glimpse WebView and the browser).
-// A manual toggle overrides; after that we stop following the system.
+// A manual toggle overrides and is remembered across files AND sessions
+// (localStorage, like the raw/rendered pref); after that we stop following the OS.
 let manualTheme = false;
+let savedTheme = null;
+try { savedTheme = localStorage.getItem('scratch.theme'); } catch (_) {}
 function syncThemeIcon() {
   const dark = document.documentElement.dataset.theme !== 'light';
   const d = document.querySelector('#themeToggle .i-dark'), l = document.querySelector('#themeToggle .i-light');

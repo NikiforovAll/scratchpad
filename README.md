@@ -88,7 +88,7 @@ Read-only, 2-pane (pad/file tree + preview) in a "Lab Notebook" theme that **aut
 - **Mermaid** diagrams (` ```mermaid ` fenced blocks).
 - Images inline; binaries / oversized files get a notice.
 
-Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser. The highlight.js / mermaid libraries load from a pinned CDN (with SRI) only when a pad actually needs them; offline they degrade gracefully (code shows unhighlighted, mermaid shows its source). Keeping the page small lets the native WebView use `NavigateToString` (correct DPI) instead of a `file://` load.
+Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser.
 
 ## Config
 
@@ -103,5 +103,3 @@ User-level viewer preferences live in a single JSON file (machine-wide, not per-
   }
 }
 ```
-
-Resolution order: `$SCRATCHPAD_CONFIG` (explicit file path) → `$XDG_CONFIG_HOME/scratchpad/config.json` → `%APPDATA%\scratchpad\config.json` (Windows) → `~/.config/scratchpad/config.json`. A missing or malformed file falls back to defaults.

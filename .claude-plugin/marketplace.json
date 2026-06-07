@@ -7,7 +7,7 @@
     {
       "name": "scratchpad",
       "source": "./plugins/scratchpad",
-      "description": "Session scratchpads — organize temporary agent knowledge into a folder + manifest, with a read-only visual viewer. Ships the `scratch` skill."
+      "description": "Session scratchpads — organize temporary agent knowledge into a folder + manifest, with a read-only visual viewer. Ships the `scratch` and `planning-with-scratchpad` skills."
     }
   ]
 }

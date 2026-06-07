@@ -1,8 +1,11 @@
 {
   "name": "scratchpad",
-  "version": "0.1.0",
-  "description": "Session scratchpads — organize temporary agent knowledge into a folder + manifest, with a read-only visual viewer. Ships the `scratch` skill (requires the `scratch` CLI on PATH).",
-  "author": "Oleksii Nikiforov <oleksii_nikiforov@epam.com>",
+  "version": "0.1.1",
+  "description": "Session scratchpads — organize temporary agent knowledge into a folder + manifest, with a read-only visual viewer. Ships the `scratch` and `planning-with-scratchpad` skills (require the `scratch` CLI on PATH).",
+  "author": {
+    "name": "Oleksii Nikiforov",
+    "email": "oleksii_nikiforov@epam.com"
+  },
   "homepage": "https://github.com/nikiforovall/scratchpad#readme",
   "repository": "https://github.com/nikiforovall/scratchpad.git",
   "license": "MIT",
