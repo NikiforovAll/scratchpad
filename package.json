@@ -1,0 +1,27 @@
+{
+  "name": "scratchpad",
+  "version": "0.1.0",
+  "description": "CLI-first tool to organize temporary agent knowledge into scratchpads (folder + manifest), with a read-only visual viewer.",
+  "type": "module",
+  "bin": {
+    "scratch": "./src/cli.ts"
+  },
+  "scripts": {
+    "scratch": "bun run src/cli.ts",
+    "test": "bun test",
+    "build:vendor": "bun run scripts/build-vendor.ts",
+    "build": "bun run build:vendor && bun build src/cli.ts --compile --outfile dist/scratch"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "glimpseui": "^0.8.1",
+    "highlight.js": "^11.11.1",
+    "mermaid": "^11.15.0"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.10.2"
+  }
+}

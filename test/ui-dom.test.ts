@@ -1,0 +1,131 @@
+// Headless-DOM tests: load the rendered viewer HTML into happy-dom, execute its
+// client script, and assert the interactive behavior the user asked for —
+// markdown rendering, mermaid blocks, syntax-highlight wiring, raw/rendered
+// toggle, and auto-detected theme. (Mermaid's own SVG render needs a real
+// browser, so we stub window.mermaid and assert it's invoked.)
+
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildView, renderHtml } from "../src/ui/render.ts";
+import { newManifest, writeManifest, readManifest } from "../src/manifest.ts";
+import type { Pad } from "../src/discovery.ts";
+
+let root: string;
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "scratch-dom-"));
+});
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+async function renderPad(): Promise<string> {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "doc.md"),
+    "# Heading\n\nText **bold**.\n\n```ts\nconst x = 1;\n```\n\n```mermaid\ngraph TD; A-->B;\n```\n",
+    "utf8",
+  );
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", description: "a doc", tags: ["t"], type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  return renderHtml(await buildView([pad]), "P");
+}
+
+/** Boot happy-dom, inject HTML, stub vendor libs, run the page's inline script. */
+async function boot(html: string) {
+  GlobalRegistrator.register();
+  const w = globalThis as any;
+  // Stub vendored libs (their real bundles are huge / need a real browser).
+  const mermaidCalls: any[] = [];
+  w.hljs = { highlightElement: (el: any) => el.classList.add("hljs") };
+  w.mermaid = {
+    initialize: (cfg: any) => mermaidCalls.push(["init", cfg]),
+    run: (opts: any) => mermaidCalls.push(["run", opts?.nodes?.length ?? 0]),
+  };
+  // Simulate a dark-preferring OS (happy-dom's own matchMedia returns false).
+  w.matchMedia = () => ({ matches: true, addEventListener() {}, addListener() {} });
+  // Drop the heavy vendor bundles (we stubbed window.hljs/mermaid above). They
+  // are attribute-less <script>…</script> blocks; the data island has a type
+  // attribute so it is preserved, and the app script (has buildTree()) is kept.
+  // happy-dom truncates multi-MB innerHTML, so this keeps the page parseable.
+  const slim = html.replace(/<script>[\s\S]*?<\/script>/g, (m) =>
+    m.includes("buildTree()") ? m : "<script></script>",
+  );
+  document.documentElement.innerHTML = slim
+    .replace(/^[\s\S]*?<html[^>]*>/, "")
+    .replace(/<\/html>[\s\S]*$/, "");
+  // Execute every inline <script> in order (skip the JSON data island).
+  for (const s of Array.from(document.querySelectorAll("script"))) {
+    if (s.getAttribute("type") === "application/json") continue;
+    // strip vendor bundles (we stubbed them); run only the app script
+    if (s.textContent && s.textContent.includes("buildTree()")) {
+      try {
+        // eslint-disable-next-line no-eval
+        (0, eval)(s.textContent);
+      } catch (e) {
+        console.error("APP SCRIPT THREW:", (e as Error).stack || e);
+        throw e;
+      }
+    }
+  }
+  return { mermaidCalls };
+}
+
+function teardown() {
+  GlobalRegistrator.unregister();
+}
+
+test("renders markdown, highlights code, invokes mermaid, builds tree", async () => {
+  const html = await renderPad();
+  const { mermaidCalls } = await boot(html);
+  try {
+    const preview = document.getElementById("preview")!;
+    // markdown rendered to a heading
+    expect(preview.querySelector(".md h1")?.textContent).toContain("Heading");
+    // code block present + highlight wiring ran (stub adds .hljs)
+    const code = preview.querySelector("pre code");
+    expect(code).not.toBeNull();
+    expect(code!.classList.contains("hljs")).toBe(true);
+    // mermaid block emitted + mermaid.run invoked with 1 node
+    expect(preview.querySelector(".mermaid")).not.toBeNull();
+    expect(mermaidCalls.some((c) => c[0] === "run" && c[1] === 1)).toBe(true);
+    // metadata strip
+    expect(preview.querySelector(".pmeta")?.textContent).toContain("#t");
+    // tree built with the file row
+    expect(document.querySelector(".frow")?.textContent).toContain("Doc");
+  } finally {
+    teardown();
+  }
+});
+
+test("raw/rendered toggle swaps between source and rendered markdown", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const preview = document.getElementById("preview")!;
+    expect(preview.querySelector(".md")).not.toBeNull(); // rendered by default
+    (document.getElementById("vRaw") as any).click();
+    expect(preview.querySelector(".md")).toBeNull();
+    expect(preview.querySelector("pre.code")?.textContent).toContain("# Heading"); // raw source
+    (document.getElementById("vRendered") as any).click();
+    expect(preview.querySelector(".md")).not.toBeNull(); // back to rendered
+  } finally {
+    teardown();
+  }
+});
+
+test("auto-detects dark theme from prefers-color-scheme", async () => {
+  const html = await renderPad();
+  await boot(html); // matchMedia stub returns matches:true (dark)
+  try {
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  } finally {
+    teardown();
+  }
+});
