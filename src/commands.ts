@@ -4,7 +4,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm as fsRm } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { findPads, resolvePad, resolveRoot, slugify } from "./discovery.ts";
+import { findPads, resolvePad, resolveRoot, slugify, type Pad } from "./discovery.ts";
 import {
   DEFAULT_TYPE,
   hasManifest,
@@ -281,78 +281,80 @@ export async function cmdRm(
   return 0;
 }
 
-/** scratch ui [<pad>] [--dir <root>] [--browser] — read-only visual viewer. */
+/** Resolve which pad(s) a viewer command targets. Returns null after emitting an
+ * error (the caller returns 1). A single pad is auto-selected; when several pads
+ * exist and none is named, the user must pick one — or pass --all to merge them
+ * into one combined view. */
+async function selectPads(
+  args: { pad?: string; all?: boolean; dir?: string },
+  root: string,
+  io: IO,
+  verb: string,
+): Promise<{ pads: Pad[]; label: string; defaultName: string } | null> {
+  if (args.pad) {
+    const pad = await resolvePad(args.pad, root);
+    if (!pad) {
+      io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
+      return null;
+    }
+    return { pads: [pad], label: pad.manifest.name, defaultName: slugify(pad.manifest.name) };
+  }
+  const pads = await findPads(root);
+  if (pads.length === 0) {
+    io.err(`error: no scratchpads found under ${root}`);
+    io.err(`create one:  scratch new <name> --dir <parent>`);
+    return null;
+  }
+  if (pads.length === 1) {
+    const pad = pads[0]!;
+    return { pads: [pad], label: pad.manifest.name, defaultName: slugify(pad.manifest.name) };
+  }
+  if (!args.all) {
+    io.err(`error: ${pads.length} scratchpads found under ${root}; name one, or pass --all to view them together:`);
+    for (const p of pads) {
+      const rel = relative(root, p.dir).split("\\").join("/") || ".";
+      io.err(`  scratch ${verb} ${p.manifest.name}    (${rel})`);
+    }
+    return null;
+  }
+  return { pads, label: root, defaultName: slugify(basename(root)) || "scratchpads" };
+}
+
+/** scratch ui [<pad>] [--dir <root>] [--all] [--browser] — read-only visual viewer. */
 export async function cmdUi(
-  args: { pad?: string; dir?: string; browser?: boolean },
+  args: { pad?: string; dir?: string; all?: boolean; browser?: boolean },
   io: IO,
 ): Promise<number> {
   const { launchViewer } = await import("./ui/launch.ts");
   const { loadConfig } = await import("./config.ts");
   const cfg = await loadConfig();
   const root = resolveRoot(args.dir);
-  if (args.pad) {
-    const pad = await resolvePad(args.pad, root);
-    if (!pad) {
-      io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
-      return 1;
-    }
-    return launchViewer([pad], pad.manifest.name, io, {
-      title: `scratch · ${pad.manifest.name}`,
-      forceBrowser: args.browser,
-      frameless: cfg.ui.frameless,
-    });
-  }
-  const pads = await findPads(root);
-  if (pads.length === 0) {
-    io.err(`error: no scratchpads found under ${root}`);
-    io.err(`create one:  scratch new <name> --dir <parent>`);
-    return 1;
-  }
-  return launchViewer(pads, root, io, {
-    title: `scratch · ${root}`,
+  const sel = await selectPads(args, root, io, "ui");
+  if (!sel) return 1;
+  return launchViewer(sel.pads, sel.label, io, {
+    title: `scratch · ${sel.label}`,
     forceBrowser: args.browser,
     frameless: cfg.ui.frameless,
   });
 }
 
-/** scratch export [<pad>] [--dir <root>] [-o/--out <file>] — write self-contained HTML. */
+/** scratch export [<pad>] [--dir <root>] [--all] [-o/--out <file>] — write self-contained HTML. */
 export async function cmdExport(
-  args: { pad?: string; dir?: string; out?: string },
+  args: { pad?: string; dir?: string; all?: boolean; out?: string },
   io: IO,
 ): Promise<number> {
   const { buildView, renderHtml } = await import("./ui/render.ts");
   const root = resolveRoot(args.dir);
-
-  let pads: Awaited<ReturnType<typeof findPads>>;
-  let label: string;
-  let defaultName: string;
-  if (args.pad) {
-    const pad = await resolvePad(args.pad, root);
-    if (!pad) {
-      io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
-      return 1;
-    }
-    pads = [pad];
-    label = pad.manifest.name;
-    defaultName = slugify(pad.manifest.name);
-  } else {
-    pads = await findPads(root);
-    if (pads.length === 0) {
-      io.err(`error: no scratchpads found under ${root}`);
-      io.err(`create one:  scratch new <name> --dir <parent>`);
-      return 1;
-    }
-    label = root;
-    defaultName = slugify(basename(root)) || "scratchpads";
-  }
+  const sel = await selectPads(args, root, io, "export");
+  if (!sel) return 1;
 
   // File contents are embedded; hljs/mermaid load from the pinned CDN (so the
   // file needs network for highlighting/diagrams, but degrades gracefully).
-  const view = await buildView(pads);
-  const html = await renderHtml(view, label);
-  const outPath = resolve(args.out ?? `${defaultName}.html`);
+  const view = await buildView(sel.pads);
+  const html = await renderHtml(view, sel.label);
+  const outPath = resolve(args.out ?? `${sel.defaultName}.html`);
   await Bun.write(outPath, html);
-  io.out(`✓ exported ${label} → ${outPath}`);
+  io.out(`✓ exported ${sel.label} → ${outPath}`);
   io.out(`  ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB; open it in any browser (hljs/mermaid via CDN).`);
   return 0;
 }

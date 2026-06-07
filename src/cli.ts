@@ -29,13 +29,15 @@ USAGE
       With <file>: unregister it (file on disk untouched).
       Without <file>: delete the whole pad dir (requires --force).
 
-  scratch ui [<pad>] [--dir <root>] [--browser]
+  scratch ui [<pad>] [--dir <root>] [--all] [--browser]
       Open the read-only visual viewer — glimpse native window, with an automatic
       browser+local-server fallback. --browser forces the browser path.
+      With multiple pads under root, name one or pass --all to view them together.
 
-  scratch export [<pad>] [--dir <root>] [-o <file>]
+  scratch export [<pad>] [--dir <root>] [--all] [-o <file>]
       Write the viewer to a single HTML file (file contents embedded; hljs/mermaid
       load from CDN), openable in any browser. Default out: <pad-name>.html.
+      With multiple pads under root, name one or pass --all to merge them.
 
 ADDRESSING
   A pad is a folder containing scratchpad.json; its path is its identity.
@@ -55,6 +57,7 @@ const FLAG_SPEC = {
   link: { type: "boolean" as const },
   as: { type: "string" as const },
   force: { type: "boolean" as const },
+  all: { type: "boolean" as const },
   browser: { type: "boolean" as const },
   out: { type: "string" as const, short: "o" },
   help: { type: "boolean" as const, short: "h" },
@@ -96,9 +99,9 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
     case "rm":
       return cmdRm({ pad: rest[0], file: rest[1], dir: v.dir, force: v.force }, io);
     case "ui":
-      return cmdUi({ pad: rest[0], dir: v.dir, browser: v.browser }, io);
+      return cmdUi({ pad: rest[0], dir: v.dir, all: v.all, browser: v.browser }, io);
     case "export":
-      return cmdExport({ pad: rest[0], dir: v.dir, out: v.out }, io);
+      return cmdExport({ pad: rest[0], dir: v.dir, all: v.all, out: v.out }, io);
     default:
       io.err(`error: unknown command "${cmd}". run \`scratch --help\`.`);
       return 2;
