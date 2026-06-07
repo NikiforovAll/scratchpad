@@ -1,10 +1,9 @@
-// Hot reload support shared by both transports. A Reloader watches each pad dir
-// and, on change, rebuilds the view from disk and produces a fresh snapshot. The
-// snapshot is either an in-place data payload (cheap; preserves selection/scroll)
-// or, when the set of needed vendor bundles GROWS, a full page so highlighting/
-// diagrams that weren't inlined at launch still load.
+// On-demand reload support shared by both transports. A Reloader rebuilds the
+// view from disk on request and produces a fresh snapshot. The snapshot is either
+// an in-place data payload (cheap; preserves selection/scroll) or, when the set
+// of needed vendor bundles GROWS, a full page so highlighting/diagrams that
+// weren't inlined at launch still load.
 
-import { watch, type FSWatcher } from "node:fs";
 import type { Pad } from "../discovery.ts";
 import { readManifest } from "../manifest.ts";
 import { bundleNeeds, buildView, payloadJson, renderHtml } from "./render.ts";
@@ -20,11 +19,15 @@ export interface Snapshot {
 
 export interface Reloader {
   rebuild(): Promise<Snapshot>;
-  /** Watch all pad dirs; calls onChange (debounced) on any file event. Returns a stop fn. */
-  watch(onChange: () => void, debounceMs?: number): () => void;
 }
 
-export function createReloader(pads: Pad[], rootLabel: string): Reloader {
+export function createReloader(
+  pads: Pad[],
+  rootLabel: string,
+  // Live viewer uses "cdn" (small page → NavigateToString); "inline" keeps deps
+  // embedded for a self-contained file (export).
+  vendoring: "cdn" | "inline" = "cdn",
+): Reloader {
   // Bundle needs seen so far. A snapshot is "full" only when a NEW bundle becomes
   // necessary (e.g. first mermaid block added after launch); shrinking is fine to
   // keep in place.
@@ -50,37 +53,11 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
     haveMermaid = haveMermaid || needs.mermaid;
     primed = true;
     return {
-      html: await renderHtml(view, rootLabel),
+      html: await renderHtml(view, rootLabel, { vendoring }),
       payloadJson: payloadJson(view, rootLabel),
       full,
     };
   }
 
-  function watch(onChange: () => void, debounceMs = 150): () => void {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const fire = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(onChange, debounceMs);
-    };
-    const watchers: FSWatcher[] = [];
-    for (const p of pads) {
-      try {
-        watchers.push(watch(p.dir, { recursive: true }, fire));
-      } catch {
-        // Best-effort; a pad dir that can't be watched just won't live-update.
-      }
-    }
-    return () => {
-      if (timer) clearTimeout(timer);
-      for (const w of watchers) {
-        try {
-          w.close();
-        } catch {
-          /* already closed */
-        }
-      }
-    };
-  }
-
-  return { rebuild, watch };
+  return { rebuild };
 }

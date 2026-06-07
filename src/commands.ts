@@ -3,7 +3,7 @@
 
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm as fsRm } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { findPads, resolvePad, resolveRoot, slugify } from "./discovery.ts";
 import {
   DEFAULT_TYPE,
@@ -91,11 +91,13 @@ export async function cmdAdd(
     desc?: string;
     tag?: string;
     type?: string;
+    link?: boolean;
+    as?: string;
   },
   io: IO,
 ): Promise<number> {
   if (!args.pad || !args.file) {
-    io.err("error: usage: scratch add <pad> <file> [--title .. --desc .. --tag a,b --type note]");
+    io.err("error: usage: scratch add <pad> <file> [--title .. --desc .. --tag a,b --type note] [--link [--as <label>]]");
     return 2;
   }
   const root = resolveRoot(args.dir);
@@ -108,31 +110,52 @@ export async function cmdAdd(
     io.err(`error: invalid --type "${args.type}". one of: note snippet output artifact reference`);
     return 2;
   }
-  // Resolve the file path; warn (don't fail) if it isn't inside the pad dir.
-  const abs = isAbsolute(args.file) ? args.file : resolve(join(pad.dir, args.file));
+
+  const m = pad.manifest;
+  // In-pad files are relative to the pad dir (you write them there); a --link
+  // target is an external path, so a relative one is resolved against the cwd.
+  const abs = isAbsolute(args.file)
+    ? resolve(args.file)
+    : resolve(args.link ? process.cwd() : pad.dir, args.file);
   let rel = relative(pad.dir, abs).split("\\").join("/");
-  if (rel.startsWith("..") || isAbsolute(rel)) {
-    io.err(`warning: ${abs} is not inside the pad dir; storing absolute path.`);
-    rel = abs.split("\\").join("/");
+  const inside = !(rel.startsWith("..") || isAbsolute(rel));
+
+  // --link (or any out-of-pad target): register the file by REFERENCE. Its
+  // content stays put; `path` is just a label inside the pad and `src` points at
+  // the real location (relative to the pad when possible, else absolute — both
+  // portable forms the reader resolves later).
+  const entry: FileEntry = { path: rel };
+  if (args.link || !inside) {
+    if (!args.link) {
+      io.err(`note: ${abs} is outside the pad; linking by reference (same as --link).`);
+    }
+    const label = (args.as ?? basename(abs)).split("\\").join("/").replace(/^\/+/, "");
+    let src = relative(pad.dir, abs).split("\\").join("/");
+    if (!src || isAbsolute(src)) src = abs.split("\\").join("/");
+    entry.path = label;
+    entry.src = src;
+    rel = label;
+  } else if (args.as) {
+    io.err("note: --as is only meaningful with --link; ignoring for an in-pad file.");
   }
+
   if (!existsSync(abs)) {
     io.err(`warning: ${abs} does not exist yet — registering anyway (write it before viewing).`);
   }
 
-  const m = pad.manifest;
-  const entry: FileEntry = { path: rel };
   if (args.title) entry.title = args.title;
   if (args.desc) entry.description = args.desc;
   if (args.tag) entry.tags = args.tag.split(",").map((t) => t.trim()).filter(Boolean);
   entry.type = (args.type as FileType) ?? DEFAULT_TYPE;
 
   const idx = m.files.findIndex((f) => f.path === rel);
+  const linked = entry.src ? ` → ${entry.src}` : "";
   if (idx >= 0) {
     m.files[idx] = { ...m.files[idx], ...entry };
-    io.out(`✓ updated "${rel}" in ${m.name}`);
+    io.out(`✓ updated "${rel}"${linked} in ${m.name}`);
   } else {
     m.files.push(entry);
-    io.out(`✓ registered "${rel}" in ${m.name}`);
+    io.out(`✓ ${entry.src ? "linked" : "registered"} "${rel}"${linked} in ${m.name}`);
   }
   await writeManifest(pad.dir, m);
   return 0;
@@ -168,7 +191,8 @@ export async function cmdLs(args: { pad?: string; dir?: string }, io: IO): Promi
   }
   for (const f of m.files) {
     const meta = [f.type ?? DEFAULT_TYPE, ...(f.tags ?? []).map((t) => "#" + t)].join(" ");
-    io.out(`  ${f.path}${f.title ? "  — " + f.title : ""}  [${meta}]`);
+    const link = f.src ? `  → ${f.src}` : "";
+    io.out(`  ${f.path}${f.title ? "  — " + f.title : ""}  [${meta}]${link}`);
   }
   return 0;
 }
@@ -194,10 +218,15 @@ export async function cmdShow(
     return 0;
   }
   const entry = m.files.find((f) => f.path === args.file || f.path === args.file?.split("\\").join("/"));
-  const abs = isAbsolute(args.file) ? args.file : join(pad.dir, args.file);
+  // A linked entry's content lives at `src` (outside the pad); otherwise it's at path under the pad dir.
+  const abs = entry?.src
+    ? (isAbsolute(entry.src) ? entry.src : resolve(pad.dir, entry.src))
+    : isAbsolute(args.file)
+      ? args.file
+      : join(pad.dir, args.file);
   if (entry) {
     io.out(`# ${entry.title ?? entry.path}`);
-    io.out(`path: ${entry.path}  ·  type: ${entry.type ?? DEFAULT_TYPE}`);
+    io.out(`path: ${entry.path}  ·  type: ${entry.type ?? DEFAULT_TYPE}${entry.src ? "  ·  linked → " + entry.src : ""}`);
     if (entry.tags?.length) io.out(`tags: ${entry.tags.map((t) => "#" + t).join(" ")}`);
     if (entry.description) io.out(`desc: ${entry.description}`);
     io.out("");

@@ -7,17 +7,34 @@
 // code, the heavy mermaid bundle only when a ```mermaid block is present.
 
 import { readdir } from "node:fs/promises";
-import { extname, join, relative } from "node:path";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Pad } from "../discovery.ts";
 import { DEFAULT_TYPE, MANIFEST_NAME, type FileEntry } from "../manifest.ts";
 import { THEME_CSS } from "./theme.ts";
 // Vendored offline bundles, imported as text so they are embedded into the
-// compiled standalone binary (and work under `bun run` too). Inlined into the
-// page only when a pad needs them (see needsHljs/needsMermaid).
+// compiled standalone binary (and work under `bun run` too). Used by the INLINE
+// vendoring mode (the `export` command's self-contained file); the live viewer
+// uses CDN instead — see HLJS_CDN/MERMAID_CDN and renderHtml's `vendoring` opt.
 // @ts-expect-error Bun text import attribute
 import HLJS_BUNDLE from "./vendor/hljs.bundle.js" with { type: "text" };
 // @ts-expect-error Bun text import attribute
 import MERMAID_BUNDLE from "./vendor/mermaid.bundle.js" with { type: "text" };
+
+// Pinned CDN builds (version + SRI) for the live viewer. The inlined mermaid
+// bundle alone is ~3MB, past WebView2's ~2MB NavigateToString cap; loading deps
+// from CDN keeps the page small enough to use NavigateToString. The script-global
+// builds (highlight.min.js / mermaid.min.js) set window.hljs / window.mermaid; if
+// they fail to load (offline), the client degrades gracefully (plain code +
+// mermaid source). SRI is computed from the exact CDN bytes — bump it when
+// bumping the pinned versions (keep in sync with package.json).
+const HLJS_CDN = {
+  url: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js",
+  sri: "sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU",
+};
+const MERMAID_CDN = {
+  url: "https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js",
+  sri: "sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF",
+};
 
 const MAX_EMBED_BYTES = 512 * 1024; // skip embedding content above this
 
@@ -43,6 +60,8 @@ type Kind = "markdown" | "code" | "image" | "text" | "binary" | "toolarge";
 interface FileView {
   path: string;
   registered: boolean;
+  /** Linked from outside the pad — content read from the manifest `src`. */
+  external?: boolean;
   title?: string;
   description?: string;
   tags?: string[];
@@ -103,7 +122,10 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
     const ext = extname(path).toLowerCase();
     let kind = classify(ext);
     let content: string | null = null;
-    const abs = join(pad.dir, path);
+    // Linked entries read from `src` (outside the pad); the rest from path under the pad dir.
+    const abs = meta?.src
+      ? (isAbsolute(meta.src) ? meta.src : resolve(pad.dir, meta.src))
+      : join(pad.dir, path);
     const file = Bun.file(abs);
     if (await file.exists()) {
       const size = file.size;
@@ -124,6 +146,7 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
     views.push({
       path,
       registered: !!meta,
+      external: !!meta?.src,
       title: meta?.title,
       description: meta?.description,
       tags: meta?.tags,
@@ -237,13 +260,31 @@ function needsMermaid(view: PadView[]): boolean {
   );
 }
 
-export async function renderHtml(view: PadView[], rootLabel: string): Promise<string> {
+export interface RenderOpts {
+  /** Where vendor libs come from: "cdn" (live viewer, small page) or "inline"
+   * (self-contained file for `export`). Defaults to inline so the page is
+   * fully offline/portable unless a caller opts into CDN. */
+  vendoring?: "cdn" | "inline";
+}
+
+export async function renderHtml(
+  view: PadView[],
+  rootLabel: string,
+  opts: RenderOpts = {},
+): Promise<string> {
   const data = payloadJson(view, rootLabel);
   const titleName = view.length === 1 ? view[0]!.name : rootLabel;
+  const cdn = opts.vendoring === "cdn";
+
+  // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
+  // before the client script runs, matching the inlined-bundle ordering. SRI +
+  // crossorigin guard integrity; on load failure the client degrades gracefully.
+  const cdnTag = (c: { url: string; sri: string }) =>
+    `<script src="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n`;
 
   let vendor = "";
-  if (needsHljs(view)) vendor += `<script>${HLJS_BUNDLE}</script>\n`;
-  if (needsMermaid(view)) vendor += `<script>${MERMAID_BUNDLE}</script>\n`;
+  if (needsHljs(view)) vendor += cdn ? cdnTag(HLJS_CDN) : `<script>${HLJS_BUNDLE}</script>\n`;
+  if (needsMermaid(view)) vendor += cdn ? cdnTag(MERMAID_CDN) : `<script>${MERMAID_BUNDLE}</script>\n`;
 
   return `<!doctype html>
 <html lang="en">
@@ -261,6 +302,9 @@ export async function renderHtml(view: PadView[], rootLabel: string): Promise<st
       <span class="padname" id="padname"></span>
     </div>
     <div class="view-actions">
+      <button class="icon-btn" id="reloadBtn" title="Reload from disk (R)" aria-label="Reload">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
       <button class="icon-btn" id="themeToggle" title="Toggle theme (T)" aria-label="Toggle theme">
         <svg class="i-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
         <svg class="i-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -285,7 +329,8 @@ export async function renderHtml(view: PadView[], rootLabel: string): Promise<st
       <div class="modal-head"><span>Keyboard shortcuts</span><button class="icon-btn" id="helpClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
       <dl class="shortcuts">
         <div><dt>↑ ↓ ← → / j k</dt><dd>Next / previous file</dd></div>
-        <div><dt>r</dt><dd>Toggle raw / rendered (markdown)</dd></div>
+        <div><dt>r</dt><dd>Reload from disk</dd></div>
+        <div><dt>v</dt><dd>Toggle raw / rendered (markdown)</dd></div>
         <div><dt>t</dt><dd>Toggle theme</dd></div>
         <div><dt>?</dt><dd>Show this help</dd></div>
         <div><dt>Esc</dt><dd>Close help / window</dd></div>
@@ -427,6 +472,7 @@ function setRaw(v) {
 }
 let ITEMS = [];           // flat [{pad,f}] in tree order — for j/k navigation
 let curIdx = -1;          // index of selected file within ITEMS
+let lastTreeHtml = null;  // last tree markup rendered — skip DOM swap when unchanged
 
 // Resolve a relative link target against the current file's directory → a pad
 // path. Pads are usually flat, but handle ./ and ../ segments anyway.
@@ -451,6 +497,14 @@ function enhance(container) {
         window.mermaid.run({ nodes });
       } catch (e) {}
     }
+  } else {
+    // CDN mermaid failed to load (offline): show the diagram SOURCE as a readable
+    // code block instead of a div with whitespace-collapsed text.
+    container.querySelectorAll('.mermaid').forEach(el => {
+      const pre = document.createElement('pre'); pre.className = 'code';
+      const code = document.createElement('code'); code.textContent = el.textContent;
+      pre.appendChild(code); el.replaceWith(pre);
+    });
   }
 }
 
@@ -459,6 +513,7 @@ function renderPreview(pad, f) {
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
   // Meta is a single tight dot-separated line (type · #tags) — not scattered chips.
   const metaBits = [f.registered ? esc(f.type || 'note') : 'unregistered'];
+  if (f.external) metaBits.push('linked');
   (f.tags || []).forEach(t => metaBits.push('#' + esc(t)));
   const metaLine = metaBits.join(' · ');
   const canRaw = f.kind === 'markdown' && f.content != null;
@@ -501,7 +556,7 @@ function renderPreview(pad, f) {
   document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
 }
 
-function buildTree(preferKey) {
+function buildTree(preferKey, prevSelJson) {
   const tree = document.getElementById('tree');
   // Single-pad focus: the viewer shows the current pad's files as a flat list —
   // no pad-level grouping or switching. (Multiple pads, if ever passed, are
@@ -530,11 +585,17 @@ function buildTree(preferKey) {
     html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '">' +
       '<span class="fttl">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
   });
-  tree.innerHTML = html;
-
-  tree.querySelectorAll('.frow[data-fi]').forEach(row => row.addEventListener('click', () => {
-    const pad = DATA.pads[+row.dataset.pi]; renderPreview(pad, pad.files[+row.dataset.fi]);
-  }));
+  // Only swap the tree DOM when the markup actually changed — otherwise reloading
+  // (or re-selecting) needlessly destroys/recreates the sidebar = a visible flash.
+  // Compare against the last GENERATED string (reading back innerHTML is unreliable
+  // — the browser normalizes it).
+  if (lastTreeHtml !== html) {
+    lastTreeHtml = html;
+    tree.innerHTML = html;
+    tree.querySelectorAll('.frow[data-fi]').forEach(row => row.addEventListener('click', () => {
+      const pad = DATA.pads[+row.dataset.pi]; renderPreview(pad, pad.files[+row.dataset.fi]);
+    }));
+  }
 
   // On a hot-reload we re-select the file the user was on (by pad::path) so the
   // view doesn't jump back to the top. If it's gone (deleted/renamed), fall back
@@ -544,21 +605,34 @@ function buildTree(preferKey) {
     const m = items.find(it => (it.pad.dir + '::' + it.f.path) === preferKey);
     if (m) sel = m;
   }
+  // On a hot-reload, if the selected file is byte-for-byte unchanged, skip the
+  // preview re-render (it swaps innerHTML + re-runs hljs/mermaid → a visible
+  // blink). Just refresh the tree's active highlight and leave the preview be.
+  const selKey = sel.pad.dir + '::' + sel.f.path;
+  if (prevSelJson != null && selKey === current && JSON.stringify(sel.f) === prevSelJson) {
+    document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
+    return;
+  }
   renderPreview(sel.pad, sel.f);
 }
 
-// Hot reload: the launcher pushes a fresh data payload — natively via
-// win.send(__scratchReload(...)), in the browser fallback over an SSE channel.
-// We patch DATA in place and re-render, preserving the selected file, raw mode,
-// and scroll position. (When the set of needed vendor bundles GROWS, the launcher
-// instead triggers a full reload so highlighting/diagrams still load.)
+// On-demand reload (native host): on a reload request the launcher rebuilds from
+// disk and calls this via win.send(__scratchReload(...)). We patch DATA in place
+// and re-render, preserving the selected file, raw mode, and scroll position —
+// and skipping the preview re-render entirely when the open file is unchanged
+// (buildTree handles that). (When the set of needed vendor bundles GROWS, the
+// launcher re-navigates the whole page instead so highlighting/diagrams load.)
 window.__scratchReload = function (payload) {
   if (!payload || !payload.pads) return;
+  // Nothing on disk changed since last render → do nothing at all (no DOM swap,
+  // no flash). This is the common case when reload is pressed out of habit.
+  if (JSON.stringify(payload) === JSON.stringify(DATA)) return;
   const key = currentRef ? currentRef.pad.dir + '::' + currentRef.f.path : null;
+  const prevSelJson = currentRef ? JSON.stringify(currentRef.f) : null;
   const pv = document.getElementById('preview');
   const scroll = pv ? pv.scrollTop : 0;
   DATA = payload;
-  buildTree(key);
+  buildTree(key, prevSelJson);
   const pv2 = document.getElementById('preview');
   if (pv2) pv2.scrollTop = scroll;
 };
@@ -610,9 +684,17 @@ helpModal.addEventListener('click', (e) => { if (e.target === helpModal) showHel
 const webview = window.chrome && window.chrome.webview;
 const closeWindow = webview ? () => webview.postMessage({ __glimpse_close: true })
   : (window.glimpse && window.glimpse.close ? () => window.glimpse.close() : null);
-// Announce to the native host that the page is live, so it can start streaming
-// hot-reload payloads (the host's own 'ready' fires before our HTML loads).
-if (webview) { try { webview.postMessage({ __scratch_ready: true }); } catch (_) {} }
+
+// Manual reload (button + 'r'). Reload is on-demand, not automatic — a watcher
+// that re-rendered on every disk change blinked. In the WebView2 host we ask the
+// launcher to rebuild from disk and push fresh data (it replies via
+// __scratchReload, which only re-renders the preview if the open file changed);
+// in the browser we just reload the page (the server rebuilds per request).
+function requestReload() {
+  if (webview) { try { webview.postMessage({ __scratch_reload: true }); } catch (_) {} }
+  else { location.reload(); }
+}
+document.getElementById('reloadBtn').addEventListener('click', requestReload);
 (function () {
   const btn = document.getElementById('closeBtn');
   if (closeWindow && btn) { btn.style.display = ''; btn.addEventListener('click', closeWindow); }
@@ -639,7 +721,8 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === '?') { showHelp(helpModal.style.display === 'none'); return; }
   if (e.key === 't') { toggleTheme(); return; }
-  if (e.key === 'r' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
+  if (e.key === 'r') { requestReload(); return; }
+  if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
   }
   const next = e.key === 'j' || e.key === 'ArrowDown' || e.key === 'ArrowRight';
@@ -675,16 +758,4 @@ document.getElementById('preview').addEventListener('click', (e) => {
 });
 
 buildTree();
-
-// Browser fallback hot reload: subscribe to the launcher's SSE channel. The
-// native WebView2 host has no server, so it gets reloads pushed via eval instead
-// (window.__scratchReload) and skips this. A 'full' event means vendor bundles
-// changed → reload the page from the server to pull them in.
-if (!webview && typeof EventSource !== 'undefined') {
-  try {
-    const es = new EventSource('/events');
-    es.onmessage = (e) => { try { window.__scratchReload(JSON.parse(e.data)); } catch (_) {} };
-    es.addEventListener('full', () => location.reload());
-  } catch (_) {}
-}
 `;

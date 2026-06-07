@@ -15,6 +15,9 @@ USAGE
   scratch add <pad> <file> [--title ..] [--desc ..] [--tag a,b] [--type note]
       Register an already-present file into the pad's manifest with metadata.
       The CLI never copies/moves/authors content — you write the file, it tracks it.
+      --link <file> [--as <label>]
+          Link an EXTERNAL file (outside the pad) by reference. Its content stays
+          where it is; --as sets the label shown in the pad (default: basename).
 
   scratch ls [<pad>] [--dir <root>]
       No <pad>: list pads found under root.  With <pad>: list its registered files.
@@ -45,6 +48,8 @@ const FLAG_SPEC = {
   desc: { type: "string" as const },
   tag: { type: "string" as const },
   type: { type: "string" as const },
+  link: { type: "boolean" as const },
+  as: { type: "string" as const },
   force: { type: "boolean" as const },
   browser: { type: "boolean" as const },
   help: { type: "boolean" as const, short: "h" },
@@ -76,7 +81,7 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
       return cmdNew({ name: rest[0], dir: v.dir, id: v.id, force: v.force }, io);
     case "add":
       return cmdAdd(
-        { pad: rest[0], file: rest[1], dir: v.dir, title: v.title, desc: v.desc, tag: v.tag, type: v.type },
+        { pad: rest[0], file: rest[1], dir: v.dir, title: v.title, desc: v.desc, tag: v.tag, type: v.type, link: v.link, as: v.as },
         io,
       );
     case "ls":

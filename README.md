@@ -1,14 +1,8 @@
 # scratch
 
-CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — a
-folder of files plus a `scratchpad.json` manifest — with a read-only visual
-viewer (native window, browser fallback).
+CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).
 
-A scratchpad is **just a folder containing `scratchpad.json`**; the folder path
-is its identity. There is **no central store**. `scratch` is a thin metadata
-layer over the filesystem: it initializes pads, prints how to use them, and
-registers files you create. You write/edit files with your normal tools — the
-CLI never authors, copies, or moves content.
+A scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.
 
 ## Install
 
@@ -30,6 +24,8 @@ scratch new "<name>" --dir <parent> [--id <id>] [--force]
 
 scratch add <pad> <file> [--title ..] [--desc ..] [--tag a,b] [--type note]
     # register an already-present file into the manifest with metadata.
+    # --link [--as <label>]: link an EXTERNAL file (outside the pad) by reference;
+    #   content stays put, --as sets its in-pad label (default: basename).
 
 scratch ls [<pad>] [--dir <root>]
     # no <pad>: list pads under root.  with <pad>: list its registered files.
@@ -44,37 +40,24 @@ scratch ui [<pad>] [--dir <root>] [--browser]
     # read-only viewer: glimpse native window, automatic browser fallback.
 ```
 
-**Addressing.** A pad is referenced by name (resolved within a scanned root) or
-by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.
+**Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.
 
-**Manifest** (`scratchpad.json`, schema v1): `version, name, id?, created,
-updated, files[]`; each file entry: `path` (relative to the pad), `title?`,
-`description?`, `tags?`, `type` ∈ `note|snippet|output|artifact|reference`.
-Unknown keys are tolerated on read (forward-compatible).
+**Manifest** (`scratchpad.json`, schema v1): `version, name, id?, created, updated, files[]`; each file entry: `path` (relative to the pad), `src?` (linked external source — absolute or pad-relative; when set, `path` is just the in-pad label), `title?`, `description?`, `tags?`, `type` ∈ `note|snippet|output|artifact|reference`. Unknown keys are tolerated on read (forward-compatible).
 
 ## Viewer
 
-Read-only, 2-pane (pad/file tree + preview) in a "Lab Notebook" theme that
-**auto-detects** OS light/dark. Shows **all** files in the pad dir (unregistered
-ones dimmed). Per-file preview:
+Read-only, 2-pane (pad/file tree + preview) in a "Lab Notebook" theme that **auto-detects** OS light/dark. Shows **all** files in the pad dir (unregistered ones dimmed). Per-file preview:
 
 - Markdown rendered, with a **raw/rendered toggle**.
 - Code **syntax-highlighted** (highlight.js).
 - **Mermaid** diagrams (` ```mermaid ` fenced blocks).
 - Images inline; binaries / oversized files get a notice.
 
-Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window;
-if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it
-falls back to serving the same HTML over a local server + the browser. The
-highlight.js / mermaid libraries are vendored as offline bundles and inlined
-into the page only when a pad actually needs them, so the viewer works with no
-network — including inside the native WebView.
+Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser. The highlight.js / mermaid libraries load from a pinned CDN (with SRI) only when a pad actually needs them; offline they degrade gracefully (code shows unhighlighted, mermaid shows its source). Keeping the page small lets the native WebView use `NavigateToString` (correct DPI) instead of a `file://` load.
 
 ## Agent skill
 
-`skills/scratch/SKILL.md` teaches an agent the loop: create a pad at a
-deliberate `--dir`, write files, register them with good `--desc`/`--type`,
-then `scratch ui` for the human.
+`skills/scratch/SKILL.md` teaches an agent the loop: create a pad at a deliberate `--dir`, write files, register them with good `--desc`/`--type`, then `scratch ui` for the human.
 
 ## Develop
 

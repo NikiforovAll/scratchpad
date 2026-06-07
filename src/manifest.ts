@@ -20,6 +20,12 @@ export const DEFAULT_TYPE: FileType = "note";
 export interface FileEntry {
   /** Path relative to the pad dir — keeps the pad portable. */
   path: string;
+  /**
+   * Linked external source. When set, the file's CONTENT lives here (outside the
+   * pad) while `path` is just its logical label inside the pad. Absolute, or
+   * relative to the pad dir. Absent for normal in-pad files.
+   */
+  src?: string;
   title?: string;
   description?: string;
   tags?: string[];
@@ -68,6 +74,7 @@ export function parseManifest(raw: unknown, source: string): Manifest {
     }
     const e = f as Record<string, unknown>;
     const entry: FileEntry = { path: e.path as string };
+    if (typeof e.src === "string" && e.src.length > 0) entry.src = e.src;
     if (typeof e.title === "string") entry.title = e.title;
     if (typeof e.description === "string") entry.description = e.description;
     if (Array.isArray(e.tags)) entry.tags = e.tags.filter((t): t is string => typeof t === "string");
