@@ -4,6 +4,18 @@ CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — 
 
 A scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.
 
+![scratch viewer](assets/demo.png)
+
+## Why
+
+Agents generate a lot of *temporary* knowledge per session — notes, snippets, command output, intermediate artifacts — and it has no home. It ends up scattered across the repo, buried in chat history, or lost when the context window rolls over.
+
+A scratchpad gives that working memory a deliberate place: a folder + `scratchpad.json` manifest, kept out of your source tree, that captures **what** each file is and **why** it exists.
+
+- **Durable, inspectable agent memory.** The agent writes files and registers them with a `--desc`/`--type`; the knowledge survives the session and stays reviewable.
+- **A human can browse it.** `scratch ui` opens a read-only viewer (markdown, code highlighting, mermaid) so you can see what the agent gathered — no digging through transcripts.
+- **No lock-in.** It's just files on disk. The CLI never authors or moves content; delete the folder and it's gone.
+
 ## Install
 
 Requires [Bun](https://bun.sh).
@@ -58,6 +70,22 @@ Read-only, 2-pane (pad/file tree + preview) in a "Lab Notebook" theme that **aut
 - Images inline; binaries / oversized files get a notice.
 
 Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser. The highlight.js / mermaid libraries load from a pinned CDN (with SRI) only when a pad actually needs them; offline they degrade gracefully (code shows unhighlighted, mermaid shows its source). Keeping the page small lets the native WebView use `NavigateToString` (correct DPI) instead of a `file://` load.
+
+## Config
+
+User-level viewer preferences live in a single JSON file (machine-wide, not per-pad):
+
+```jsonc
+// ~/.config/scratchpad/config.json   (Windows: %APPDATA%\scratchpad\config.json)
+{
+  "ui": {
+    "frameless": true   // native window without OS title bar/border (page draws
+                        // its own close button + drag strip). Set false for native chrome.
+  }
+}
+```
+
+Resolution order: `$SCRATCHPAD_CONFIG` (explicit file path) → `$XDG_CONFIG_HOME/scratchpad/config.json` → `%APPDATA%\scratchpad\config.json` (Windows) → `~/.config/scratchpad/config.json`. A missing or malformed file falls back to defaults.
 
 ## Agent skill
 
