@@ -34,8 +34,8 @@ USAGE
       browser+local-server fallback. --browser forces the browser path.
 
   scratch export [<pad>] [--dir <root>] [-o <file>]
-      Write the viewer as ONE self-contained HTML file (deps + content inlined),
-      openable in any browser offline. Default out: <pad-name>.html.
+      Write the viewer to a single HTML file (file contents embedded; hljs/mermaid
+      load from CDN), openable in any browser. Default out: <pad-name>.html.
 
 ADDRESSING
   A pad is a folder containing scratchpad.json; its path is its identity.

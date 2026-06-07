@@ -1,8 +1,8 @@
 // On-demand reload support shared by both transports. A Reloader rebuilds the
 // view from disk on request and produces a fresh snapshot. The snapshot is either
 // an in-place data payload (cheap; preserves selection/scroll) or, when the set
-// of needed vendor bundles GROWS, a full page so highlighting/diagrams that
-// weren't inlined at launch still load.
+// of needed vendor CDN tags GROWS, a full page so highlighting/diagrams that
+// weren't loaded at launch still get their script tag.
 
 import type { Pad } from "../discovery.ts";
 import { readManifest } from "../manifest.ts";
@@ -21,14 +21,8 @@ export interface Reloader {
   rebuild(): Promise<Snapshot>;
 }
 
-export function createReloader(
-  pads: Pad[],
-  rootLabel: string,
-  // Live viewer uses "cdn" (small page → NavigateToString); "inline" keeps deps
-  // embedded for a self-contained file (export).
-  vendoring: "cdn" | "inline" = "cdn",
-): Reloader {
-  // Bundle needs seen so far. A snapshot is "full" only when a NEW bundle becomes
+export function createReloader(pads: Pad[], rootLabel: string): Reloader {
+  // Vendor CDN tags seen so far. A snapshot is "full" only when a NEW tag becomes
   // necessary (e.g. first mermaid block added after launch); shrinking is fine to
   // keep in place.
   let haveHljs = false;
@@ -53,7 +47,7 @@ export function createReloader(
     haveMermaid = haveMermaid || needs.mermaid;
     primed = true;
     return {
-      html: await renderHtml(view, rootLabel, { vendoring }),
+      html: await renderHtml(view, rootLabel),
       payloadJson: payloadJson(view, rootLabel),
       full,
     };

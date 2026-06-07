@@ -193,7 +193,7 @@ describe("export", () => {
     return padDir;
   }
 
-  test("writes a self-contained html file (inlined deps, no CDN src)", async () => {
+  test("writes an html file with content embedded + deps via CDN", async () => {
     await seed();
     log = []; errs = [];
     const out = join(root, "export.html");
@@ -203,8 +203,8 @@ describe("export", () => {
     const html = await readFile(out, "utf8");
     expect(html).toContain("<!doctype html>");
     expect(html).toContain("# Hi"); // file content embedded
-    // hljs needed (code present) → inlined <script>...</script>, not a CDN <script src=>.
-    expect(html).not.toMatch(/<script[^>]+\bsrc=/i);
+    // hljs needed (code present) → loaded from CDN, not inlined.
+    expect(html).toMatch(/<script src="https:\/\/cdnjs\.cloudflare\.com[^"]+highlight/);
     expect(all()).toContain("exported");
   });
 

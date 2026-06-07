@@ -1,32 +1,19 @@
-// Build a self-contained HTML page for the viewer. The CLI does all file I/O
-// here and embeds everything (pad data + file contents) into one HTML string,
-// so glimpse and the browser fallback render identically with no round-trips.
-//
-// highlight.js and mermaid are vendored as offline IIFE bundles (see
-// scripts/build-vendor.ts) and inlined CONDITIONALLY — hljs only when a pad has
-// code, the heavy mermaid bundle only when a ```mermaid block is present.
+// Build the viewer HTML page. The CLI does all file I/O here and embeds the pad
+// data + file contents into one HTML string, so glimpse and the browser fallback
+// render identically with no round-trips. highlight.js and mermaid load from a
+// pinned CDN, added CONDITIONALLY — hljs only when a pad has code, mermaid only
+// when a ```mermaid block is present.
 
 import { readdir } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Pad } from "../discovery.ts";
 import { DEFAULT_TYPE, MANIFEST_NAME, type FileEntry } from "../manifest.ts";
 import { THEME_CSS } from "./theme.ts";
-// Vendored offline bundles, imported as text so they are embedded into the
-// compiled standalone binary (and work under `bun run` too). Used by the INLINE
-// vendoring mode (the `export` command's self-contained file); the live viewer
-// uses CDN instead — see HLJS_CDN/MERMAID_CDN and renderHtml's `vendoring` opt.
-// @ts-expect-error Bun text import attribute
-import HLJS_BUNDLE from "./vendor/hljs.bundle.js" with { type: "text" };
-// @ts-expect-error Bun text import attribute
-import MERMAID_BUNDLE from "./vendor/mermaid.bundle.js" with { type: "text" };
 
-// Pinned CDN builds (version + SRI) for the live viewer. The inlined mermaid
-// bundle alone is ~3MB, past WebView2's ~2MB NavigateToString cap; loading deps
-// from CDN keeps the page small enough to use NavigateToString. The script-global
-// builds (highlight.min.js / mermaid.min.js) set window.hljs / window.mermaid; if
-// they fail to load (offline), the client degrades gracefully (plain code +
-// mermaid source). SRI is computed from the exact CDN bytes — bump it when
-// bumping the pinned versions (keep in sync with package.json).
+// Pinned CDN builds (version + SRI). The script-global builds (highlight.min.js /
+// mermaid.min.js) set window.hljs / window.mermaid; if they fail to load
+// (offline), the client degrades gracefully (plain code + mermaid source). SRI is
+// computed from the exact CDN bytes — bump it when bumping the pinned versions.
 const HLJS_CDN = {
   url: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js",
   sri: "sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU",
@@ -209,31 +196,19 @@ function needsMermaid(view: PadView[]): boolean {
   );
 }
 
-export interface RenderOpts {
-  /** Where vendor libs come from: "cdn" (live viewer, small page) or "inline"
-   * (self-contained file for `export`). Defaults to inline so the page is
-   * fully offline/portable unless a caller opts into CDN. */
-  vendoring?: "cdn" | "inline";
-}
-
-export async function renderHtml(
-  view: PadView[],
-  rootLabel: string,
-  opts: RenderOpts = {},
-): Promise<string> {
+export async function renderHtml(view: PadView[], rootLabel: string): Promise<string> {
   const data = payloadJson(view, rootLabel);
   const titleName = view.length === 1 ? view[0]!.name : rootLabel;
-  const cdn = opts.vendoring === "cdn";
 
   // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
-  // before the client script runs, matching the inlined-bundle ordering. SRI +
-  // crossorigin guard integrity; on load failure the client degrades gracefully.
+  // before the client script runs. SRI + crossorigin guard integrity; on load
+  // failure the client degrades gracefully.
   const cdnTag = (c: { url: string; sri: string }) =>
     `<script src="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n`;
 
   let vendor = "";
-  if (needsHljs(view)) vendor += cdn ? cdnTag(HLJS_CDN) : `<script>${HLJS_BUNDLE}</script>\n`;
-  if (needsMermaid(view)) vendor += cdn ? cdnTag(MERMAID_CDN) : `<script>${MERMAID_BUNDLE}</script>\n`;
+  if (needsHljs(view)) vendor += cdnTag(HLJS_CDN);
+  if (needsMermaid(view)) vendor += cdnTag(MERMAID_CDN);
 
   return `<!doctype html>
 <html lang="en">

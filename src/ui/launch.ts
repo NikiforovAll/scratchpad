@@ -27,8 +27,8 @@ export async function launchViewer(
   io: IO,
   opts: LaunchOpts,
 ): Promise<number> {
-  // The reloader builds the initial page too, so its bundle-needs baseline is
-  // primed from exactly what the launched page inlined.
+  // The reloader builds the initial page too, so its vendor-needs baseline is
+  // primed from exactly what the launched page loaded.
   const reloader = createReloader(pads, rootLabel);
   const snap = await reloader.rebuild();
 

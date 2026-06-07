@@ -64,8 +64,6 @@ scratch export [<pad>] [--dir <root>] [-o <file>]
 
 **Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.
 
-**Manifest** (`scratchpad.json`, schema v1): `version, name, id?, created, updated, files[]`; each file entry: `path` (relative to the pad), `src?` (linked external source — absolute or pad-relative; when set, `path` is just the in-pad label), `title?`, `description?`, `tags?`, `type` ∈ `note|snippet|output|artifact|reference`. Unknown keys are tolerated on read (forward-compatible).
-
 ## Viewer
 
 Read-only, 2-pane (pad/file tree + preview) in a "Lab Notebook" theme that **auto-detects** OS light/dark. Shows **all** files in the pad dir (unregistered ones dimmed). Per-file preview:
@@ -82,7 +80,7 @@ Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if
 User-level viewer preferences live in a single JSON file (machine-wide, not per-pad):
 
 ```jsonc
-// ~/.config/scratchpad/config.json   (Windows: %APPDATA%\scratchpad\config.json)
+// ~/.config/scratchpad/config.json
 {
   "ui": {
     "frameless": true   // native window without OS title bar/border (page draws
@@ -92,14 +90,3 @@ User-level viewer preferences live in a single JSON file (machine-wide, not per-
 ```
 
 Resolution order: `$SCRATCHPAD_CONFIG` (explicit file path) → `$XDG_CONFIG_HOME/scratchpad/config.json` → `%APPDATA%\scratchpad\config.json` (Windows) → `~/.config/scratchpad/config.json`. A missing or malformed file falls back to defaults.
-
-## Agent skill
-
-`skills/scratch/SKILL.md` teaches an agent the loop: create a pad at a deliberate `--dir`, write files, register them with good `--desc`/`--type`, then `scratch ui` for the human.
-
-## Develop
-
-```bash
-bun test                 # full suite (CLI loop + UI render + headless-DOM)
-bun run build:vendor     # rebuild src/ui/vendor/*.bundle.js from node_modules
-```

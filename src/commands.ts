@@ -346,12 +346,13 @@ export async function cmdExport(
     defaultName = slugify(basename(root)) || "scratchpads";
   }
 
-  // INLINE vendoring → fully offline, opens in any browser with no network.
+  // File contents are embedded; hljs/mermaid load from the pinned CDN (so the
+  // file needs network for highlighting/diagrams, but degrades gracefully).
   const view = await buildView(pads);
-  const html = await renderHtml(view, label, { vendoring: "inline" });
+  const html = await renderHtml(view, label);
   const outPath = resolve(args.out ?? `${defaultName}.html`);
   await Bun.write(outPath, html);
   io.out(`✓ exported ${label} → ${outPath}`);
-  io.out(`  self-contained (${(Buffer.byteLength(html) / 1024).toFixed(0)} KB); open it in any browser.`);
+  io.out(`  ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB; open it in any browser (hljs/mermaid via CDN).`);
   return 0;
 }

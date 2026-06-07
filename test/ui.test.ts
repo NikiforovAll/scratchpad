@@ -74,7 +74,7 @@ describe("buildView", () => {
 });
 
 describe("renderHtml", () => {
-  test("produces a self-contained page with embedded data + theme", async () => {
+  test("produces a page with embedded data + theme", async () => {
     const pad = await seedPad();
     const view = await buildView([pad]);
     const html = await renderHtml(view, "Notes");
@@ -85,23 +85,18 @@ describe("renderHtml", () => {
     expect(html).toContain(':root[data-theme="light"]'); // light sibling tokens present
     expect(html).toContain("application/json"); // embedded data island
     expect(html).toContain("A note");
-    // offline-safe: no external resource loads (string literals inside inlined
-    // vendor bundles are fine; what matters is nothing is FETCHED). An <a href>
-    // (e.g. the GitHub link) is a user-action link, not a load, so it's allowed.
-    expect(html).not.toMatch(/<script[^>]+\bsrc=/i);
-    expect(html).not.toMatch(/<link[^>]+\bhref=/i);
-    expect(html).not.toMatch(/\bsrc=["']https?:/i);
   });
 
-  test("inlines hljs when code present, but not mermaid", async () => {
+  test("links hljs via CDN (with SRI) when code present, not mermaid", async () => {
     const pad = await seedPad(); // has snippet.ts + ```ts fence, no mermaid
     const html = await renderHtml(await buildView([pad]), "Notes");
     expect(html).toContain("hljs.highlightElement"); // highlight wiring present
-    expect(html.length).toBeGreaterThan(150_000); // hljs (161KB) inlined
-    expect(html.length).toBeLessThan(1_000_000); // mermaid (3MB) NOT inlined
+    expect(html).toMatch(/<script src="https:\/\/cdnjs\.cloudflare\.com[^"]+highlight[^"]+" integrity="sha384-/);
+    expect(html).not.toContain("mermaid@"); // no mermaid CDN tag
+    expect(html.length).toBeLessThan(150_000); // bundles no longer inlined
   });
 
-  test("inlines mermaid bundle only when a mermaid block exists", async () => {
+  test("links mermaid via CDN only when a mermaid block exists", async () => {
     const dir = join(root, "diagram");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "flow.md"), "# Flow\n\n```mermaid\ngraph TD; A-->B;\n```\n", "utf8");
@@ -110,8 +105,8 @@ describe("renderHtml", () => {
     await writeManifest(dir, m);
     const pad: Pad = { dir, manifest: await readManifest(dir) };
     const html = await renderHtml(await buildView([pad]), "Diagram");
-    expect(html.length).toBeGreaterThan(2_000_000); // mermaid bundle inlined
-    expect(html).toContain("mermaid");
+    expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+mermaid@[^"]+" integrity="sha384-/);
+    expect(html.length).toBeLessThan(150_000); // mermaid bundle NOT inlined
   });
 
   test("escapes </script> in embedded data", async () => {

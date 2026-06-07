@@ -50,10 +50,10 @@ async function boot(html: string) {
   };
   // Simulate a dark-preferring OS (happy-dom's own matchMedia returns false).
   w.matchMedia = () => ({ matches: true, addEventListener() {}, addListener() {} });
-  // Drop the heavy vendor bundles (we stubbed window.hljs/mermaid above). They
-  // are attribute-less <script>…</script> blocks; the data island has a type
-  // attribute so it is preserved, and the app script (has buildTree()) is kept.
-  // happy-dom truncates multi-MB innerHTML, so this keeps the page parseable.
+  // Neutralize attribute-less inline <script> blocks except the app script (has
+  // buildTree()). The vendor libs are CDN <script src=…> tags (we stubbed
+  // window.hljs/mermaid above and there's no network here), and the data island
+  // carries a type attribute — both have attributes, so this regex leaves them be.
   const slim = html.replace(/<script>[\s\S]*?<\/script>/g, (m) =>
     m.includes("buildTree()") ? m : "<script></script>",
   );
