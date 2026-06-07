@@ -20,3 +20,7 @@ Thumbs.db
 # scratch / throwaway
 _ui-check.mjs
 *.tmp
+*.bun-build
+
+# exported viewer HTML (scratch export)
+*.html

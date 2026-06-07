@@ -4,7 +4,7 @@ CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — 
 
 A scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.
 
-![scratch viewer](assets/demo.png)
+![scratch viewer](https://raw.githubusercontent.com/nikiforovall/scratchpad/main/assets/demo.png)
 
 ## Why
 
@@ -18,13 +18,19 @@ A scratchpad gives that working memory a deliberate place: a folder + `scratchpa
 
 ## Install
 
-Requires [Bun](https://bun.sh).
+Requires [Bun](https://bun.sh) — `scratch` runs on the Bun runtime.
+
+```bash
+bun add -g scratchpad   # global install from npm (exposes `scratch`)
+```
+
+From source:
 
 ```bash
 bun install
-bun link            # exposes `scratch` globally (needs bun on PATH)
+bun link             # exposes `scratch` globally (needs bun on PATH)
 # — or — build a standalone binary (no bun needed to run it):
-bun run build       # → dist/scratch(.exe), bundles + compiles
+bun run build        # → dist/scratch(.exe), bundles + compiles
 ```
 
 ## Usage

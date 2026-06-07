@@ -2,20 +2,46 @@
   "name": "scratchpad",
   "version": "0.1.0",
   "description": "CLI-first tool to organize temporary agent knowledge into scratchpads (folder + manifest), with a read-only visual viewer.",
+  "keywords": [
+    "cli",
+    "scratchpad",
+    "notes",
+    "agent",
+    "ai",
+    "knowledge",
+    "markdown",
+    "viewer",
+    "bun"
+  ],
+  "homepage": "https://github.com/nikiforovall/scratchpad#readme",
+  "bugs": {
+    "url": "https://github.com/nikiforovall/scratchpad/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikiforovall/scratchpad.git"
+  },
+  "license": "MIT",
+  "author": "Oleksii Nikiforov <oleksii_nikiforov@epam.com>",
   "type": "module",
   "bin": {
     "scratch": "./src/cli.ts"
   },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "scratch": "bun run src/cli.ts",
     "test": "bun test",
     "build:vendor": "bun run scripts/build-vendor.ts",
-    "build": "bun run build:vendor && bun build src/cli.ts --compile --outfile dist/scratch"
+    "build": "bun run build:vendor && bun build src/cli.ts --compile --outfile dist/scratch",
+    "prepublishOnly": "bun run build:vendor && bun test"
   },
   "engines": {
     "bun": ">=1.0.0"
   },
-  "license": "MIT",
   "dependencies": {
     "glimpseui": "^0.8.1",
     "highlight.js": "^11.11.1",
