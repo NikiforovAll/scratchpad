@@ -106,7 +106,9 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
 }
 
 if (import.meta.main) {
-  run(process.argv.slice(2)).then((code) => {
-    process.exitCode = code;
-  });
+  // Top-level await (not fire-and-forget .then): in a `bun build --compile`
+  // standalone, top-level evaluation finishing lets Bun exit BEFORE the async
+  // chain reaches Bun.serve / the glimpse host — so `ui` died silently. Awaiting
+  // keeps the entry module pending while the long-running viewer holds the loop.
+  process.exitCode = await run(process.argv.slice(2));
 }
