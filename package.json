@@ -35,14 +35,14 @@
   "scripts": {
     "scratch": "bun run src/cli.ts",
     "test": "bun test",
-    "build": "bun build src/cli.ts --compile --outfile dist/scratch",
+    "build": "bun build src/cli.ts --compile --outfile dist/scratch && bun scripts/build-host.ts",
     "prepublishOnly": "bun test"
   },
   "engines": {
     "bun": ">=1.0.0"
   },
   "dependencies": {
-    "glimpseui": "^0.8.1"
+    "glimpseui": "0.8.1"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.10.2"

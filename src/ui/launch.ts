@@ -7,9 +7,10 @@
 // server + the default browser, so `scratch ui` always works.
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Pad } from "../discovery.ts";
 import type { IO } from "../commands.ts";
 import { createReloader, type Reloader } from "./reload.ts";
@@ -46,6 +47,18 @@ async function tryGlimpse(
   reloader: Reloader,
   frameless: boolean,
 ): Promise<boolean> {
+  // glimpseui resolves its native host relative to its own module file. Inside a
+  // `bun build --compile` standalone that module lives in the virtual `B:\~BUN\`
+  // FS, so the host path points nowhere and native silently falls back to the
+  // browser. Fix: if a host is staged next to the executable (dist/glimpse/, put
+  // there by `bun scripts/build-host.ts`), point glimpse at it via the env
+  // override it honors (GLIMPSE_BINARY_PATH). In dev (execPath = bun.exe) there's
+  // no sibling, so this is a no-op and glimpse resolves from node_modules.
+  if (process.platform === "win32" && !process.env.GLIMPSE_BINARY_PATH) {
+    const sibling = join(dirname(process.execPath), "glimpse", "glimpse.exe");
+    if (existsSync(sibling)) process.env.GLIMPSE_BINARY_PATH = sibling;
+  }
+
   let open: (html: string, options?: Record<string, unknown>) => any;
   try {
     ({ open } = (await import("glimpseui")) as any);
