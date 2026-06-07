@@ -3,6 +3,7 @@
 // scratchpads (a folder + scratchpad.json manifest). Thin layer over the FS.
 
 import { parseArgs } from "node:util";
+import pkg from "../package.json" with { type: "json" };
 import { cmdAdd, cmdExport, cmdLs, cmdNew, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
 
 const HELP = `scratch — organize temporary agent knowledge into scratchpads (folder + manifest)
@@ -75,7 +76,7 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
   const { values: v, positionals } = parsed;
 
   if (v.version) {
-    io.out("scratch 0.1.0");
+    io.out(`scratch ${pkg.version}`);
     return 0;
   }
   const [cmd, ...rest] = positionals;
