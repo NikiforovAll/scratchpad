@@ -307,3 +307,44 @@ export async function cmdUi(
   }
   return launchViewer(pads, root, io, { title: `scratch · ${root}`, forceBrowser: args.browser });
 }
+
+/** scratch export [<pad>] [--dir <root>] [-o/--out <file>] — write self-contained HTML. */
+export async function cmdExport(
+  args: { pad?: string; dir?: string; out?: string },
+  io: IO,
+): Promise<number> {
+  const { buildView, renderHtml } = await import("./ui/render.ts");
+  const root = resolveRoot(args.dir);
+
+  let pads: Awaited<ReturnType<typeof findPads>>;
+  let label: string;
+  let defaultName: string;
+  if (args.pad) {
+    const pad = await resolvePad(args.pad, root);
+    if (!pad) {
+      io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
+      return 1;
+    }
+    pads = [pad];
+    label = pad.manifest.name;
+    defaultName = slugify(pad.manifest.name);
+  } else {
+    pads = await findPads(root);
+    if (pads.length === 0) {
+      io.err(`error: no scratchpads found under ${root}`);
+      io.err(`create one:  scratch new <name> --dir <parent>`);
+      return 1;
+    }
+    label = root;
+    defaultName = slugify(basename(root)) || "scratchpads";
+  }
+
+  // INLINE vendoring → fully offline, opens in any browser with no network.
+  const view = await buildView(pads);
+  const html = await renderHtml(view, label, { vendoring: "inline" });
+  const outPath = resolve(args.out ?? `${defaultName}.html`);
+  await Bun.write(outPath, html);
+  io.out(`✓ exported ${label} → ${outPath}`);
+  io.out(`  self-contained (${(Buffer.byteLength(html) / 1024).toFixed(0)} KB); open it in any browser.`);
+  return 0;
+}

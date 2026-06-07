@@ -38,6 +38,10 @@ scratch rm <pad> [<file>] [--dir <root>] [--force]
 
 scratch ui [<pad>] [--dir <root>] [--browser]
     # read-only viewer: glimpse native window, automatic browser fallback.
+
+scratch export [<pad>] [--dir <root>] [-o <file>]
+    # write the viewer as ONE self-contained HTML file (deps + content inlined),
+    # openable in any browser offline. Default out: <pad-name>.html.
 ```
 
 **Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.

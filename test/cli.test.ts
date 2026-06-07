@@ -184,6 +184,48 @@ describe("full loop: add / ls / show / rm", () => {
   });
 });
 
+describe("export", () => {
+  async function seed() {
+    await run(["new", "Notes", "--dir", root], io);
+    const padDir = join(root, "notes");
+    await writeFile(join(padDir, "a.md"), "# Hi\n\n```js\nconst x=1;\n```\n", "utf8");
+    await run(["add", "Notes", "a.md", "--dir", root, "--title", "A"], io);
+    return padDir;
+  }
+
+  test("writes a self-contained html file (inlined deps, no CDN src)", async () => {
+    await seed();
+    log = []; errs = [];
+    const out = join(root, "export.html");
+    const code = await run(["export", "Notes", "--dir", root, "-o", out], io);
+    expect(code).toBe(0);
+    expect(existsSync(out)).toBe(true);
+    const html = await readFile(out, "utf8");
+    expect(html).toContain("<!doctype html>");
+    expect(html).toContain("# Hi"); // file content embedded
+    // hljs needed (code present) → inlined <script>...</script>, not a CDN <script src=>.
+    expect(html).not.toMatch(/<script[^>]+\bsrc=/i);
+    expect(all()).toContain("exported");
+  });
+
+  test("defaults output filename from pad name", async () => {
+    await seed();
+    log = []; errs = [];
+    const prevCwd = process.cwd();
+    process.chdir(root);
+    try {
+      expect(await run(["export", "Notes", "--dir", root], io)).toBe(0);
+      expect(existsSync(join(root, "notes.html"))).toBe(true);
+    } finally {
+      process.chdir(prevCwd);
+    }
+  });
+
+  test("missing pad exits 1", async () => {
+    expect(await run(["export", "ghost", "--dir", root], io)).toBe(1);
+  });
+});
+
 describe("errors", () => {
   test("unknown command exits 2", async () => {
     expect(await run(["frobnicate"], io)).toBe(2);

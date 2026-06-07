@@ -3,7 +3,7 @@
 // scratchpads (a folder + scratchpad.json manifest). Thin layer over the FS.
 
 import { parseArgs } from "node:util";
-import { cmdAdd, cmdLs, cmdNew, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
+import { cmdAdd, cmdExport, cmdLs, cmdNew, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
 
 const HELP = `scratch — organize temporary agent knowledge into scratchpads (folder + manifest)
 
@@ -33,6 +33,10 @@ USAGE
       Open the read-only visual viewer — glimpse native window, with an automatic
       browser+local-server fallback. --browser forces the browser path.
 
+  scratch export [<pad>] [--dir <root>] [-o <file>]
+      Write the viewer as ONE self-contained HTML file (deps + content inlined),
+      openable in any browser offline. Default out: <pad-name>.html.
+
 ADDRESSING
   A pad is a folder containing scratchpad.json; its path is its identity.
   Pads are referenced by name (resolved within the root) or by an explicit path.
@@ -52,6 +56,7 @@ const FLAG_SPEC = {
   as: { type: "string" as const },
   force: { type: "boolean" as const },
   browser: { type: "boolean" as const },
+  out: { type: "string" as const, short: "o" },
   help: { type: "boolean" as const, short: "h" },
   version: { type: "boolean" as const, short: "v" },
 };
@@ -92,6 +97,8 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
       return cmdRm({ pad: rest[0], file: rest[1], dir: v.dir, force: v.force }, io);
     case "ui":
       return cmdUi({ pad: rest[0], dir: v.dir, browser: v.browser }, io);
+    case "export":
+      return cmdExport({ pad: rest[0], dir: v.dir, out: v.out }, io);
     default:
       io.err(`error: unknown command "${cmd}". run \`scratch --help\`.`);
       return 2;
