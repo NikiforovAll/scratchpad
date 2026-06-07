@@ -1,7 +1,7 @@
 # scratch
 
-[![npm version](https://img.shields.io/npm/v/scratchpad.svg)](https://www.npmjs.com/package/scratchpad)
-[![npm downloads](https://img.shields.io/npm/dm/scratchpad.svg)](https://www.npmjs.com/package/scratchpad)
+[![npm version](https://img.shields.io/npm/v/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)
+[![npm downloads](https://img.shields.io/npm/dm/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)
 [![license](https://img.shields.io/github/license/nikiforovall/scratchpad.svg)](LICENSE)
 
 CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).
@@ -25,7 +25,7 @@ A scratchpad gives that working memory a deliberate place: a folder + `scratchpa
 Requires [Bun](https://bun.sh) — `scratch` runs on the Bun runtime.
 
 ```bash
-bun add -g scratchpad   # global install from npm (exposes `scratch`)
+bun add -g @nikiforovall/scratchpad   # global install from npm (exposes `scratch`)
 ```
 
 From source:

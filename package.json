@@ -1,6 +1,9 @@
 {
-  "name": "scratchpad",
+  "name": "@nikiforovall/scratchpad",
   "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "CLI-first tool to organize temporary agent knowledge into scratchpads (folder + manifest), with a read-only visual viewer.",
   "keywords": [
     "cli",
