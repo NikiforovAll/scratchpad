@@ -32,7 +32,7 @@ async function seedPad(): Promise<Pad> {
 }
 
 describe("buildView", () => {
-  test("includes registered + unregistered files, classified and read", async () => {
+  test("includes only registered files, classified and read", async () => {
     const pad = await seedPad();
     const [pv] = await buildView([pad]);
     expect(pv!.name).toBe("Notes");
@@ -41,11 +41,11 @@ describe("buildView", () => {
     expect(byPath["a.md"]!.registered).toBe(true);
     expect(byPath["a.md"]!.content).toContain("# Title");
     expect(byPath["snippet.ts"]!.kind).toBe("code");
-    expect(byPath["loose.txt"]!.registered).toBe(false); // present but not in manifest
-    expect(byPath["loose.txt"]!.content).toBe("unregistered content");
+    // loose.txt exists on disk but is not in the manifest → not shown.
+    expect(byPath["loose.txt"]).toBeUndefined();
   });
 
-  test("orders files by scratchpad.json, unregistered appended alphabetically", async () => {
+  test("orders files by scratchpad.json; unregistered files excluded", async () => {
     const dir = join(root, "ordered");
     await mkdir(dir, { recursive: true });
     for (const n of ["a.md", "b.md", "c.md", "zz.txt", "mm.txt"]) await writeFile(join(dir, n), "x", "utf8");
@@ -55,7 +55,22 @@ describe("buildView", () => {
     await writeManifest(dir, m);
     const pad: Pad = { dir, manifest: await readManifest(dir) };
     const [pv] = await buildView([pad]);
-    expect(pv!.files.map((f) => f.path)).toEqual(["c.md", "a.md", "b.md", "mm.txt", "zz.txt"]);
+    // zz.txt / mm.txt are on disk but unregistered → excluded.
+    expect(pv!.files.map((f) => f.path)).toEqual(["c.md", "a.md", "b.md"]);
+  });
+
+  test("classifies registered .html as html (rendered in an iframe)", async () => {
+    const dir = join(root, "site");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "page.html"), "<h1>hi</h1>", "utf8");
+    const m = newManifest("Site");
+    m.files.push({ path: "page.html" });
+    await writeManifest(dir, m);
+    const pad: Pad = { dir, manifest: await readManifest(dir) };
+    const [pv] = await buildView([pad]);
+    const f = pv!.files.find((f) => f.path === "page.html");
+    expect(f!.kind).toBe("html");
+    expect(f!.content).toBe("<h1>hi</h1>");
   });
 
   test("registered-but-missing file still appears", async () => {

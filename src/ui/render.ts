@@ -4,10 +4,9 @@
 // pinned CDN, added CONDITIONALLY — hljs only when a pad has code, mermaid only
 // when a ```mermaid block is present.
 
-import { readdir } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { extname, isAbsolute, join, resolve } from "node:path";
 import type { Pad } from "../discovery.ts";
-import { DEFAULT_TYPE, MANIFEST_NAME, type FileEntry } from "../manifest.ts";
+import { DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
 import { THEME_CSS } from "./theme.ts";
 
 // Pinned CDN builds (version + SRI). The script-global builds (highlight.min.js /
@@ -33,16 +32,18 @@ const TEXT_EXT = new Set([
 const CODE_EXT = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".jsonc", ".py", ".rb",
   ".go", ".rs", ".java", ".kt", ".c", ".h", ".cpp", ".hpp", ".cs", ".php", ".swift",
-  ".sh", ".bash", ".zsh", ".ps1", ".sql", ".yaml", ".yml", ".toml", ".xml", ".html",
+  ".sh", ".bash", ".zsh", ".ps1", ".sql", ".yaml", ".yml", ".toml", ".xml",
   ".css", ".scss", ".less", ".vue", ".svelte", ".lua", ".r", ".scala", ".dart",
 ]);
+// Rendered in a sandboxed iframe (scripts disabled) rather than as source.
+const HTML_EXT = new Set([".html", ".htm"]);
 
 const MIME: Record<string, string> = {
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
   ".svg": "image/svg+xml", ".webp": "image/webp", ".bmp": "image/bmp", ".ico": "image/x-icon",
 };
 
-type Kind = "markdown" | "code" | "image" | "text" | "binary" | "toolarge";
+type Kind = "markdown" | "code" | "image" | "text" | "html" | "binary" | "toolarge";
 
 interface FileView {
   path: string;
@@ -68,49 +69,24 @@ interface PadView {
 
 function classify(ext: string): Kind {
   if (IMAGE_EXT.has(ext)) return "image";
+  if (HTML_EXT.has(ext)) return "html";
   if (MD_EXT.has(ext)) return "markdown";
   if (CODE_EXT.has(ext)) return "code";
   if (TEXT_EXT.has(ext)) return "text";
   return "binary";
 }
 
-/** List ALL files in a pad dir (recursively), merged with manifest metadata. */
+/** List the pad's registered files (from the manifest), merged with metadata.
+ * Unregistered on-disk files are intentionally not shown. */
 async function scanPadFiles(pad: Pad): Promise<FileView[]> {
-  const registered = new Map<string, FileEntry>();
-  for (const f of pad.manifest.files) registered.set(f.path, f);
-
-  const onDisk: string[] = [];
-  async function walk(dir: string): Promise<void> {
-    let entries: Awaited<ReturnType<typeof readdir>>;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (e.name === MANIFEST_NAME) continue;
-      if (e.name.startsWith(".")) continue;
-      const abs = join(dir, e.name);
-      if (e.isDirectory()) {
-        if (e.name === "node_modules") continue;
-        await walk(abs);
-      } else {
-        onDisk.push(relative(pad.dir, abs).split("\\").join("/"));
-      }
-    }
-  }
-  await walk(pad.dir);
-
-  // Union of on-disk files and registered paths (a registered file may not exist yet).
-  const paths = new Set<string>([...onDisk, ...registered.keys()]);
   const views: FileView[] = [];
-  for (const path of paths) {
-    const meta = registered.get(path);
+  for (const meta of pad.manifest.files) {
+    const path = meta.path;
     const ext = extname(path).toLowerCase();
     let kind = classify(ext);
     let content: string | null = null;
     // Linked entries read from `src` (outside the pad); the rest from path under the pad dir.
-    const abs = meta?.src
+    const abs = meta.src
       ? (isAbsolute(meta.src) ? meta.src : resolve(pad.dir, meta.src))
       : join(pad.dir, path);
     const file = Bun.file(abs);
@@ -132,30 +108,20 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
     }
     views.push({
       path,
-      registered: !!meta,
-      external: !!meta?.src,
-      title: meta?.title,
-      description: meta?.description,
-      tags: meta?.tags,
-      type: meta?.type ?? (meta ? DEFAULT_TYPE : undefined),
+      registered: true,
+      external: !!meta.src,
+      title: meta.title,
+      description: meta.description,
+      tags: meta.tags,
+      type: meta.type ?? DEFAULT_TYPE,
       kind,
       lang: kind === "code" ? ext.slice(1) : undefined,
       content,
     });
   }
 
-  // Order = scratchpad.json order: registered files in manifest.files[] sequence
-  // (the author's deliberate reading order), then unregistered on-disk files
-  // appended alphabetically.
-  const manifestOrder = new Map(pad.manifest.files.map((f, i) => [f.path, i]));
-  return views.sort((a, b) => {
-    const ia = manifestOrder.get(a.path);
-    const ib = manifestOrder.get(b.path);
-    if (ia != null && ib != null) return ia - ib;
-    if (ia != null) return -1;
-    if (ib != null) return 1;
-    return a.path.localeCompare(b.path);
-  });
+  // Order follows manifest.files[] — the author's deliberate reading order.
+  return views;
 }
 
 export async function buildView(pads: Pad[]): Promise<PadView[]> {
@@ -187,7 +153,9 @@ function needsHljs(view: PadView[]): boolean {
   // Any code file, or any markdown (rendered fences AND the raw markdown source
   // view are both syntax-highlighted), needs the hljs bundle inlined.
   return view.some((p) =>
-    p.files.some((f) => f.content != null && (f.kind === "code" || f.kind === "markdown")),
+    p.files.some(
+      (f) => f.content != null && (f.kind === "code" || f.kind === "markdown" || f.kind === "html"),
+    ),
   );
 }
 function needsMermaid(view: PadView[]): boolean {
@@ -441,7 +409,7 @@ function renderPreview(pad, f) {
   if (f.external) metaBits.push('linked');
   (f.tags || []).forEach(t => metaBits.push('#' + esc(t)));
   const metaLine = metaBits.join(' · ');
-  const canRaw = f.kind === 'markdown' && f.content != null;
+  const canRaw = (f.kind === 'markdown' || f.kind === 'html') && f.content != null;
   const ctrls = canRaw
     ? '<span class="pctrls"><button class="pbtn ' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
       '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button></span>'
@@ -455,6 +423,11 @@ function renderPreview(pad, f) {
         ? '<pre class="code"><code class="hljs hl-done">' + highlightRawMarkdown(f.content) + '</code></pre>'
         : '<pre class="code"><code class="language-markdown">' + esc(f.content) + '</code></pre>')
     : '<div class="md">' + renderMarkdown(f.content) + '</div>';
+  else if (f.kind === 'html' && f.content != null) bodyHtml = rawMode
+    ? '<pre class="code"><code class="language-html">' + esc(f.content) + '</code></pre>'
+    // Sandboxed with scripts disabled: static HTML renders, no script/form/popup
+    // can escape. srcdoc value is attribute-escaped by esc().
+    : '<iframe class="htmlframe" sandbox="" srcdoc="' + esc(f.content) + '"></iframe>';
   else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
     const cls = f.lang ? ' class="language-' + esc(f.lang) + '"' : '';
     bodyHtml = '<pre class="code"><code' + cls + '>' + esc(f.content) + '</code></pre>';
@@ -508,7 +481,7 @@ function buildTree(preferKey, prevSelJson) {
     const ttl = f.title || f.path;
     const tag = f.registered ? (f.type || 'note') : '·';
     html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '">' +
-      '<span class="fttl">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
+      '<span class="fttl" title="' + esc(ttl) + '">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
   });
   // Only swap the tree DOM when the markup actually changed — otherwise reloading
   // (or re-selecting) needlessly destroys/recreates the sidebar = a visible flash.
