@@ -595,7 +595,14 @@ function applySystemTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   syncThemeIcon();
 }
-applySystemTheme();
+// Restore a remembered choice (overrides the OS), else follow the OS.
+if (savedTheme === 'light' || savedTheme === 'dark') {
+  manualTheme = true;
+  document.documentElement.dataset.theme = savedTheme;
+  syncThemeIcon();
+} else {
+  applySystemTheme();
+}
 if (window.matchMedia) {
   const mq = window.matchMedia('(prefers-color-scheme: dark)');
   (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(() => {
@@ -607,6 +614,7 @@ function toggleTheme() {
   manualTheme = true;
   const r = document.documentElement;
   r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem('scratch.theme', r.dataset.theme); } catch (_) {}
   syncThemeIcon();
   if (currentRef) renderPreview(currentRef.pad, currentRef.f);
 }

@@ -38,9 +38,11 @@ async function renderPad(): Promise<string> {
 }
 
 /** Boot happy-dom, inject HTML, stub vendor libs, run the page's inline script. */
-async function boot(html: string) {
+async function boot(html: string, seedStorage?: Record<string, string>) {
   GlobalRegistrator.register();
   const w = globalThis as any;
+  // Seed localStorage BEFORE the page script runs (it reads prefs at startup).
+  if (seedStorage) for (const [k, v] of Object.entries(seedStorage)) localStorage.setItem(k, v);
   // Stub vendored libs (their real bundles are huge / need a real browser).
   const mermaidCalls: any[] = [];
   w.hljs = { highlightElement: (el: any) => el.classList.add("hljs") };
@@ -125,6 +127,21 @@ test("auto-detects dark theme from prefers-color-scheme", async () => {
   await boot(html); // matchMedia stub returns matches:true (dark)
   try {
     expect(document.documentElement.dataset.theme).toBe("dark");
+  } finally {
+    teardown();
+  }
+});
+
+test("a saved theme overrides the OS and toggling persists the choice", async () => {
+  const html = await renderPad();
+  // OS prefers dark (matchMedia stub), but a remembered 'light' must win.
+  await boot(html, { "scratch.theme": "light" });
+  try {
+    expect(document.documentElement.dataset.theme).toBe("light");
+    // Toggling writes the new choice back to storage.
+    (document.getElementById("themeToggle") as any).click();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("scratch.theme")).toBe("dark");
   } finally {
     teardown();
   }
