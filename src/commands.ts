@@ -287,6 +287,8 @@ export async function cmdUi(
   io: IO,
 ): Promise<number> {
   const { launchViewer } = await import("./ui/launch.ts");
+  const { loadConfig } = await import("./config.ts");
+  const cfg = await loadConfig();
   const root = resolveRoot(args.dir);
   if (args.pad) {
     const pad = await resolvePad(args.pad, root);
@@ -297,6 +299,7 @@ export async function cmdUi(
     return launchViewer([pad], pad.manifest.name, io, {
       title: `scratch · ${pad.manifest.name}`,
       forceBrowser: args.browser,
+      frameless: cfg.ui.frameless,
     });
   }
   const pads = await findPads(root);
@@ -305,7 +308,11 @@ export async function cmdUi(
     io.err(`create one:  scratch new <name> --dir <parent>`);
     return 1;
   }
-  return launchViewer(pads, root, io, { title: `scratch · ${root}`, forceBrowser: args.browser });
+  return launchViewer(pads, root, io, {
+    title: `scratch · ${root}`,
+    forceBrowser: args.browser,
+    frameless: cfg.ui.frameless,
+  });
 }
 
 /** scratch export [<pad>] [--dir <root>] [-o/--out <file>] — write self-contained HTML. */

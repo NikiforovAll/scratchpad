@@ -17,6 +17,8 @@ import { createReloader, type Reloader } from "./reload.ts";
 export interface LaunchOpts {
   title: string;
   forceBrowser?: boolean;
+  /** Native window without OS chrome (title bar/border). Default true. */
+  frameless?: boolean;
 }
 
 export async function launchViewer(
@@ -31,13 +33,19 @@ export async function launchViewer(
   const snap = await reloader.rebuild();
 
   if (!opts.forceBrowser) {
-    const ok = await tryGlimpse(snap.html, opts.title, io, reloader);
+    const ok = await tryGlimpse(snap.html, opts.title, io, reloader, opts.frameless !== false);
     if (ok) return 0;
   }
   return serveBrowser(snap.html, opts.title, io, reloader);
 }
 
-async function tryGlimpse(html: string, title: string, io: IO, reloader: Reloader): Promise<boolean> {
+async function tryGlimpse(
+  html: string,
+  title: string,
+  io: IO,
+  reloader: Reloader,
+  frameless: boolean,
+): Promise<boolean> {
   let open: (html: string, options?: Record<string, unknown>) => any;
   try {
     ({ open } = (await import("glimpseui")) as any);
@@ -49,11 +57,14 @@ async function tryGlimpse(html: string, title: string, io: IO, reloader: Reloade
   try {
     // Open with NO initial HTML so the host emits 'ready' (instead of doing its
     // own NavigateToString); we then deliver the page ourselves via present().
-    // We keep native window chrome so the window is resizable/maximizable.
+    // frameless (config-driven): drop the native title bar/border — the page
+    // draws its own close affordance (#closeBtn) + drag strip. Override via the
+    // user config file (ui.frameless=false) to keep native chrome.
     win = open("", {
       width: 1280,
       height: 800,
       title,
+      frameless,
     });
   } catch (e) {
     io.err(`note: native window unavailable (${(e as Error).message.split("\n")[0]}); using browser.`);
