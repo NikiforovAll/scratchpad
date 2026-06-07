@@ -156,70 +156,19 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       content,
     });
   }
-  return topoSortFiles(views);
-}
 
-/**
- * Order files so each doc precedes the docs it links to: an entry doc that links
- * to companions (e.g. plan.md → spec.md, decisions.md) sorts before them, giving
- * a natural reading order. Edges come from intra-pad markdown links; Kahn's
- * algorithm with a (registered-first, then alphabetical) tie-break makes the
- * order deterministic. Leftover nodes in a link cycle keep that same tie-break.
- */
-function topoSortFiles(views: FileView[]): FileView[] {
-  const byPath = new Map(views.map((v) => [v.path, v]));
-  const resolveLink = (from: string, rel: string): string => {
-    rel = rel.split("#")[0]!.split("?")[0]!;
-    if (!rel) return "";
-    if (rel.startsWith("/")) return rel.replace(/^\/+/, "");
-    const base = from.split("/").slice(0, -1);
-    for (const p of rel.split("/")) {
-      if (p === "..") base.pop();
-      else if (p !== "." && p !== "") base.push(p);
-    }
-    return base.join("/");
-  };
-
-  const adj = new Map<string, Set<string>>(views.map((v) => [v.path, new Set<string>()]));
-  const indeg = new Map<string, number>(views.map((v) => [v.path, 0]));
-  const linkRe = /\]\(([^)\s]+)\)/g;
-  for (const v of views) {
-    if (v.kind !== "markdown" || v.content == null) continue;
-    for (const m of v.content.matchAll(linkRe)) {
-      const tgt = resolveLink(v.path, m[1]!);
-      if (tgt && tgt !== v.path && byPath.has(tgt) && !adj.get(v.path)!.has(tgt)) {
-        adj.get(v.path)!.add(tgt);
-        indeg.set(tgt, indeg.get(tgt)! + 1);
-      }
-    }
-  }
-
-  const cmp = (a: string, b: string): number => {
-    const va = byPath.get(a)!;
-    const vb = byPath.get(b)!;
-    return Number(vb.registered) - Number(va.registered) || a.localeCompare(b);
-  };
-  const ready = views.filter((v) => indeg.get(v.path) === 0).map((v) => v.path);
-  const out: FileView[] = [];
-  const seen = new Set<string>();
-  while (ready.length) {
-    ready.sort(cmp);
-    const p = ready.shift()!;
-    if (seen.has(p)) continue;
-    seen.add(p);
-    out.push(byPath.get(p)!);
-    for (const t of adj.get(p)!) {
-      indeg.set(t, indeg.get(t)! - 1);
-      if (indeg.get(t)! === 0) ready.push(t);
-    }
-  }
-  // Files still unvisited are part of a link cycle: append in the tie-break order.
-  if (out.length < views.length) {
-    for (const v of views.filter((v) => !seen.has(v.path)).sort((a, b) => cmp(a.path, b.path))) {
-      out.push(v);
-    }
-  }
-  return out;
+  // Order = scratchpad.json order: registered files in manifest.files[] sequence
+  // (the author's deliberate reading order), then unregistered on-disk files
+  // appended alphabetically.
+  const manifestOrder = new Map(pad.manifest.files.map((f, i) => [f.path, i]));
+  return views.sort((a, b) => {
+    const ia = manifestOrder.get(a.path);
+    const ib = manifestOrder.get(b.path);
+    if (ia != null && ib != null) return ia - ib;
+    if (ia != null) return -1;
+    if (ib != null) return 1;
+    return a.path.localeCompare(b.path);
+  });
 }
 
 export async function buildView(pads: Pad[]): Promise<PadView[]> {

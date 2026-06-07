@@ -45,6 +45,19 @@ describe("buildView", () => {
     expect(byPath["loose.txt"]!.content).toBe("unregistered content");
   });
 
+  test("orders files by scratchpad.json, unregistered appended alphabetically", async () => {
+    const dir = join(root, "ordered");
+    await mkdir(dir, { recursive: true });
+    for (const n of ["a.md", "b.md", "c.md", "zz.txt", "mm.txt"]) await writeFile(join(dir, n), "x", "utf8");
+    const m = newManifest("Ordered");
+    // Deliberate (non-alphabetical) manifest order.
+    m.files.push({ path: "c.md" }, { path: "a.md" }, { path: "b.md" });
+    await writeManifest(dir, m);
+    const pad: Pad = { dir, manifest: await readManifest(dir) };
+    const [pv] = await buildView([pad]);
+    expect(pv!.files.map((f) => f.path)).toEqual(["c.md", "a.md", "b.md", "mm.txt", "zz.txt"]);
+  });
+
   test("registered-but-missing file still appears", async () => {
     const dir = join(root, "p");
     await mkdir(dir, { recursive: true });
