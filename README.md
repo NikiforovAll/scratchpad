@@ -62,8 +62,8 @@ scratch ui [<pad>] [--dir <root>] [--browser]
     # read-only viewer: glimpse native window, automatic browser fallback.
 
 scratch export [<pad>] [--dir <root>] [-o <file>]
-    # write the viewer as ONE self-contained HTML file (deps + content inlined),
-    # openable in any browser offline. Default out: <pad-name>.html.
+    # write the viewer to a single HTML file (file contents embedded; highlight.js
+    # / mermaid load from a pinned CDN), openable in any browser. Default out: <pad-name>.html.
 ```
 
 **Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.
