@@ -1,0 +1,49 @@
+# Publishing
+
+Two distribution channels, two native-viewer stories. The browser viewer works
+in both; the native window (glimpse) differs.
+
+## 1. npm — `bun add -g scratchpad`
+
+The published package is source-only (`src/` + `README` + `LICENSE`, ~86 KB).
+The `scratch` bin runs under the user's Bun. `glimpseui` is a pinned runtime
+dependency.
+
+Native viewer: `glimpseui`'s `postinstall` **builds its host on install**, and on
+Windows that needs the **.NET 8 SDK** (+ the WebView2 runtime to run it). If the
+SDK is absent the build is skipped and `scratch ui` falls back to the browser.
+
+### Release steps
+
+```sh
+bun test                 # prepublishOnly also runs this
+# bump "version" in package.json (semver)
+npm publish --access public
+git tag v$(node -p "require('./package.json').version") && git push --tags
+```
+
+`prepublishOnly` runs the test suite as a gate.
+
+## 2. Standalone binary — GitHub Release
+
+For a turnkey native experience (no .NET **SDK** required — only the .NET 8
+**Desktop Runtime** + WebView2):
+
+```sh
+bun run build            # compiles dist/scratch.exe + stages dist/glimpse/ (the host)
+```
+
+`scripts/build-host.ts` copies glimpse's native host (~1.3 MB: exe + .NET deps +
+WebView2 assemblies/loader) next to the binary; `launch.ts` points
+`GLIMPSE_BINARY_PATH` at it. Ship `dist/scratch.exe` **and** `dist/glimpse/`
+together (zip the `dist/` folder) — the binary is browser-only without the
+adjacent host, because `bun --compile` can't resolve glimpse's host from its
+virtual filesystem.
+
+`dist/` is gitignored — build fresh per release.
+
+## Version pinning
+
+`glimpseui` is pinned to an exact version (not `^`) because `launch.ts` relies on
+its internal host-resolution + `GLIMPSE_BINARY_PATH` override. Bump deliberately
+and re-test the native path after any glimpseui upgrade.
