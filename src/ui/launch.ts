@@ -145,6 +145,11 @@ async function tryGlimpse(
     return false;
   }
 
+  // The native window has no address bar / terminal output of its own, so echo
+  // what was opened — otherwise `scratch ui` looks like it did nothing.
+  io.out(title);
+  io.out("  opened in a native window — press 'r' or the ⟳ button to reload; close the window to exit.");
+
   // A temp file is only needed for the loadFile fallback below, so stage it
   // lazily — most pages (CDN-vendored) go the setHTML path and never touch disk.
   let dir: string | null = null;
