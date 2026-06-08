@@ -22,12 +22,16 @@ which compiles the host into glimpseui's own `native/windows/bin/` (needs the
 
 ```sh
 bun test                 # prepublishOnly also runs this
-# bump "version" in package.json (semver)
-npm publish --access public
+# bump "version" in package.json (semver), commit, push
+git push
+# publish with bun — NOT npm. On Windows bun ignores ~/.npmrc, so the token
+# must be passed inline; web 2FA is approved in the browser when prompted.
+NPM_CONFIG_TOKEN=<npm-token> bun publish --access public
 git tag v$(node -p "require('./package.json').version") && git push --tags
 ```
 
-`prepublishOnly` runs the test suite as a gate.
+`prepublishOnly` runs the test suite as a gate. Always push the `vX.Y.Z` tag —
+the npm publish alone is not the release.
 
 ## 2. Standalone binary — GitHub Release
 
