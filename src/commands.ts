@@ -91,13 +91,14 @@ export async function cmdAdd(
     desc?: string;
     tag?: string;
     type?: string;
+    group?: string;
     link?: boolean;
     as?: string;
   },
   io: IO,
 ): Promise<number> {
   if (!args.pad || !args.file) {
-    io.err("error: usage: scratch add <pad> <file> [--title .. --desc .. --tag a,b --type note] [--link [--as <label>]]");
+    io.err("error: usage: scratch add <pad> <file> [--title .. --desc .. --tag a,b --type note --group ..] [--link [--as <label>]]");
     return 2;
   }
   const root = resolveRoot(args.dir);
@@ -146,6 +147,7 @@ export async function cmdAdd(
   if (args.title) entry.title = args.title;
   if (args.desc) entry.description = args.desc;
   if (args.tag) entry.tags = args.tag.split(",").map((t) => t.trim()).filter(Boolean);
+  if (args.group) entry.group = args.group.trim();
   entry.type = (args.type as FileType) ?? DEFAULT_TYPE;
 
   const idx = m.files.findIndex((f) => f.path === rel);
@@ -226,7 +228,7 @@ export async function cmdShow(
       : join(pad.dir, args.file);
   if (entry) {
     io.out(`# ${entry.title ?? entry.path}`);
-    io.out(`path: ${entry.path}  ·  type: ${entry.type ?? DEFAULT_TYPE}${entry.src ? "  ·  linked → " + entry.src : ""}`);
+    io.out(`path: ${entry.path}  ·  type: ${entry.type ?? DEFAULT_TYPE}${entry.group ? "  ·  group: " + entry.group : ""}${entry.src ? "  ·  linked → " + entry.src : ""}`);
     if (entry.tags?.length) io.out(`tags: ${entry.tags.map((t) => "#" + t).join(" ")}`);
     if (entry.description) io.out(`desc: ${entry.description}`);
     io.out("");

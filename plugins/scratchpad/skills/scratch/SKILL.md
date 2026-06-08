@@ -45,6 +45,8 @@ without `--force`.
 - `--desc` — **why this file exists** / what it captures. The most valuable field.
 - `--title` — human label (defaults to path); `--tag a,b,c` — comma-separated.
 - `--type` — `note | snippet | output | artifact | reference` (default `note`).
+- `--group` — optional group name; files sharing a group are listed together
+  under a group header in the viewer (e.g. `--group "General"`, `--group "Appendix"`).
 
 Write the file first, then `add`. Re-running `add` on the same path updates its
 metadata. `add` warns (doesn't fail) if the file is missing or outside the pad dir.

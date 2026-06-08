@@ -21,6 +21,17 @@ const MERMAID_CDN = {
   url: "https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js",
   sri: "sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF",
 };
+// highlight.js token-color THEMES (CSS). Code blocks use these full IDE-style
+// palettes; the raw-markdown view keeps our own warm palette (scoped to .mdsrc in
+// theme.ts). Both load when hljs does; the client enables one per light/dark.
+const HLJS_THEME_DARK = {
+  url: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css",
+  sri: "sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH",
+};
+const HLJS_THEME_LIGHT = {
+  url: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css",
+  sri: "sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L",
+};
 
 const MAX_EMBED_BYTES = 512 * 1024; // skip embedding content above this
 
@@ -54,6 +65,8 @@ interface FileView {
   description?: string;
   tags?: string[];
   type?: string;
+  /** Visual group header the file sits under (absent = ungrouped). */
+  group?: string;
   kind: Kind;
   /** language hint for code files (extension without dot). */
   lang?: string;
@@ -114,6 +127,7 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       description: meta.description,
       tags: meta.tags,
       type: meta.type ?? DEFAULT_TYPE,
+      group: meta.group,
       kind,
       lang: kind === "code" ? ext.slice(1) : undefined,
       content,
@@ -178,13 +192,24 @@ export async function renderHtml(view: PadView[], rootLabel: string): Promise<st
   if (needsHljs(view)) vendor += cdnTag(HLJS_CDN);
   if (needsMermaid(view)) vendor += cdnTag(MERMAID_CDN);
 
+  // hljs theme stylesheets, placed BEFORE our <style> so equal-specificity
+  // overrides (e.g. transparent .hljs background) win without !important. Both
+  // present with an id; the client enables exactly one per the active theme.
+  const cssLink = (id: string, c: { url: string; sri: string }) =>
+    `<link id="${id}" rel="stylesheet" href="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer" />\n`;
+  let vendorCss = "";
+  if (needsHljs(view)) {
+    vendorCss += cssLink("hljs-dark", HLJS_THEME_DARK);
+    vendorCss += cssLink("hljs-light", HLJS_THEME_LIGHT);
+  }
+
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>scratch · ${escapeHtml(titleName)}</title>
-<style>${THEME_CSS}</style>
+${vendorCss}<style>${THEME_CSS}</style>
 </head>
 <body>
 <div class="app">
@@ -259,15 +284,33 @@ function mdInline(s) {
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
   return s;
 }
+// Map a fence/extension language token to highlight.js's canonical grammar name.
+// Two reasons this is needed: (1) hljs parses the language out of the
+// "language-X" class with [\\w-]+, so a class like "language-c#" yields just "c"
+// (highlighted as C, not C#) — normalizing to "csharp" fixes that; (2) some file
+// extensions (hpp, cxx, h) aren't hljs aliases. Anything not in the map passes
+// through unchanged, so hljs's built-in aliases (cs, rs, py, ...) still work.
+const LANG_ALIAS = {
+  'c#': 'csharp', 'cs': 'csharp',
+  'c++': 'cpp', 'cxx': 'cpp', 'cc': 'cpp', 'hpp': 'cpp', 'hxx': 'cpp', 'h': 'c',
+  'f#': 'fsharp', 'fs': 'fsharp',
+  'objective-c': 'objectivec', 'objc': 'objectivec', 'obj-c': 'objectivec',
+  'ps1': 'powershell', 'ps': 'powershell', 'pwsh': 'powershell',
+};
+function normLang(lang) {
+  if (!lang) return lang;
+  const k = lang.toLowerCase();
+  return LANG_ALIAS[k] || k;
+}
 function renderMarkdown(src) {
   const lines = src.replace(/\r\n/g, '\n').split('\n');
   let html = '', i = 0, inUl = false, inOl = false;
   const closeLists = () => { if (inUl) { html += '</ul>'; inUl = false; } if (inOl) { html += '</ol>'; inOl = false; } };
   while (i < lines.length) {
     let line = lines[i];
-    let fence = line.match(/^\s*\`\`\`\s*([\w-]*)\s*$/);
+    let fence = line.match(/^\s*\`\`\`\s*([^\s\`]*)\s*$/);
     if (fence) {
-      closeLists(); const lang = (fence[1] || '').toLowerCase(); i++; let buf = [];
+      closeLists(); const lang = normLang(fence[1] || ''); i++; let buf = [];
       while (i < lines.length && !/^\s*\`\`\`\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
       i++;
       if (lang === 'mermaid') html += '<div class="mermaid">' + esc(buf.join('\n')) + '</div>';
@@ -332,9 +375,9 @@ function highlightRawMarkdown(src) {
   const parts = []; let mdbuf = [], i = 0;
   const flush = () => { if (mdbuf.length) { parts.push(hlCode(mdbuf.join('\n'), 'markdown')); mdbuf = []; } };
   while (i < lines.length) {
-    const open = lines[i].match(/^\s*\`\`\`+\s*([\w-]*)\s*$/);
+    const open = lines[i].match(/^\s*\`\`\`+\s*([^\s\`]*)\s*$/);
     if (open) {
-      const lang = (open[1] || '').toLowerCase();
+      const lang = normLang(open[1] || '');
       const openLine = lines[i]; i++;
       const code = [];
       while (i < lines.length && !/^\s*\`\`\`+\s*$/.test(lines[i])) { code.push(lines[i]); i++; }
@@ -421,7 +464,7 @@ function renderPreview(pad, f) {
   else if (f.kind === 'image' && f.content) bodyHtml = '<div class="imgwrap"><img src="' + f.content + '" alt="' + esc(f.path) + '"/></div>';
   else if (f.kind === 'markdown' && f.content != null) bodyHtml = rawMode
     ? (window.hljs
-        ? '<pre class="code"><code class="hljs hl-done">' + highlightRawMarkdown(f.content) + '</code></pre>'
+        ? '<pre class="code"><code class="hljs hl-done mdsrc">' + highlightRawMarkdown(f.content) + '</code></pre>'
         : '<pre class="code"><code class="language-markdown">' + esc(f.content) + '</code></pre>')
     : '<div class="md">' + renderMarkdown(f.content) + '</div>';
   else if (f.kind === 'html' && f.content != null) bodyHtml = rawMode
@@ -430,7 +473,7 @@ function renderPreview(pad, f) {
     // can escape. srcdoc value is attribute-escaped by esc().
     : '<iframe class="htmlframe" sandbox="" srcdoc="' + esc(f.content) + '"></iframe>';
   else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
-    const cls = f.lang ? ' class="language-' + esc(f.lang) + '"' : '';
+    const cls = f.lang ? ' class="language-' + esc(normLang(f.lang)) + '"' : '';
     bodyHtml = '<pre class="code"><code' + cls + '>' + esc(f.content) + '</code></pre>';
   } else bodyHtml = '<div class="notice">No preview available (binary or missing file).</div>';
 
@@ -462,7 +505,17 @@ function buildTree(preferKey, prevSelJson) {
   // listed together; the current pad is the only mental model.)
   const items = [];
   DATA.pads.forEach((pad, pi) => pad.files.forEach((f, fi) => items.push({ pad, f, pi, fi })));
-  ITEMS = items;
+  // Group files by their (optional) group, preserving first-appearance order of
+  // both the groups and the files within each. Ungrouped files share the '' key,
+  // rendered under the default "FILES" header. ITEMS (j/k nav order) is rebuilt in
+  // this grouped order so keyboard navigation matches the visible layout.
+  const groupOrder = [], groups = new Map();
+  items.forEach((it) => {
+    const g = it.f.group || '';
+    if (!groups.has(g)) { groups.set(g, []); groupOrder.push(g); }
+    groups.get(g).push(it);
+  });
+  ITEMS = groupOrder.flatMap((g) => groups.get(g));
 
   document.getElementById('padname').textContent = DATA.pads.length === 1 ? DATA.pads[0].name : DATA.rootLabel;
 
@@ -475,14 +528,17 @@ function buildTree(preferKey, prevSelJson) {
     return;
   }
 
-  let html = '<div class="label">FILES</div>';
-  items.forEach(({ pad, f, pi, fi }) => {
-    const key = pad.dir + '::' + f.path;
-    const cls = 'frow' + (f.registered ? '' : ' unreg');
-    const ttl = f.title || f.path;
-    const tag = f.registered ? (f.type || 'note') : '·';
-    html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '">' +
-      '<span class="fttl" title="' + esc(ttl) + '">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
+  let html = '';
+  groupOrder.forEach((g) => {
+    html += '<div class="label">' + (g ? esc(g) : 'FILES') + '</div>';
+    groups.get(g).forEach(({ pad, f, pi, fi }) => {
+      const key = pad.dir + '::' + f.path;
+      const cls = 'frow' + (f.registered ? '' : ' unreg');
+      const ttl = f.title || f.path;
+      const tag = f.registered ? (f.type || 'note') : '·';
+      html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '">' +
+        '<span class="fttl" title="' + esc(ttl) + '">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
+    });
   });
   // Only swap the tree DOM when the markup actually changed — otherwise reloading
   // (or re-selecting) needlessly destroys/recreates the sidebar = a visible flash.
@@ -562,6 +618,10 @@ function syncThemeIcon() {
   const d = document.querySelector('#themeToggle .i-dark'), l = document.querySelector('#themeToggle .i-light');
   if (d) d.style.display = dark ? '' : 'none';
   if (l) l.style.display = dark ? 'none' : '';
+  // Enable exactly one hljs theme stylesheet to match the active mode.
+  const hd = document.getElementById('hljs-dark'), hl = document.getElementById('hljs-light');
+  if (hd) hd.disabled = !dark;
+  if (hl) hl.disabled = dark;
 }
 function applySystemTheme() {
   if (manualTheme) return;

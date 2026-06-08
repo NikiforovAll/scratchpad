@@ -56,9 +56,12 @@ async function boot(html: string, seedStorage?: Record<string, string>) {
   // buildTree()). The vendor libs are CDN <script src=…> tags (we stubbed
   // window.hljs/mermaid above and there's no network here), and the data island
   // carries a type attribute — both have attributes, so this regex leaves them be.
-  const slim = html.replace(/<script>[\s\S]*?<\/script>/g, (m) =>
-    m.includes("buildTree()") ? m : "<script></script>",
-  );
+  const slim = html
+    // Drop CDN <link> stylesheets (hljs themes) — no network in happy-dom.
+    .replace(/<link\b[^>]*\bcrossorigin\b[^>]*>/g, "")
+    .replace(/<script>[\s\S]*?<\/script>/g, (m) =>
+      m.includes("buildTree()") ? m : "<script></script>",
+    );
   document.documentElement.innerHTML = slim
     .replace(/^[\s\S]*?<html[^>]*>/, "")
     .replace(/<\/html>[\s\S]*$/, "");
@@ -101,6 +104,57 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
     expect(preview.querySelector(".pmeta")?.textContent).toContain("#t");
     // tree built with the file row
     expect(document.querySelector(".frow")?.textContent).toContain("Doc");
+  } finally {
+    teardown();
+  }
+});
+
+test("groups files under group headers, keeping ungrouped under FILES", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  for (const n of ["a.md", "b.md", "c.md"]) await writeFile(join(dir, n), "# " + n + "\n", "utf8");
+  const m = newManifest("P");
+  // Mixed: one ungrouped, two sharing "Appendix" — first-appearance order kept.
+  m.files.push({ path: "a.md", title: "A", type: "note" });
+  m.files.push({ path: "b.md", title: "B", type: "note", group: "Appendix" });
+  m.files.push({ path: "c.md", title: "C", type: "note", group: "Appendix" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  const html = await renderHtml(await buildView([pad]), "P");
+  await boot(html);
+  try {
+    const labels = Array.from(document.querySelectorAll(".tree .label")).map((l) => l.textContent);
+    expect(labels).toEqual(["FILES", "Appendix"]);
+    // The "Appendix" header is followed by its two rows.
+    const rows = Array.from(document.querySelectorAll(".frow")).map((r) => r.querySelector(".fttl")?.textContent);
+    expect(rows).toEqual(["A", "B", "C"]);
+  } finally {
+    teardown();
+  }
+});
+
+test("fence languages with special chars normalize to hljs grammar names", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  // ```c# / ```c++ used to break: the fence regex dropped the # / +, and even when
+  // captured, "language-c#" made hljs parse only "c". Both must become csharp/cpp.
+  await writeFile(
+    join(dir, "doc.md"),
+    "# H\n\n```c#\npublic class Foo {}\n```\n\n```c++\nint main(){}\n```\n",
+    "utf8",
+  );
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  const html = await renderHtml(await buildView([pad]), "P");
+  await boot(html);
+  try {
+    const langs = Array.from(document.querySelectorAll("#preview pre code")).map(
+      (c) => (c.className.match(/language-(\S+)/) || [])[1],
+    );
+    expect(langs).toContain("csharp");
+    expect(langs).toContain("cpp");
   } finally {
     teardown();
   }

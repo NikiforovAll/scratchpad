@@ -55,8 +55,9 @@ scratch new "<name>" --dir <parent> [--id <id>] [--force]
     # create <parent>/<slug>/ + manifest, print an onboarding prompt.
     # --dir is REQUIRED — placement is always deliberate (no assumed location).
 
-scratch add <pad> <file> [--title ..] [--desc ..] [--tag a,b] [--type note]
+scratch add <pad> <file> [--title ..] [--desc ..] [--tag a,b] [--type note] [--group ..]
     # register an already-present file into the manifest with metadata.
+    # --group <name>: list files sharing a group together under a viewer header.
     # --link [--as <label>]: link an EXTERNAL file (outside the pad) by reference;
     #   content stays put, --as sets its in-pad label (default: basename).
 

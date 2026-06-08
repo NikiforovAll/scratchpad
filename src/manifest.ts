@@ -30,6 +30,9 @@ export interface FileEntry {
   description?: string;
   tags?: string[];
   type?: FileType;
+  /** Optional visual group — files sharing a group are listed together under a
+   * group header in the viewer. Absent = ungrouped (listed under "FILES"). */
+  group?: string;
 }
 
 export interface Manifest {
@@ -79,6 +82,7 @@ export function parseManifest(raw: unknown, source: string): Manifest {
     if (typeof e.description === "string") entry.description = e.description;
     if (Array.isArray(e.tags)) entry.tags = e.tags.filter((t): t is string => typeof t === "string");
     if (isFileType(e.type)) entry.type = e.type;
+    if (typeof e.group === "string" && e.group.length > 0) entry.group = e.group;
     return entry;
   });
   const ts = nowIso();

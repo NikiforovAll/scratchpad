@@ -114,6 +114,9 @@ body {
 /* tree */
 .label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--ink-muted); padding: 6px 10px 10px; }
+/* Stacked group headers: separate each group from the rows above it. The first
+   header sits flush at the top; only subsequent ones get the gap + hairline. */
+.label ~ .label { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
 .frow {
   display: flex; align-items: baseline; gap: 9px; cursor: pointer;
   padding: 6px 12px; border-radius: 5px;
@@ -211,23 +214,28 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .mermaid { margin: 1em 0; text-align: center; }
 .mermaid svg { max-width: 100%; height: auto; }
 
-/* highlight.js — mapped onto the Lab-Notebook ink ramp + one ember.
-   Override hljs's own background so blocks share the recessed code surface. */
-.hljs { background: transparent; color: var(--ink-1); }
-.hljs-comment, .hljs-quote { color: var(--ink-muted); font-style: italic; }
-.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-name, .hljs-tag { color: var(--ember-glow); }
-.hljs-string, .hljs-attr, .hljs-template-tag, .hljs-addition { color: var(--ink-2); }
-.hljs-number, .hljs-literal, .hljs-type, .hljs-symbol, .hljs-meta { color: var(--ink-3); }
-.hljs-title, .hljs-function .hljs-title { color: var(--ink-1); font-weight: 500; }
-.hljs-variable, .hljs-params, .hljs-property { color: var(--ink-2); }
-/* Markdown source tokens — made deliberately colorful so the raw view reads as
-   highlighted: headers in ember, list markers in ember, links in accent text. */
-.hljs-section { color: var(--ember-glow); font-weight: 700; }
-.hljs-bullet { color: var(--ember); font-weight: 700; }
-.hljs-link { color: var(--accent-text); }
-.hljs-code { color: var(--ink-2); }
-.hljs-emphasis { font-style: italic; color: var(--ink-1); }
-.hljs-strong { font-weight: 700; color: var(--ink-1); }
+/* highlight.js — CODE blocks get a full CDN theme (github-dark / github, loaded
+   in <head>). We only strip the theme's own background + padding so blocks sit on
+   our recessed code surface; token colors come from the CDN theme. */
+.hljs { background: transparent; padding: 0; }
+
+/* Raw MARKDOWN source view keeps the warm Lab-Notebook palette (ink ramp + one
+   ember), scoped to .mdsrc so it never touches the CDN-themed code blocks. */
+.mdsrc.hljs { color: var(--ink-1); }
+.mdsrc .hljs-comment, .mdsrc .hljs-quote { color: var(--ink-muted); font-style: italic; }
+.mdsrc .hljs-keyword, .mdsrc .hljs-selector-tag, .mdsrc .hljs-built_in, .mdsrc .hljs-name, .mdsrc .hljs-tag { color: var(--ember-glow); }
+.mdsrc .hljs-string, .mdsrc .hljs-attr, .mdsrc .hljs-template-tag, .mdsrc .hljs-addition { color: var(--ink-2); }
+.mdsrc .hljs-number, .mdsrc .hljs-literal, .mdsrc .hljs-type, .mdsrc .hljs-symbol, .mdsrc .hljs-meta { color: var(--ink-3); }
+.mdsrc .hljs-title, .mdsrc .hljs-function .hljs-title { color: var(--ink-1); font-weight: 500; }
+.mdsrc .hljs-variable, .mdsrc .hljs-params, .mdsrc .hljs-property { color: var(--ink-2); }
+/* Markdown structural tokens — colorful so the raw view reads as highlighted:
+   headers + list markers in ember, links in accent text. */
+.mdsrc .hljs-section { color: var(--ember-glow); font-weight: 700; }
+.mdsrc .hljs-bullet { color: var(--ember); font-weight: 700; }
+.mdsrc .hljs-link { color: var(--accent-text); }
+.mdsrc .hljs-code { color: var(--ink-2); }
+.mdsrc .hljs-emphasis { font-style: italic; color: var(--ink-1); }
+.mdsrc .hljs-strong { font-weight: 700; color: var(--ink-1); }
 
 /* empty states */
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
