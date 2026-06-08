@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>scratch · 2026-06-07-scratchpad-app</title>
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<style>
+:root {
+  /* dark (canonical) */
+  --ember: #e86f33;
+  --ember-glow: #f0a070;
+  --ember-dim: rgba(232,111,51,0.25);
+  --field: #101114;
+  --surface: #16181c;
+  --elevated: #1e2025;
+  --hover: #282a30;
+  --border: #363840;
+  --ink-1: #f0f1f3;
+  --ink-2: #c2c4c9;
+  --ink-3: #9a9da5;
+  --ink-muted: #7d808a;
+  --accent-text: var(--ember-glow);
+  --serif: 'Playfair Display', Georgia, serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+:root[data-theme="light"] {
+  --ember: #e86f33;
+  --ember-glow: #b85a20;
+  --ember-dim: rgba(184,90,32,0.18);
+  --field: #e8e6e3;
+  --surface: #efede9;
+  --elevated: #fbfaf9;
+  --hover: #e0ddd7;
+  --border: #cfcbc4;
+  --ink-1: #0a0a0a;
+  --ink-2: #2c2c2c;
+  --ink-3: #565656;
+  --ink-muted: #767676;
+  --accent-text: var(--ember-glow);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--field);
+  color: var(--ink-1);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.app { display: flex; flex-direction: column; height: 100vh; }
+
+/* top bar — borrowed from claude-code-hub: left brand, right icon actions */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: 0 0 auto;
+  /* In the frameless WebView2 window this strip is the drag handle. */
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; overflow: hidden; }
+.wordmark { font-family: var(--serif); font-weight: 500; font-size: 18px; letter-spacing: -0.02em; }
+.wordmark .dot { color: var(--ember); }
+.padname { font-family: var(--serif); font-size: 15px; color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view-actions { display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
+.icon-btn {
+  width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--ink-muted); cursor: pointer; transition: all 0.15s ease;
+  text-decoration: none; padding: 0;
+}
+.icon-btn:hover { background: var(--hover); color: var(--ink-1); border-color: var(--ink-muted); }
+.icon-btn svg { width: 16px; height: 16px; }
+#closeBtn:hover { background: var(--ember); color: #fff; border-color: var(--ember); }
+
+/* shortcuts modal */
+.modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center; z-index: 50; }
+.modal { background: var(--elevated); border: 1px solid var(--border); border-radius: 10px;
+  min-width: 340px; max-width: 440px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+.modal-head { display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+  font-family: var(--serif); font-size: 16px; color: var(--ink-1); }
+.shortcuts { margin: 0; padding: 12px 18px 18px; }
+.shortcuts > div { display: flex; align-items: baseline; gap: 14px; padding: 5px 0; }
+.shortcuts dt { flex: 0 0 118px; margin: 0; }
+.shortcuts dt { font-family: var(--mono); font-size: 12px; color: var(--accent-text); }
+.shortcuts dd { margin: 0; font-size: 13px; color: var(--ink-2); }
+
+/* layout */
+.body { display: flex; flex: 1; min-height: 0; }
+.sidebar {
+  width: var(--tree-w, 340px); flex: 0 0 auto; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--surface); border-right: 1px solid var(--border);
+}
+.sidebar.collapsed { display: none; }
+.sidebar.collapsed + .resizer { display: none; }
+.tree { flex: 1; overflow-y: auto; padding: 14px 10px; }
+/* App version, pinned to the sidebar foot (bottom-left). */
+.appver { flex: 0 0 auto; padding: 6px 12px; border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 11px; color: var(--ink-muted); }
+/* Drag handle between sidebar and preview. A wide hit area (easy to grab) with a
+   thin centered visual line that brightens on hover/drag. */
+.resizer { flex: 0 0 6px; cursor: col-resize; position: relative; background: transparent;
+  margin: 0 -3px; z-index: 5; user-select: none; touch-action: none; }
+.resizer::after { content: ""; position: absolute; inset: 0 auto 0 50%; width: 1px;
+  transform: translateX(-50%); background: var(--border); transition: background 0.15s ease; }
+.resizer:hover::after, .resizer.dragging::after { background: var(--ember); width: 2px; }
+.preview { flex: 1; min-width: 0; overflow-y: auto; padding: 24px 28px; }
+/* Single centered reading column — everything inside shares one left edge and
+   fills the column width (rendered markdown AND raw alike). */
+.pbody { max-width: 1200px; margin: 0 auto; }
+
+/* tree */
+.label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-muted); padding: 6px 10px 10px; }
+/* Stacked group headers: separate each group from the rows above it. The first
+   header sits flush at the top; only subsequent ones get the gap + hairline. */
+.label ~ .label { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.frow {
+  display: flex; align-items: baseline; gap: 9px; cursor: pointer;
+  padding: 6px 12px; border-radius: 5px;
+  font-size: 14px; color: var(--ink-2); transition: all 0.15s ease;
+}
+.frow:hover { background: var(--hover); }
+.frow.active { color: var(--ink-1); background: var(--ember-dim); box-shadow: inset 2px 0 0 var(--ember); }
+.frow.unreg { color: var(--ink-muted); font-style: italic; }
+.frow .fttl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow .ftag { color: var(--ink-muted); font-size: 11px; }
+
+/* preview */
+/* header strip: filename crumb (left) + rendered/raw controls (right), with a
+   hairline rule under it so the title block below reads as one grouped unit. */
+.phead { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.pfile { font-family: var(--mono); font-size: 12px; color: var(--accent-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptitle { font-family: var(--serif); font-weight: 500; font-size: 22px; line-height: 1.2; margin: 0 0 4px; }
+.pmeta { font-family: var(--mono); font-size: 12px; color: var(--ink-muted);
+  letter-spacing: 0.02em; margin-bottom: 6px; }
+.pdesc { color: var(--ink-3); font-size: 13px; margin: 4px 0 18px; }
+.divider { border: 0; border-top: 1px solid var(--border); margin: 14px 0 20px; }
+
+/* markdown — fills the reading column (width governed by .pbody). Body copy sits
+   one step down the ink ramp so bold (full-strength + heavier) clearly stands out;
+   heading levels are color-coded down the ember ramp for at-a-glance hierarchy. */
+/* Single sizing knob: heading sizes below are em-relative, so adjusting this one
+   font-size scales the whole reading column proportionally. */
+.md { max-width: 100%; color: var(--ink-2); font-size: 15px; line-height: 1.7; }
+.md strong, .md b { font-weight: 700; color: var(--ink-1); }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  font-family: var(--serif); font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
+/* Stepped progression: h1 accent, then a uniform size + ink-ramp descent. */
+.md h1 { font-size: 1.625em; color: var(--ember-glow); }
+.md h2 { font-size: 1.3125em; color: var(--ink-1); border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+.md h3 { font-size: 1.125em; color: var(--ink-1); }
+.md h4 { font-size: 1em; color: var(--ink-2); }
+.md h5 { font-size: 0.875em; color: var(--ink-3); }
+.md h6 { font-size: 0.8125em; color: var(--ink-muted); }
+.md p { margin: 0.7em 0; }
+.md a { color: var(--accent-text); text-decoration: none; border-bottom: 1px solid var(--ember-dim); }
+.md ul, .md ol { padding-left: 1.4em; margin: 0.6em 0; }
+.md li { margin: 0.2em 0; }
+/* GFM task list items: hanging checkbox, checked ones tinted green.
+   NOT a flex container — flex would make every inline fragment (each text run
+   AND each inline <code>) its own flex item, scattering the sentence. The text
+   must flow as normal inline content; only the checkbox hangs (absolute). */
+.md li.task { list-style: none; margin-left: -1.4em; padding-left: 1.6em; position: relative; }
+.md li.task .chk { position: absolute; left: 0; top: 0.28em;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.05em; height: 1.05em;
+  border: 1.5px solid var(--ink-muted); border-radius: 3px; font-size: 0.8em; color: transparent; }
+.md li.task.done .chk { background: #2ea043; border-color: #2ea043; color: #fff; }
+.md li.task.done { color: var(--ink-3); }
+.md blockquote { border-left: 2px solid var(--border); margin: 0.8em 0; padding: 0 0 0 14px; color: var(--ink-3); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 1.4em 0; }
+.md code { font-family: var(--mono); font-size: 0.9em;
+  background: color-mix(in srgb, var(--ink-muted) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 3px; padding: 1px 5px; }
+.md pre { background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0; }
+.md pre code { background: none; border: 0; padding: 0; font-size: 14px; line-height: 1.7; }
+.md table { border-collapse: collapse; margin: 1em 0; font-size: 13px; width: 100%; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 11px; text-align: left; vertical-align: top; }
+.md thead th { background: color-mix(in srgb, var(--ink-muted) 12%, transparent); color: var(--ink-1); font-weight: 600; }
+.md tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ink-muted) 5%, transparent); }
+
+/* code / raw — larger, more readable monospace for source/raw views */
+pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
+  background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 6px; padding: 14px 16px; margin: 0;
+  /* wrap long lines instead of truncating; break only at whitespace so words/
+     tokens stay intact, with overflow-wrap as the last resort for unbreakable runs */
+  white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; tab-size: 2; }
+.imgwrap { display: flex; justify-content: center; padding: 12px 0; }
+.imgwrap img { max-width: 100%; max-height: 80vh; object-fit: contain;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--elevated); }
+.notice { color: var(--ink-muted); font-size: 13px; padding: 20px 0; }
+.htmlframe { width: 100%; height: 75vh; border: 1px solid var(--border);
+  border-radius: 6px; background: #fff; }
+
+/* preview header controls */
+.pctrls { display: inline-flex; gap: 6px; margin-left: 8px; }
+.pbtn { display: inline-flex; align-items: center; gap: 4px; line-height: 1;
+  background: var(--field); color: var(--ink-muted); border: 1px solid var(--border);
+  border-radius: 4px; padding: 3px 8px; font-family: var(--mono); font-size: 11px; cursor: pointer;
+  transition: all 0.15s ease; }
+.pbtn:hover { background: var(--hover); color: var(--ink-1); }
+.pbtn.on { color: var(--accent-text); border-color: var(--ember-dim); }
+
+/* mermaid */
+.mermaid { margin: 1em 0; text-align: center; }
+.mermaid svg { max-width: 100%; height: auto; }
+
+/* highlight.js — CODE blocks get a full CDN theme (github-dark / github, loaded
+   in <head>). We only strip the theme's own background + padding so blocks sit on
+   our recessed code surface; token colors come from the CDN theme. */
+.hljs { background: transparent; padding: 0; }
+
+/* Raw MARKDOWN source view keeps the warm Lab-Notebook palette (ink ramp + one
+   ember), scoped to .mdsrc so it never touches the CDN-themed code blocks. */
+.mdsrc.hljs { color: var(--ink-1); }
+.mdsrc .hljs-comment, .mdsrc .hljs-quote { color: var(--ink-muted); font-style: italic; }
+.mdsrc .hljs-keyword, .mdsrc .hljs-selector-tag, .mdsrc .hljs-built_in, .mdsrc .hljs-name, .mdsrc .hljs-tag { color: var(--ember-glow); }
+.mdsrc .hljs-string, .mdsrc .hljs-attr, .mdsrc .hljs-template-tag, .mdsrc .hljs-addition { color: var(--ink-2); }
+.mdsrc .hljs-number, .mdsrc .hljs-literal, .mdsrc .hljs-type, .mdsrc .hljs-symbol, .mdsrc .hljs-meta { color: var(--ink-3); }
+.mdsrc .hljs-title, .mdsrc .hljs-function .hljs-title { color: var(--ink-1); font-weight: 500; }
+.mdsrc .hljs-variable, .mdsrc .hljs-params, .mdsrc .hljs-property { color: var(--ink-2); }
+/* Markdown structural tokens — colorful so the raw view reads as highlighted:
+   headers + list markers in ember, links in accent text. */
+.mdsrc .hljs-section { color: var(--ember-glow); font-weight: 700; }
+.mdsrc .hljs-bullet { color: var(--ember); font-weight: 700; }
+.mdsrc .hljs-link { color: var(--accent-text); }
+.mdsrc .hljs-code { color: var(--ink-2); }
+.mdsrc .hljs-emphasis { font-style: italic; color: var(--ink-1); }
+.mdsrc .hljs-strong { font-weight: 700; color: var(--ink-1); }
+
+/* empty states */
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--ink-muted); text-align: center; gap: 8px; }
+.empty .big { font-family: var(--serif); font-size: 20px; color: var(--ink-3); }
+.empty code { background: var(--field); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 8px; font-size: 12px; color: var(--ink-2); }
+
+/* toast — transient feedback (e.g. reload), bottom-left, auto-dismissed */
+.toast {
+  position: fixed; bottom: 16px; left: 16px; z-index: 10000;
+  background: var(--elevated); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 14px; font-family: var(--mono); font-size: 11px; color: var(--ink-2);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.25);
+  opacity: 0; transform: translateY(10px); pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.toast.visible { opacity: 1; transform: translateY(0); }
+.toast.toast-success { border-color: var(--ember); color: var(--ember); }
+.toast.toast-info { color: var(--ink-2); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar" id="topbar">
+    <div class="brand">
+      <span class="wordmark">scratch<span class="dot">.</span></span>
+      <span class="padname" id="padname"></span>
+    </div>
+    <div class="view-actions">
+      <button class="icon-btn" id="reloadBtn" title="Reload from disk (R)" aria-label="Reload">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
+      <button class="icon-btn" id="themeToggle" title="Toggle theme (T)" aria-label="Toggle theme">
+        <svg class="i-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+        <svg class="i-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+      <button class="icon-btn" id="helpBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" id="repoLink" href="https://github.com/nikiforovall/scratchpad" target="_blank" title="View on GitHub" aria-label="View on GitHub">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      </a>
+      <button class="icon-btn" id="closeBtn" title="Close (Esc)" aria-label="Close" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  </header>
+  <div class="body">
+    <div class="sidebar" id="sidebar">
+      <nav class="tree" id="tree"></nav>
+      <div class="appver" title="scratch version">v0.3.1</div>
+    </div>
+    <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+    <main class="preview" id="preview"></main>
+  </div>
+  <div class="modal-scrim" id="helpModal" style="display:none">
+    <div class="modal">
+      <div class="modal-head"><span>Keyboard shortcuts</span><button class="icon-btn" id="helpClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <dl class="shortcuts">
+        <div><dt>↑ ↓ ← → / j k</dt><dd>Next / previous file</dd></div>
+        <div><dt>r</dt><dd>Reload from disk</dd></div>
+        <div><dt>v</dt><dd>Toggle raw / rendered (markdown)</dd></div>
+        <div><dt>t</dt><dd>Toggle theme</dd></div>
+        <div><dt>?</dt><dd>Show this help</dd></div>
+        <div><dt>Esc</dt><dd>Close help / window</dd></div>
+      </dl>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script id="data" type="application/json">{"pads":[{"name":"2026-06-07-scratchpad-app","id":"scratchpad-app","dir":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app","files":[{"path":"plan.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\plan.md","registered":true,"external":false,"title":"Plan & status","description":"Goal, phases, status, v1 criteria evidence, code map","tags":["plan","index"],"type":"note","kind":"markdown","content":"# Plan: Scratchpad App (`scratch`)\n\n## Goal\nShip a CLI-first tool `scratch` that lets agents initialize per-project scratchpads\n(folder + manifest), register files into them, and browse them in a native-window viewer —\nv1 = full CLI loop + a read-only UI rendering a pad + an agent skill + an installable binary.\n\n## Companion docs\n- [spec.md](spec.md) — full functional spec (concept, CLI surface, manifest, slug rules, v1 criteria)\n- [spec-visuals.md](spec-visuals.md) — UI/visual spec (transport, layout, styling)\n- [decisions.md](decisions.md) — key decisions + rationale\n- [references.md](references.md) — glimpse / plannotator / claude-code-hub\n\n## Phases\n- [x] **Phase 1 — Scaffold**: Bun/Node TS project, `scratch` bin entry, arg parser, manifest module.\n- [x] **Phase 2 — CLI core**: `new / add / ls / show / rm`, slug+collision rules, manifest I/O, tests.\n- [x] **Phase 3 — UI viewer**: glimpse transport + browser fallback, 2-pane tree+preview, type-aware\n  rendering, Lab-Notebook theme (dark+light, **auto-detected**), **syntax highlight + markdown\n  raw/rendered toggle + mermaid** (vendored offline, inlined on demand).\n- [x] **Phase 4 — Agent skill**: `skills/scratch/SKILL.md`; `new` onboarding prompt aligned to it.\n- [x] **Phase 5 — Distribution & verify**: `bun link` global + `bun run build` compiled `dist/scratch.exe`\n  (vendor bundles embedded); all four v1 criteria verified.\n\n## Status\n**Current:** ALL PHASES DONE (2026-06-07). v1 shipped + all four success criteria verified.\n26 tests pass (`bun test`): CLI loop, UI render, headless-DOM behavior.\n\n**v1 criteria evidence:**\n1. CLI loop tested — 26 pass + real-FS smoke + global-`scratch` clean loop.\n2. UI renders a pad — glimpse native window with browser fallback; served HTML verified\n   (md render, code highlight, mermaid, raw/rendered toggle, auto-detected theme) incl. from\n   the compiled binary. **Visually verified in a real browser via playwright**: 0 console\n   errors, mermaid → real SVG, code → `.hljs`, theme auto-detected light (#e8e6e3) + manual\n   toggle to dark (#101114), raw toggle shows source. Both themes screenshotted.\n3. Agent skill — `skills/scratch/SKILL.md`; `new` onboarding prompt aligned.\n4. Installable — `bun link` (global, ran from /tmp) + `dist/scratch.exe` (self-contained).\n\n**Code map:** `src/cli.ts` (entry + arg parse), `src/commands.ts`, `src/manifest.ts`,\n`src/discovery.ts`; viewer `src/ui/{render,theme,launch}.ts` + vendored offline bundles\n`src/ui/vendor/{hljs,mermaid}.bundle.js` (rebuild via `scripts/build-vendor.ts`, embedded as\ntext imports for the compiled binary, inlined into the page only when a pad needs them).\nTests: `test/{cli,ui,ui-dom}.test.ts`. `README.md` documents install/usage.\n`ls` scans recursively (maxDepth 6), skips ignore-dirs + dotdirs, does not descend into a\nfound pad — resolves spec §9 `[?]`.\n\n## Build-time decisions (Phase 3–5)\n- **Self-contained HTML**: CLI does all file I/O and embeds pad data + file contents (text\n  inline, images as data URIs) into one HTML string — glimpse and browser render identically,\n  no bidirectional protocol needed.\n- **Offline vendored libs**: highlight.js + mermaid bundled to single-file IIFEs via Bun;\n  inlined conditionally (mermaid's 3.3 MB only when a `mermaid` block exists); imported as\n  text so they bake into the compiled binary. No CDN — works inside the WebView offline.\n- **Theme auto-detect** via `prefers-color-scheme` (works in WebView + browser); manual toggle\n  overrides and stops following the OS.\n- **`rm \u003cpad>`** guarded behind `--force` (deletes dir); **`rm \u003cpad> \u003cfile>`** only unregisters.\n\n## Task outline (delivered)\n\n### Phase 1 — Scaffold\n- 1.1 Init Bun/Node TS project (`package.json`, `tsconfig`, `bin: scratch`, biome/lint).\n- 1.2 Manifest module: `scratchpad.json` types + read/write/validate (version 1 schema).\n- 1.3 Discovery/slug util: slugify; pad = dir w/ `scratchpad.json` (path = identity); scan a\n  root (default cwd, override `--dir`/`SCRATCH_DIR`); same-parent collision → refuse/`--force`.\n\n### Phase 2 — CLI core\n- 2.1 `scratch new \u003cname> --dir \u003cparent> [--id]` → create dir+manifest (--dir required), print onboarding prompt.\n- 2.2 `scratch add \u003cpad> \u003cfile> [--title --desc --tag --type]` → register existing file.\n- 2.3 `scratch ls [\u003cpad>]` → list pads / files.\n- 2.4 `scratch show \u003cpad> [\u003cfile>]` → print metadata / file content.\n- 2.5 `scratch rm \u003cpad> [\u003cfile>]` → manual cleanup (with confirm/guard).\n- 2.6 Tests covering the full CLI loop (v1 criterion #1).\n\n### Phase 3 — UI viewer\n- 3.1 `scratch ui [\u003cpad>]` wiring + glimpse (`glimpseui`) window open; JSON-lines file-fetch protocol.\n- 3.2 2-pane HTML/CSS shell: pad/file tree (left) + preview (right) + metadata strip.\n- 3.3 Type-aware preview: markdown render, code highlight, image, raw/binary fallback.\n- 3.4 Lab-Notebook theme tokens (dark + light toggle).\n- 3.5 Browser+local-server fallback when native toolchain missing (or document-only — see [?]).\n\n### Phase 4 — Agent skill\n- 4.1 Author skill: when/how to make a pad, naming, when to register files via `scratch add`.\n- 4.2 Wire `new` onboarding prompt output to align with skill instructions.\n\n### Phase 5 — Distribution & verify\n- 5.1 Installable binary (bun/npm bin or compiled standalone).\n- 5.2 End-to-end verify against all four v1 success criteria; record evidence.\n\n## Decisions\nSee [decisions.md](decisions.md). Headlines: CLI-first thin layer over FS · **pad = folder+\nmanifest, no central store, path-identity, `new` requires `--dir`** · flat stateless verbs ·\nglimpse transport + browser fallback (v1) · 2-pane, show-all-files, neutral chips, framed\nwindow · dark+light · pure viewer. All prior `[?]` open questions resolved 2026-06-07.\n\n## Errors Encountered\n- None — all phases landed without rework.\n\n"},{"path":"spec.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\spec.md","registered":true,"external":false,"title":"Functional spec","description":"Concept, CLI surface, manifest schema, slug rules, v1 criteria","tags":["spec"],"type":"reference","kind":"markdown","content":"# Scratchpad App — Specification\n\n> Status: v1 scope settled; UI/visual spec done (`spec-visuals.md`); open questions resolved.\n\n## 0. Guiding principle — thin layer over the filesystem\n\n**For the agent, a scratchpad is just a folder of files with a thin metadata layer on top.**\nThe CLI does NOT mediate file content. Its job:\n1. **Initialize** a scratchpad (create the folder + manifest at the right location).\n2. **Emit a prompt** telling the agent how to work with the pad (where it is, conventions).\n3. **Register** files the agent created into the manifest (with metadata).\n\nThe agent then works *directly* on the filesystem — creates/edits files with its normal\ntools inside the pad dir — and uses the CLI only to init and to register/annotate files.\nBinary name: **`scratch`**.\n\n## 1. Concept\n\nA **scratchpad** is a collection of files capturing *temporary knowledge* tied to an agent\nsession or activity. The app lets you create scratchpads (named, or keyed by session id) and\nbrowse/preview them visually. Goal: organize ephemeral agent-generated knowledge, and\n(eventually) integrate it with other systems.\n\nInspiration:\n- **glimpse** (hazat) — quick file preview feel.\n- **plannotator** (backnotprop) — borrow *layout*.\n- **~/dev/claude-code-hub** design system — borrow *styles* (DEFERRED until later).\n\n## 2. Core mental model (decided)\n\n- **Storage = directory + manifest.** Each scratchpad is a folder (named by session id or a\n  human label) containing arbitrary files (.md, code snippets, images, JSON dumps) **plus a\n  manifest** (e.g. `scratchpad.json`) holding metadata: title, session id, tags,\n  created/updated timestamps, file list.\n- **Producer = agents primarily.** Claude Code / agent sessions write scratchpad files\n  automatically (via hooks/tools). Humans mostly view; light curation later.\n- **Viewer = browse + preview.** List scratchpads → click one → preview its files: markdown\n  rendered, code highlighted, images shown. glimpse-style quick look. Annotation is NOT a\n  v1 requirement.\n\n## 3. Interface = CLI-first, optional UI (decided)\n\nThe primary interface is a **CLI**. It is the single surface both humans and agents use.\nA **skill** will later wrap the CLI so agents invoke it naturally during sessions.\n\nThe CLI launches an **optional web UI** (browse + preview) on demand.\n\n### CLI capabilities (initial)\n- Create a scratchpad.\n- Add a file to a scratchpad.\n- List what's in a scratchpad (and list scratchpads).\n- Attach optional **meta info** about a scratchpad file.\n- Open the UI.\n- `[?]` **Query** a scratchpad — flagged as a \"dig deeper\" idea (search/grep across files?\n  semantic query? filter by metadata?). Usefulness TBD.\n\n### Location & addressing (decided — no central store)\n\n**A scratchpad is just a folder containing `scratchpad.json`. The folder path is its\nidentity. The tool assumes NO central store** (`./_scratchpads` is not baked in).\n\n- **Creation requires an explicit location.** `scratch new \u003cname> --dir \u003cparent>` creates\n  `\u003cparent>/\u003cslug>/`. With no `--dir`, the command errors — placement is always deliberate.\n  The agent/skill *suggests* a location (e.g. `_plans/` or `_scratchpads/`) but the tool\n  never assumes one.\n- **Discovery = scan a root.** `ls` / `add` / `show` / `ui` operate on a **root dir**\n  (default = cwd; override with `--dir` or `SCRATCH_DIR`) and find pads by scanning for\n  `scratchpad.json`. A pad is referenced by name (resolved within the scanned root) or by path.\n- **Name collisions are fine across different dirs** — identity is the path, so two pads may\n  share a name in different locations. Within the *same* parent dir, an existing slug = an\n  existing pad → `new` refuses (use `--force` to adopt/overwrite-manifest).\n- Co-locating pads under `_plans/` is a first-class use (a scratchpad and a planning task\n  folder are the same kind of artifact).\n\n## 4. Tech & decisions (decided)\n\n- **Stack: Bun/Node + web UI.** Single TS codebase. CLI in Bun/Node; `scratch ui` renders an\n  HTML UI for browse+preview. **Transport = glimpse native WebView** (`glimpseui`), not a\n  browser tab (see spec-visuals §2; browser+local-server kept as a fallback). Web design refs\n  (glimpse/plannotator/claude-code-hub) drop straight in.\n- **Identity: the folder path.** Addressed by path, or by name resolved within a scanned\n  root (see §3). An optional `id` (e.g. session id) is stored in the manifest only.\n- **Query: deferred to v2.** v1 = create / add / list / open. Design query once real\n  scratchpads exist.\n- **Lifecycle: kept, manual cleanup.** Never auto-delete. Provide `rm`/`prune` commands.\n\n## 5. CLI command surface (decided)\n\n**Style: noun-less flat verbs. Stateless — pad always named explicitly (no \"active\" pad).**\n\n**Pad referenced by name (resolved within the root) or by path. Root = cwd, or `--dir` /\n`SCRATCH_DIR`.**\n\n```\nscratch new \u003cname> --dir \u003cparent> [--id \u003cid>]   # create \u003cparent>/\u003cslug>/ + manifest,\n                                     #   then PRINT a prompt: where the pad is + how to use it\n                                     #   (--dir REQUIRED — no assumed location)\nscratch add \u003cpad> \u003cfile> [--title .. --desc .. --tag t1,t2 --type note]\n                                     # register an ALREADY-PRESENT file into the manifest\nscratch ls [--dir \u003croot>]            # list pads found under root (scan for scratchpad.json)\nscratch ls \u003cpad>                     # list files in a pad\nscratch show \u003cpad> [\u003cfile>]          # print metadata / file content\nscratch rm \u003cpad> [\u003cfile>]            # manual cleanup\nscratch ui [\u003cpad>] [--dir \u003croot>]    # UI (glimpse window; browser fallback) over root/pad\n```\n\n**`add` = create-in-place + register.** The agent writes the file into the pad dir using its\nown tools, then calls `add` to record it in the manifest with metadata. The CLI does not copy,\nmove, or author content — it only registers and annotates. (Reasonable to also let `add` warn\nif the file isn't under the pad dir.)\n\n**`new` output is a prompt, not just a confirmation** — it tells the agent the absolute pad\npath, the manifest location, and the recommended workflow (write files here, then\n`scratch add` to register). This is the agent's onboarding into the pad.\n\n## 6. Manifest schema (decided fields)\n\nPer scratchpad (`\u003cparent>/\u003cslug>/scratchpad.json`):\n- `name`, `id` (optional), `created`, `updated`, `files[]`.\n\nPer file entry:\n- `path`, **`title`**, **`description`** (why it exists), **`tags[]`**, **`type/role`**\n  (note / snippet / output / artifact / reference).\n- Provenance (source tool/command/url) — **excluded from v1**, candidate for later.\n\n### Concrete `scratchpad.json` shape (decided)\n\n```json\n{\n  \"version\": 1,\n  \"name\": \"auth refactor\",\n  \"id\": \"abc123session\",\n  \"created\": \"2026-06-07T10:00:00Z\",\n  \"updated\": \"2026-06-07T11:30:00Z\",\n  \"files\": [\n    {\n      \"path\": \"notes.md\",\n      \"title\": \"Auth flow notes\",\n      \"description\": \"Why the token refresh races\",\n      \"tags\": [\"bug\", \"auth\"],\n      \"type\": \"note\"\n    }\n  ]\n}\n```\n- `version` — schema version, lets the format evolve.\n- `path` — **relative to the pad dir** (pad stays portable).\n- Timestamps — ISO-8601 UTC.\n- `type` — enum: `note | snippet | output | artifact | reference` (default `note`).\n- Unknown/extra keys tolerated on read (forward-compatible).\n\n### Slug & collision rules (decided)\n\n- Folder name = **slug of `name`** (lowercase, spaces/punct → `-`, trim repeats).\n  `\"Auth Refactor!\"` → `auth-refactor`.\n- `--id` is stored in the manifest only; it does **not** change the folder name.\n- **Collision is scoped to one parent dir.** Two pads may share a name in *different*\n  `--dir` parents (path = identity). Within the *same* parent: if `\u003cparent>/\u003cslug>` already\n  exists, `new` **refuses** with a clear error; `--force` adopts/overwrites the manifest.\n  No silent suffixing — predictable folder names.\n\n## 7. UI\n\nBrowse + preview. **Full visual spec → `spec-visuals.md`.** Summary:\n- Transport: **glimpse native WebView** (browser+server fallback).\n- Layout: **2-pane** — collapsible pad/file tree (left) + preview (right).\n- Style: **claude-code-hub \"Lab Notebook\"** tokens; **dark + light toggle** in v1.\n- **Pure viewer** — plannotator's annotation / Ask-AI / feedback model deliberately dropped.\nNot a v1 blocker for the CLI, but in scope for v1 success criterion #2.\n\n## 8. v1 success criteria (decided — all required)\n\n1. **Full CLI loop works** — `new --dir / add / ls / show / rm` operate over a folder+manifest\n   under an explicit/scanned root, with a valid manifest. Verified by tests.\n2. **UI renders a pad** — `scratch ui` opens (glimpse window or browser fallback), lists pads,\n   previews a pad's markdown / code / images.\n3. **Agent skill wired** — a skill lets Claude Code agents init + populate scratchpads via\n   the `scratch` CLI in a real session.\n4. **Installable binary** — `scratch` runs globally on the machine (bun/npm bin or compiled).\n\n## 9. Remaining design work (post-spec)\n\n- `query` command — v2 (search across files + metadata).\n- Provenance metadata — later.\n- `[?]` Whether `scratch ls` scans the root recursively or one level deep (lean: recursive,\n  but skip nested pads inside a pad). Decide in build.\n"},{"path":"spec-visuals.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\spec-visuals.md","registered":true,"external":false,"title":"UI / visual spec","description":"Viewer transport, 2-pane layout, Lab-Notebook styling","tags":["spec","ui"],"type":"reference","kind":"markdown","content":"# Scratchpad App — Visual / UI Specification\n\n> Companion to `spec.md`. Covers the `scratch ui` viewer only. v1 = **read-only browse + preview**.\n\n## 1. Reference synthesis\n\nThe three references play distinct, non-overlapping roles:\n\n| Reference | Role here | What we take |\n|-----------|-----------|--------------|\n| **glimpse** (HazAT) | **Transport** | Native WebView window driven from Node over JSON-lines stdin/stdout (`npm i glimpseui`, `open(html, opts)`). No Electron, no browser tab. |\n| **plannotator** (backnotprop) | **Layout feel** | Document-centric review surface: a rendered doc in a roomy main pane, lightweight nav. We take the *layout*, NOT the annotation / Ask-AI / send-to-agent model. |\n| **claude-code-hub** | **Styling** | \"Lab Notebook\" design system — full token set (colors, type, spacing, elevation, components). Dark-first + warm-paper light sibling. |\n\n## 2. Transport — glimpse native webview (decided)\n\n`scratch ui [\u003cpad>]` opens a **native WebView window** via `glimpseui`, not a browser tab.\n\n- Node/Bun CLI builds the HTML (UI + embedded pad data) and calls `open(html, opts)`.\n- Window ↔ CLI talk over glimpse's bidirectional JSON-lines protocol (e.g. UI requests a\n  file's content, CLI reads from disk and sends it back). Keeps file I/O on the CLI side.\n- Window opts: **framed native window** (standard OS titlebar — simplest, no per-OS drag/\n  control quirks; theme lives inside the content area), default size ~`1100x720`, title\n  `scratch · \u003cpad name>`.\n- **Browser+server fallback is built in v1 (decided).** glimpse compiles a per-OS native\n  backend (Windows = .NET 8 + WebView2); when that backend is unavailable, `scratch ui`\n  serves the **same HTML** via a local server and opens the browser. Guarantees `scratch ui`\n  always works; one codebase either way.\n\n## 3. Layout — 2-pane: tree + preview (decided)\n\n```\n┌────────────┬───────────────────────────────┐\n│  ▾ auth    │  # Auth flow                   │   ← Playfair serif title (display)\n│    notes.md│                                │\n│    diff.txt│  rendered markdown / code /    │   ← IBM Plex Mono body\n│  ▸ refactor│  image preview, 65–75ch measure│\n│  ▸ logs    │                                │\n│            │                                │\n│ [SCRATCH]  │  notes.md · note · #bug #auth  │   ← file metadata strip (label type)\n└────────────┴───────────────────────────────┘\n```\n\n- **Left pane — pad/file tree.** Collapsible: each scratchpad is a top-level node, its files\n  nested under it. **Shows ALL files in the pad dir, not just manifest-registered ones**\n  (decided) — registered files show title/type/tags; unregistered files render dimmed/plain\n  (no metadata). Matches the \"it's a filesystem\" principle; nothing is hidden. Active file\n  highlighted with the ember mark. Pads sorted by `updated` desc. Width ~280px, resizable;\n  surface tone (`bg-surface`).\n- **Right pane — preview.** Renders the selected file by type:\n  - `.md` → rendered markdown (GitHub-ish), prose capped 65–75ch.\n  - code (by extension) → syntax-highlighted, mono.\n  - images (`.png/.jpg/.svg/...`) → shown inline, contained.\n  - other/unknown → raw text in mono, or a \"no preview\" note for binaries.\n- **File metadata strip** (bottom of preview or under the title): file `title`, `type`\n  chip, `tags` as chips, `description` as muted body. Read from the manifest. Read-only.\n- **Top bar:** app wordmark (serif), current pad name, theme toggle, nothing else. This is a\n  tool, not a funnel — no CTAs.\n- **Empty states:** no pads under the root → quiet centered note + the `scratch new --dir`\n  hint; empty pad dir → quiet \"no files yet\" note.\n\n## 4. Styling — claude-code-hub \"Lab Notebook\" (decided)\n\nAdopt the design-system tokens verbatim. **Dark + light toggle in v1.**\n\n### Type (the two-voice rule)\n- **Serif — Playfair Display:** app wordmark, pad title (display ~22px), section heads.\n- **Mono — IBM Plex Mono:** everything else — file rows, preview body/code, metadata, labels.\n- Labels: mono 11px, UPPERCASE, +0.08em (\"PADS\", \"FILES\", \"TAGS\").\n- No third typeface. A heading in mono or data in serif is a bug.\n\n### Color (dark canonical / paper light)\n- Field `#101114` / `#e8e6e3` — body canvas, tree well.\n- Surface `#16181c` / `#efede9` — panes, rows.\n- Elevated `#1e2025` / `#fbfaf9` — chips, popovers (small nested only; never pure white).\n- Border `#363840` / `#cfcbc4` — hairline pane divider.\n- Ink ramp primary→muted for content→metadata.\n- **Ember `#e86f33`** (glow `#f0a070` dark / ink `#b85a20` light): active file mark, focus\n  ring tint, theme-toggle active. Under 10% of any screen — the One Ember Rule.\n- **Chips are neutral (decided).** Tag and `type` chips stay neutral (`field` bg, secondary\n  ink) — type isn't a \"status,\" so it doesn't earn a signal hue. Ember stays reserved for the\n  active selection. Upholds the One-Ember Rule.\n\n### Depth (tonal-first, flat at rest)\n- Panes separate by tone step + hairline border, **no resting shadows**.\n- Shadows only for: focus ring (`0 0 0 2px accent-dim`), and if a future overlay/modal\n  appears. The 2-pane viewer is essentially flat.\n\n### Components\n- **Tree rows:** transparent at rest, `bg-hover` on hover, ember mark + faint tint when\n  active. Disclosure triangles for pad nodes.\n- **Chips** (tags / type): `field` bg, `ink-secondary`, hairline, `rounded.sm`, 2–8px pad.\n- **Theme toggle:** icon button (`field` bg, muted glyph → `ink-primary` + hairline on hover).\n- Transitions `all 0.15s ease`.\n\n## 5. Explicitly OUT for v1 (from references, deliberately not taken)\n- plannotator's **inline annotations**, **Ask AI** side chat, **send-feedback-to-agent**,\n  **plan diff**, **encrypted sharing** — scratchpads are not plans to review. Pure viewer.\n- Editing manifest/metadata from the UI (read-only; CLI owns writes).\n- `query`/search UI (spec §9, v2).\n\n## 6. Resolved (2026-06-07)\n- Fallback → **build browser+server in v1**.\n- Chips → **neutral**.\n- Unregistered files → **show all, mark unregistered**.\n- Window chrome → **framed native**.\n\nNo open visual questions remain for v1.\n"},{"path":"decisions.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\decisions.md","registered":true,"external":false,"title":"Design decisions","description":"ADRs + rationale: CLI-first, pad=folder+manifest, transport","tags":["decisions"],"type":"note","kind":"markdown","content":"# Decisions: Scratchpad App\n\n## Storage model — directory + manifest\n**Status:** Decided\n**Choice:** Each scratchpad = a folder containing arbitrary files **+** a `scratchpad.json`\nmanifest (name, id?, created, updated, files[] with title/description/tags/type).\n**Rationale:** Self-contained, portable, inspectable; manifest enables listing/metadata/future query.\n\n## Producer — agents primarily\n**Status:** Decided\n**Choice:** Agents create+fill pads; humans mostly view (light curation later).\n**Rationale:** Goal is organizing temporary agent-generated knowledge.\n\n## Interface — CLI-first, thin layer over the filesystem\n**Status:** Decided\n**Choice:** `scratch` CLI initializes pads, emits an onboarding prompt, and registers files.\nThe agent works *directly* on files with its own tools; the CLI never authors content.\n**Rationale:** For the agent a pad should feel like a filesystem with a thin metadata layer —\nnot a mediated store. Minimal new infra.\n\n## Storage model & addressing — folder+manifest, no central store\n**Status:** Decided (revised 2026-06-07)\n**Choice:**\n- A scratchpad is **just a folder containing `scratchpad.json`**; the **folder path is its\n  identity**. The tool assumes **no central store** — `./_scratchpads` is not baked in.\n- **`new` requires an explicit `--dir \u003cparent>`** → creates `\u003cparent>/\u003cslug>/`. No `--dir` =\n  error. Placement is always deliberate; the agent/skill *suggests* a location but the tool\n  never assumes one.\n- **Discovery = scan a root.** `ls/add/show/ui` operate on a root (default cwd; override\n  `--dir` / `SCRATCH_DIR`) and find pads by scanning for `scratchpad.json`. Pad referenced by\n  name (within root) or by path.\n- **Name collisions OK across different dirs** (path = identity). Same parent + existing slug\n  → `new` refuses, `--force` to adopt.\n**Rationale:** User wants a pad to be literally \"a folder with a manifest,\" location chosen\nper session — not a magic global store. Path-as-identity makes pads portable and lets them\nco-locate under `_plans/` (same kind of artifact as planning folders) without a parallel\nstore. Requiring `--dir` prevents accidental clutter and keeps intent explicit.\n\n## CLI grammar — flat verbs, stateless\n**Status:** Decided\n**Choice:** `scratch new/add/ls/show/rm/ui`. No \"active\" pad — pad named explicitly each call.\n**Rationale:** Predictable, no hidden state surprises for agents.\n\n## `add` semantics — create-in-place + register\n**Status:** Decided\n**Choice:** Agent writes the file into the pad dir, then `scratch add` records it in the\nmanifest with metadata. CLI does not copy/move/author.\n**Rationale:** Matches the thin-layer principle; the agent already produced the file.\n\n## Identity & slug — folder = slug of name; collision scoped per parent dir\n**Status:** Decided\n**Choice:** Within a `--dir` parent, folder = slug of `name`; `--id` in manifest only.\nSame-parent slug collision → refuse (`--force` to adopt). Different parents may reuse a name.\n**Rationale:** Predictable names; path is the real identity (see Storage model).\n\n## Lifecycle — kept, manual cleanup\n**Status:** Decided\n**Choice:** Never auto-delete; `rm`/`prune` commands. Track timestamps.\n**Rationale:** Avoid losing useful notes; \"temporary\" ≠ auto-destroyed.\n\n## Query — deferred to v2\n**Status:** Decided\n**Choice:** v1 = create/add/ls/show/rm/ui. Design query (text/metadata) once real pads exist.\n\n## UI transport — glimpse native WebView, browser+server fallback built in v1\n**Status:** Decided\n**Choice:** `scratch ui` opens a native WebView via `glimpseui`; if the native backend is\nunavailable, serve the **same HTML** via a local server + browser. **Fallback is built in\nv1** (not just documented). Window is **framed native** (standard titlebar).\n**Rationale:** App-like default; guaranteed-working fallback since the glimpse backend needs\na per-OS toolchain (Windows = .NET 8 SDK + WebView2). One HTML codebase either way.\n\n## UI layout — 2-pane tree + preview\n**Status:** Decided\n**Choice:** Collapsible pad/file tree (left) + type-aware preview (right) + metadata strip.\n**Rationale:** Document-centric (plannotator feel) with full nav visible; roomy preview.\n\n## UI styling — claude-code-hub \"Lab Notebook\", dark + light\n**Status:** Decided\n**Choice:** Adopt the design-system tokens verbatim; ship dark + light toggle in v1.\n**Rationale:** Tokens already specified; two-voice serif/mono + one ember fits a \"kept record\".\n\n## UI — show all files; neutral chips\n**Status:** Decided (2026-06-07)\n**Choice:** Tree shows **all files in the pad dir**, not just manifest-registered (registered\nshow metadata, unregistered render dimmed/plain). Tag/type chips are **neutral** (no hue).\n**Rationale:** \"It's a filesystem\" — don't hide real content the agent wrote but didn't\nregister. Type isn't a status, so it doesn't earn a signal color; keeps the One-Ember Rule.\n\n## UI scope — pure viewer\n**Status:** Decided\n**Choice:** Drop plannotator's annotation / Ask-AI / send-to-agent / sharing. Read-only;\nCLI owns all writes.\n**Rationale:** Scratchpads are notes to browse, not plans to review.\n\n## Stack — Bun/Node + TS\n**Status:** Decided\n**Choice:** Single TS codebase; CLI in Bun/Node; `glimpseui` for the window.\n**Rationale:** Web design refs drop in; one language end-to-end.\n"},{"path":"references.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\references.md","registered":true,"external":false,"title":"External references","description":"glimpse / plannotator / claude-code-hub source links","tags":["links"],"type":"reference","kind":"markdown","content":"# References: Scratchpad App\n\n## Design / prior art\n\n- **glimpse** (HazAT) — https://github.com/HazAT/glimpse\n  Native micro-UI for scripts/agents. Opens a native WebView, bidirectional JSON-lines\n  protocol over stdin/stdout. `npm i glimpseui`; `open(html, opts)`. Windows backend = .NET 8\n  + WebView2. **Role: UI transport.**\n\n- **plannotator** (backnotprop) — https://github.com/backnotprop/plannotator\n  Browser tool to review agent plans / code diffs: inline annotations, Ask-AI side chat,\n  send feedback to agents, encrypted sharing. Delivered as a CLI binary + plugin/hook.\n  **Role: layout feel only** (document-centric); annotation/feedback model deliberately NOT taken.\n\n- **claude-code-hub design system** — `~/dev/claude-code-hub/DESIGN.md`\n  \"Lab Notebook\": Playfair Display serif headings over IBM Plex Mono data; dark-first\n  (`#101114`) + warm-paper light sibling (`#e8e6e3`); one terracotta ember (`#e86f33`) accent;\n  tonal-first depth, flat at rest; full token set (colors/type/spacing/elevation/components).\n  **Role: styling.**\n\n## Internal context\n- planning-with-files convention: `_plans/YYYY-MM-DD-task/` — relevant because scratchpads may\n  be configured to live under `_plans/` (see decisions.md → Storage location).\n- User design preference: ruthless concision; evidence-driven (verify via tests/runs).\n"},{"path":"README.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\README.md","registered":true,"external":true,"description":"Project README (repo root) — linked for reference in the pad","type":"reference","kind":"markdown","content":"# scratch\n\n[![npm version](https://img.shields.io/npm/v/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)\n[![npm downloads](https://img.shields.io/npm/dm/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)\n[![license](https://img.shields.io/github/license/nikiforovall/scratchpad.svg)](LICENSE)\n\nCLI-first tool to organize **temporary agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).\n\nA scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.\n\n![scratch viewer](https://raw.githubusercontent.com/nikiforovall/scratchpad/main/assets/demo.png)\n\n## Why\n\nAgents generate a lot of *temporary* knowledge per session — notes, snippets, command output, intermediate artifacts — and it has no home. It ends up scattered across the repo, buried in chat history, or lost when the context window rolls over.\n\nA scratchpad gives that working memory a deliberate place: a folder + `scratchpad.json` manifest, kept out of your source tree, that captures **what** each file is and **why** it exists.\n\n- **Durable, inspectable agent memory.** The agent writes files and registers them with a `--desc`/`--type`; the knowledge survives the session and stays reviewable.\n- **A human can browse it.** `scratch ui` opens a read-only viewer (markdown, code highlighting, mermaid) so you can see what the agent gathered — no digging through transcripts.\n- **No lock-in.** It's just files on disk. The CLI never authors or moves content; delete the folder and it's gone.\n\n## Install\n\nRequires [Bun](https://bun.sh) — `scratch` runs on the Bun runtime.\n\n```bash\nbun add -g @nikiforovall/scratchpad   # global install from npm (exposes `scratch`)\n```\n\nFrom source:\n\n```bash\nbun install\nbun link             # exposes `scratch` globally (needs bun on PATH)\n# — or — build a standalone binary (no bun needed to run it):\nbun run build        # → dist/scratch(.exe), bundles + compiles\n```\n\n### Claude Code plugin\n\nThis repo doubles as a Claude Code plugin marketplace. It ships the `scratch` skill so the agent knows when and how to drive the CLI (the CLI itself still comes from the install above):\n\n```\n/plugin marketplace add NikiforovAll/scratchpad\n/plugin install scratchpad@scratchpad\n```\n\n### pi package\n\nFor the [pi coding agent](https://pi.dev), the [`@nikiforovall/pi-scratchpad`](pi/) package ships the same skills plus `/scratch ui | export | stop` commands for the viewer (the `scratch` CLI still comes from the install above):\n\n```\npi install npm:@nikiforovall/pi-scratchpad\n```\n\n## Usage\n\n```bash\nscratch new \"\u003cname>\" --dir \u003cparent> [--id \u003cid>] [--force]\n    # create \u003cparent>/\u003cslug>/ + manifest, print an onboarding prompt.\n    # --dir is REQUIRED — placement is always deliberate (no assumed location).\n\nscratch add \u003cpad> \u003cfile> [--title ..] [--desc ..] [--tag a,b] [--type note] [--group ..]\n    # register an already-present file into the manifest with metadata.\n    # --group \u003cname>: list files sharing a group together under a viewer header.\n    # --link [--as \u003clabel>]: link an EXTERNAL file (outside the pad) by reference;\n    #   content stays put, --as sets its in-pad label (default: basename).\n\nscratch ls [\u003cpad>] [--dir \u003croot>]\n    # no \u003cpad>: list pads under root.  with \u003cpad>: list its registered files.\n\nscratch show \u003cpad> [\u003cfile>] [--dir \u003croot>]\n    # no \u003cfile>: print the manifest.  with \u003cfile>: print metadata + content.\n\nscratch rm \u003cpad> [\u003cfile>] [--dir \u003croot>] [--force]\n    # with \u003cfile>: unregister (file left on disk).  without: delete pad (--force).\n\nscratch ui [\u003cpad>] [--dir \u003croot>] [--browser] [--install-native]\n    # read-only viewer: glimpse native window by default, browser fallback.\n    # --install-native builds the native host on demand (needs .NET 8 SDK).\n\nscratch export [\u003cpad>] [--dir \u003croot>] [-o \u003cfile>]\n    # write the viewer to a single HTML file (file contents embedded; highlight.js\n    # / mermaid load from a pinned CDN), openable in any browser. Default out: \u003cpad-name>.html.\n```\n\n**Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.\n\n## Viewer\n\nRead-only, 2-pane (pad/file tree + preview) in a \"Lab Notebook\" theme that **auto-detects** OS light/dark. Shows **all** files in the pad dir (unregistered ones dimmed). Per-file preview:\n\n- Markdown rendered, with a **raw/rendered toggle**.\n- Code **syntax-highlighted** (highlight.js).\n- **Mermaid** diagrams (` ```mermaid ` fenced blocks).\n- Images inline; binaries / oversized files get a notice.\n\nTransport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser.\n\n## Config\n\nUser-level viewer preferences live in a single JSON file (machine-wide, not per-pad):\n\n```jsonc\n// ~/.config/scratchpad/config.json\n{\n  \"ui\": {\n    \"frameless\": true   // native window without OS title bar/border (page draws\n                        // its own close button + drag strip). Set false for native chrome.\n  }\n}\n```\n"}]}],"rootLabel":"2026-06-07-scratchpad-app"}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js" integrity="sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+let DATA = JSON.parse(document.getElementById('data').textContent);
+const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function mdInline(s) {
+  s = esc(s);
+  s = s.replace(/\`([^\`]+)\`/g, (_, c) => '<code>' + c + '</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
+  return s;
+}
+// Map a fence/extension language token to highlight.js's canonical grammar name.
+// Two reasons this is needed: (1) hljs parses the language out of the
+// "language-X" class with [\\w-]+, so a class like "language-c#" yields just "c"
+// (highlighted as C, not C#) \u2014 normalizing to "csharp" fixes that; (2) some file
+// extensions (hpp, cxx, h) aren't hljs aliases. Anything not in the map passes
+// through unchanged, so hljs's built-in aliases (cs, rs, py, ...) still work.
+const LANG_ALIAS = {
+  'c#': 'csharp', 'cs': 'csharp',
+  'c++': 'cpp', 'cxx': 'cpp', 'cc': 'cpp', 'hpp': 'cpp', 'hxx': 'cpp', 'h': 'c',
+  'f#': 'fsharp', 'fs': 'fsharp',
+  'objective-c': 'objectivec', 'objc': 'objectivec', 'obj-c': 'objectivec',
+  'ps1': 'powershell', 'ps': 'powershell', 'pwsh': 'powershell',
+};
+function normLang(lang) {
+  if (!lang) return lang;
+  const k = lang.toLowerCase();
+  return LANG_ALIAS[k] || k;
+}
+function renderMarkdown(src) {
+  const lines = src.replace(/\r\n/g, '\n').split('\n');
+  let html = '', i = 0, inUl = false, inOl = false;
+  const closeLists = () => { if (inUl) { html += '</ul>'; inUl = false; } if (inOl) { html += '</ol>'; inOl = false; } };
+  while (i < lines.length) {
+    let line = lines[i];
+    let fence = line.match(/^\s*\`\`\`\s*([^\s\`]*)\s*$/);
+    if (fence) {
+      closeLists(); const lang = normLang(fence[1] || ''); i++; let buf = [];
+      while (i < lines.length && !/^\s*\`\`\`\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++;
+      if (lang === 'mermaid') html += '<div class="mermaid">' + esc(buf.join('\n')) + '</div>';
+      else html += '<pre><code' + (lang ? ' class="language-' + lang + '"' : '') + '>' + esc(buf.join('\n')) + '</code></pre>';
+      continue;
+    }
+    // GFM pipe table: a header row followed by a |---|:--:|---| separator row.
+    if (line.indexOf('|') !== -1 && i + 1 < lines.length &&
+        /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
+      closeLists();
+      const cells = (r) => { let s = r.trim(); if (s.startsWith('|')) s = s.slice(1); if (s.endsWith('|')) s = s.slice(0, -1); return s.split('|').map(c => c.trim()); };
+      const heads = cells(line);
+      const aligns = cells(lines[i + 1]).map(c => { const l = c.startsWith(':'), r = c.endsWith(':'); return l && r ? 'center' : r ? 'right' : l ? 'left' : ''; });
+      const sty = (ci) => aligns[ci] ? ' style="text-align:' + aligns[ci] + '"' : '';
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].indexOf('|') !== -1 && !/^\s*$/.test(lines[i])) { rows.push(cells(lines[i])); i++; }
+      let t = '<table><thead><tr>';
+      heads.forEach((h, ci) => { t += '<th' + sty(ci) + '>' + mdInline(h) + '</th>'; });
+      t += '</tr></thead><tbody>';
+      rows.forEach(rc => { t += '<tr>'; heads.forEach((_, ci) => { t += '<td' + sty(ci) + '>' + mdInline(rc[ci] || '') + '</td>'; }); t += '</tr>'; });
+      html += t + '</tbody></table>';
+      continue;
+    }
+    let m;
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { closeLists(); html += '<h' + m[1].length + '>' + mdInline(m[2]) + '</h' + m[1].length + '>'; i++; continue; }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { closeLists(); html += '<hr/>'; i++; continue; }
+    if ((m = line.match(/^\s*>\s?(.*)$/))) { closeLists(); html += '<blockquote>' + mdInline(m[1]) + '</blockquote>'; i++; continue; }
+    if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+      if (!inUl) { closeLists(); html += '<ul>'; inUl = true; }
+      // GFM task list item: "- [ ] todo" / "- [x] done". Checked \u2192 green box.
+      const task = m[1].match(/^\[([ xX])\]\s+(.*)$/);
+      if (task) {
+        const done = task[1] !== ' ';
+        html += '<li class="task' + (done ? ' done' : '') + '"><span class="chk">' + (done ? '\u2713' : '') + '</span>' + mdInline(task[2]) + '</li>';
+      } else { html += '<li>' + mdInline(m[1]) + '</li>'; }
+      i++; continue;
+    }
+    if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) { if (!inOl) { closeLists(); html += '<ol>'; inOl = true; } html += '<li>' + mdInline(m[1]) + '</li>'; i++; continue; }
+    if (/^\s*$/.test(line)) { closeLists(); i++; continue; }
+    closeLists(); html += '<p>' + mdInline(line) + '</p>'; i++;
+  }
+  closeLists();
+  return html;
+}
+
+// Highlight a code string with hljs for a given language; falls back to escaped
+// plain text when hljs or the grammar is unavailable.
+function hlCode(code, lang) {
+  if (window.hljs && lang && window.hljs.getLanguage && window.hljs.getLanguage(lang)) {
+    try { return window.hljs.highlight(code, { language: lang }).value; } catch (e) {}
+  }
+  return esc(code);
+}
+// Raw markdown view: hljs's markdown grammar does NOT recurse into fenced blocks
+// (a \`\`\`json block stays plain), so we split the source ourselves \u2014 markdown
+// runs highlighted as markdown, each fence's body highlighted as ITS language \u2014
+// and stitch them back with the fence delimiter lines preserved.
+function highlightRawMarkdown(src) {
+  if (!window.hljs) return esc(src);
+  const lines = src.replace(/\r\n/g, '\n').split('\n');
+  const parts = []; let mdbuf = [], i = 0;
+  const flush = () => { if (mdbuf.length) { parts.push(hlCode(mdbuf.join('\n'), 'markdown')); mdbuf = []; } };
+  while (i < lines.length) {
+    const open = lines[i].match(/^\s*\`\`\`+\s*([^\s\`]*)\s*$/);
+    if (open) {
+      const lang = normLang(open[1] || '');
+      const openLine = lines[i]; i++;
+      const code = [];
+      while (i < lines.length && !/^\s*\`\`\`+\s*$/.test(lines[i])) { code.push(lines[i]); i++; }
+      const hasClose = i < lines.length; const closeLine = hasClose ? lines[i] : '';
+      if (hasClose) i++;
+      flush();
+      let block = '<span class="hljs-code">' + esc(openLine) + '</span>';
+      if (code.length) block += '\n' + hlCode(code.join('\n'), lang);
+      if (hasClose) block += '\n<span class="hljs-code">' + esc(closeLine) + '</span>';
+      parts.push(block);
+      continue;
+    }
+    mdbuf.push(lines[i]); i++;
+  }
+  flush();
+  return parts.join('\n');
+}
+
+let current = null;       // key of selected file
+let currentRef = null;    // { pad, f }
+let rawMode = false;      // markdown: show source instead of rendered
+// Remember the raw/rendered preference across files AND sessions (localStorage
+// works in the browser fallback; the native data-URL origin may not persist it,
+// so it's wrapped in try/catch). The choice is sticky \u2014 switching files keeps it.
+try { rawMode = localStorage.getItem('scratch.raw') === '1'; } catch (_) {}
+function setRaw(v) {
+  rawMode = v;
+  try { localStorage.setItem('scratch.raw', v ? '1' : '0'); } catch (_) {}
+}
+let ITEMS = [];           // flat [{pad,f}] in tree order \u2014 for j/k navigation
+let curIdx = -1;          // index of selected file within ITEMS
+let lastTreeHtml = null;  // last tree markup rendered \u2014 skip DOM swap when unchanged
+
+// Resolve a relative link target against the current file's directory \u2192 a pad
+// path. Pads are usually flat, but handle ./ and ../ segments anyway.
+function resolveRel(from, rel) {
+  if (rel.startsWith('/')) return rel.replace(/^\/+/, '');
+  const base = from.split('/').slice(0, -1);
+  rel.split('/').forEach(p => { if (p === '..') base.pop(); else if (p !== '.' && p !== '') base.push(p); });
+  return base.join('/');
+}
+
+function mermaidTheme() { return document.documentElement.dataset.theme === 'light' ? 'neutral' : 'dark'; }
+
+function enhance(container) {
+  if (window.hljs) {
+    container.querySelectorAll('pre code:not(.hl-done)').forEach(el => { try { window.hljs.highlightElement(el); } catch (e) {} });
+  }
+  if (window.mermaid) {
+    const nodes = container.querySelectorAll('.mermaid');
+    if (nodes.length) {
+      try {
+        window.mermaid.initialize({ startOnLoad: false, theme: mermaidTheme(), securityLevel: 'strict' });
+        window.mermaid.run({ nodes });
+      } catch (e) {}
+    }
+  } else {
+    // CDN mermaid failed to load (offline): show the diagram SOURCE as a readable
+    // code block instead of a div with whitespace-collapsed text.
+    container.querySelectorAll('.mermaid').forEach(el => {
+      const pre = document.createElement('pre'); pre.className = 'code';
+      const code = document.createElement('code'); code.textContent = el.textContent;
+      pre.appendChild(code); el.replaceWith(pre);
+    });
+  }
+}
+
+function renderPreview(pad, f) {
+  current = pad.dir + '::' + f.path; currentRef = { pad, f };
+  curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
+  // Meta is a single tight dot-separated line (type \u00B7 #tags) \u2014 not scattered chips.
+  const metaBits = [f.registered ? esc(f.type || 'note') : 'unregistered'];
+  if (f.external) metaBits.push('linked');
+  (f.tags || []).forEach(t => metaBits.push('#' + esc(t)));
+  const metaLine = metaBits.join(' \u00B7 ');
+  const canRaw = (f.kind === 'markdown' || f.kind === 'html') && f.content != null;
+  const canCopyContent = f.content != null && (f.kind === 'markdown' || f.kind === 'html' || f.kind === 'code' || f.kind === 'text');
+  const ctrls = '<span class="pctrls">' +
+    '<button class="pbtn" id="copyPath">\u{1f517} path</button>' +
+    (canCopyContent ? '<button class="pbtn" id="copyContent">\u29C9 copy</button>' : '') +
+    (canRaw
+      ? '<button class="pbtn ' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
+        '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button>'
+      : '') +
+    '</span>';
+
+  let bodyHtml = '';
+  if (f.kind === 'toolarge') bodyHtml = '<div class="notice">File too large to preview.</div>';
+  else if (f.kind === 'image' && f.content) bodyHtml = '<div class="imgwrap"><img src="' + f.content + '" alt="' + esc(f.path) + '"/></div>';
+  else if (f.kind === 'markdown' && f.content != null) bodyHtml = rawMode
+    ? (window.hljs
+        ? '<pre class="code"><code class="hljs hl-done mdsrc">' + highlightRawMarkdown(f.content) + '</code></pre>'
+        : '<pre class="code"><code class="language-markdown">' + esc(f.content) + '</code></pre>')
+    : '<div class="md">' + renderMarkdown(f.content) + '</div>';
+  else if (f.kind === 'html' && f.content != null) bodyHtml = rawMode
+    ? '<pre class="code"><code class="language-html">' + esc(f.content) + '</code></pre>'
+    // Sandboxed with scripts disabled: static HTML renders, no script/form/popup
+    // can escape. srcdoc value is attribute-escaped by esc().
+    : '<iframe class="htmlframe" sandbox="" srcdoc="' + esc(f.content) + '"></iframe>';
+  else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
+    const cls = f.lang ? ' class="language-' + esc(normLang(f.lang)) + '"' : '';
+    bodyHtml = '<pre class="code"><code' + cls + '>' + esc(f.content) + '</code></pre>';
+  } else bodyHtml = '<div class="notice">No preview available (binary or missing file).</div>';
+
+  const preview = document.getElementById('preview');
+  // One reading column wraps the whole view so the header strip, title, meta,
+  // and body all share a single left edge (per-element margins no longer fight
+  // the centering).
+  preview.innerHTML = '<div class="pbody">' +
+    '<div class="phead"><span class="pfile">' + esc(f.path) + '</span>' + ctrls + '</div>' +
+    '<h1 class="ptitle">' + esc(f.title || f.path) + '</h1>' +
+    '<div class="pmeta">' + metaLine + '</div>' +
+    (f.description ? '<div class="pdesc">' + esc(f.description) + '</div>' : '') +
+    '<hr class="divider"/>' + bodyHtml +
+    '</div>';
+
+  if (canRaw) {
+    const rd = document.getElementById('vRendered'), rw = document.getElementById('vRaw');
+    rd.addEventListener('click', () => { if (rawMode) { setRaw(false); renderPreview(pad, f); } });
+    rw.addEventListener('click', () => { if (!rawMode) { setRaw(true); renderPreview(pad, f); } });
+  }
+  // Clipboard: navigator.clipboard needs a secure context, but glimpse delivers
+  // the page via NavigateToString / file:// \u2014 an opaque origin where it's absent
+  // or rejects (the copy silently no-ops). Fall back to a hidden-textarea
+  // execCommand('copy'), which works in that context (and in the browser).
+  const execCopy = (text) => new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('execCommand copy failed'));
+    } catch (e) { reject(e); }
+  });
+  const copyText = (text) =>
+    navigator.clipboard && navigator.clipboard.writeText
+      ? navigator.clipboard.writeText(text).catch(() => execCopy(text))
+      : execCopy(text);
+  // Flash the button label (\u2713 copied) and pop a toast so the action registers
+  // whether the user is looking at the button or the corner.
+  const flash = (btn, label, toast) => {
+    btn.textContent = '\u2713 copied';
+    btn.classList.add('on');
+    clearTimeout(btn._flashTimer);
+    btn._flashTimer = setTimeout(() => { btn.textContent = label; btn.classList.remove('on'); }, 1200);
+    showToast(toast, 'success');
+  };
+  const cp = document.getElementById('copyPath');
+  if (cp) cp.addEventListener('click', () =>
+    copyText(f.abs || f.path)
+      .then(() => flash(cp, '\u{1f517} path', 'Path copied'))
+      .catch(() => showToast('Copy failed')));
+  const cc = document.getElementById('copyContent');
+  if (cc) cc.addEventListener('click', () =>
+    copyText(f.content)
+      .then(() => flash(cc, '\u29C9 copy', 'Content copied'))
+      .catch(() => showToast('Copy failed')));
+  enhance(preview);
+  document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
+}
+
+function buildTree(preferKey, prevSelJson) {
+  const tree = document.getElementById('tree');
+  // Single-pad focus: the viewer shows the current pad's files as a flat list \u2014
+  // no pad-level grouping or switching. (Multiple pads, if ever passed, are
+  // listed together; the current pad is the only mental model.)
+  const items = [];
+  DATA.pads.forEach((pad, pi) => pad.files.forEach((f, fi) => items.push({ pad, f, pi, fi })));
+  // Group files by their (optional) group, preserving first-appearance order of
+  // both the groups and the files within each. Ungrouped files share the '' key,
+  // rendered under the default "FILES" header. ITEMS (j/k nav order) is rebuilt in
+  // this grouped order so keyboard navigation matches the visible layout.
+  const groupOrder = [], groups = new Map();
+  items.forEach((it) => {
+    const g = it.f.group || '';
+    if (!groups.has(g)) { groups.set(g, []); groupOrder.push(g); }
+    groups.get(g).push(it);
+  });
+  ITEMS = groupOrder.flatMap((g) => groups.get(g));
+
+  document.getElementById('padname').textContent = DATA.pads.length === 1 ? DATA.pads[0].name : DATA.rootLabel;
+
+  if (!items.length) {
+    const msg = DATA.pads.length
+      ? '<div class="empty"><div class="big">Empty scratchpad</div><div>No files yet.</div></div>'
+      : '<div class="empty"><div class="big">No scratchpad here</div><div>Create one: <code>scratch new &lt;name&gt; --dir &lt;parent&gt;</code></div></div>';
+    document.getElementById('preview').innerHTML = msg;
+    tree.innerHTML = '<div class="label">FILES</div><div class="notice" style="padding:8px">none</div>';
+    return;
+  }
+
+  let html = '';
+  groupOrder.forEach((g) => {
+    html += '<div class="label">' + (g ? esc(g) : 'FILES') + '</div>';
+    groups.get(g).forEach(({ pad, f, pi, fi }) => {
+      const key = pad.dir + '::' + f.path;
+      const cls = 'frow' + (f.registered ? '' : ' unreg');
+      const ttl = f.title || f.path;
+      const tag = f.registered ? (f.type || 'note') : '\u00B7';
+      html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '">' +
+        '<span class="fttl" title="' + esc(ttl) + '">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
+    });
+  });
+  // Only swap the tree DOM when the markup actually changed \u2014 otherwise reloading
+  // (or re-selecting) needlessly destroys/recreates the sidebar = a visible flash.
+  // Compare against the last GENERATED string (reading back innerHTML is unreliable
+  // \u2014 the browser normalizes it).
+  if (lastTreeHtml !== html) {
+    lastTreeHtml = html;
+    tree.innerHTML = html;
+    tree.querySelectorAll('.frow[data-fi]').forEach(row => row.addEventListener('click', () => {
+      const pad = DATA.pads[+row.dataset.pi]; renderPreview(pad, pad.files[+row.dataset.fi]);
+    }));
+  }
+
+  // On a hot-reload we re-select the file the user was on (by pad::path) so the
+  // view doesn't jump back to the top. If it's gone (deleted/renamed), fall back
+  // to the first file and drop raw mode.
+  let sel = items[0];
+  if (preferKey) {
+    const m = items.find(it => (it.pad.dir + '::' + it.f.path) === preferKey);
+    if (m) sel = m;
+  }
+  // On a hot-reload, if the selected file is byte-for-byte unchanged, skip the
+  // preview re-render (it swaps innerHTML + re-runs hljs/mermaid \u2192 a visible
+  // blink). Just refresh the tree's active highlight and leave the preview be.
+  const selKey = sel.pad.dir + '::' + sel.f.path;
+  if (prevSelJson != null && selKey === current && JSON.stringify(sel.f) === prevSelJson) {
+    document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
+    return;
+  }
+  renderPreview(sel.pad, sel.f);
+}
+
+// On-demand reload (native host): on a reload request the launcher rebuilds from
+// disk and calls this via win.send(__scratchReload(...)). We patch DATA in place
+// and re-render, preserving the selected file, raw mode, and scroll position \u2014
+// and skipping the preview re-render entirely when the open file is unchanged
+// (buildTree handles that). (When the set of needed vendor bundles GROWS, the
+// launcher re-navigates the whole page instead so highlighting/diagrams load.)
+// Transient bottom-left toast (reload feedback). Re-triggerable: each call resets
+// the auto-dismiss timer; an optional variant ('success' | 'info') tints it.
+let _toastTimer;
+function showToast(msg, variant) {
+  // Guard the document ref: a deferred caller (e.g. the reload toast) can fire
+  // after the DOM is gone (headless teardown), where document is undefined.
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('toast');
+  if (!el) return;
+  clearTimeout(_toastTimer);
+  el.classList.remove('toast-success', 'toast-info');
+  el.textContent = msg;
+  if (variant) el.classList.add('toast-' + variant);
+  el.classList.add('visible');
+  _toastTimer = setTimeout(() => el.classList.remove('visible'), 2000);
+}
+
+window.__scratchReload = function (payload) {
+  if (!payload || !payload.pads) return;
+  // Nothing on disk changed since last render \u2192 no DOM swap, no flash; just tell
+  // the user it's current. This is the common case when reload is pressed out of habit.
+  if (JSON.stringify(payload) === JSON.stringify(DATA)) { showToast('No changes \u2014 up to date', 'info'); return; }
+  const key = currentRef ? currentRef.pad.dir + '::' + currentRef.f.path : null;
+  const prevSelJson = currentRef ? JSON.stringify(currentRef.f) : null;
+  const pv = document.getElementById('preview');
+  const scroll = pv ? pv.scrollTop : 0;
+  DATA = payload;
+  buildTree(key, prevSelJson);
+  const pv2 = document.getElementById('preview');
+  if (pv2) pv2.scrollTop = scroll;
+  showToast('Reloaded from disk', 'success');
+};
+
+// Auto-detect theme from the OS (works in the glimpse WebView and the browser).
+// A manual toggle overrides and is remembered across files AND sessions
+// (localStorage, like the raw/rendered pref); after that we stop following the OS.
+let manualTheme = false;
+let savedTheme = null;
+try { savedTheme = localStorage.getItem('scratch.theme'); } catch (_) {}
+function syncThemeIcon() {
+  const dark = document.documentElement.dataset.theme !== 'light';
+  const d = document.querySelector('#themeToggle .i-dark'), l = document.querySelector('#themeToggle .i-light');
+  if (d) d.style.display = dark ? '' : 'none';
+  if (l) l.style.display = dark ? 'none' : '';
+  // Enable exactly one hljs theme stylesheet to match the active mode.
+  const hd = document.getElementById('hljs-dark'), hl = document.getElementById('hljs-light');
+  if (hd) hd.disabled = !dark;
+  if (hl) hl.disabled = dark;
+}
+function applySystemTheme() {
+  if (manualTheme) return;
+  const dark = !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  syncThemeIcon();
+}
+// Restore a remembered choice (overrides the OS), else follow the OS.
+if (savedTheme === 'light' || savedTheme === 'dark') {
+  manualTheme = true;
+  document.documentElement.dataset.theme = savedTheme;
+  syncThemeIcon();
+} else {
+  applySystemTheme();
+}
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(() => {
+    applySystemTheme();
+    if (currentRef) renderPreview(currentRef.pad, currentRef.f);
+  });
+}
+function toggleTheme() {
+  manualTheme = true;
+  const r = document.documentElement;
+  r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem('scratch.theme', r.dataset.theme); } catch (_) {}
+  syncThemeIcon();
+  if (currentRef) renderPreview(currentRef.pad, currentRef.f);
+}
+document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+
+// Shortcuts help modal.
+const helpModal = document.getElementById('helpModal');
+const showHelp = (v) => { helpModal.style.display = v ? 'flex' : 'none'; };
+document.getElementById('helpBtn').addEventListener('click', () => showHelp(true));
+document.getElementById('helpClose').addEventListener('click', () => showHelp(false));
+helpModal.addEventListener('click', (e) => { if (e.target === helpModal) showHelp(false); });
+
+// Frameless window chrome: glimpse's Windows WebView2 host opens with no system
+// title bar (frameless), so the page must offer its own close affordance. The
+// host closes when the page posts {__glimpse_close:true}. Only shown when running
+// inside the WebView2 host (window.chrome.webview); in the browser fallback there
+// is a normal tab/title bar, so the button stays hidden.
+const webview = window.chrome && window.chrome.webview;
+const closeWindow = webview ? () => webview.postMessage({ __glimpse_close: true })
+  : (window.glimpse && window.glimpse.close ? () => window.glimpse.close() : null);
+
+// Manual reload (button + 'r'). Reload is on-demand, not automatic \u2014 a watcher
+// that re-rendered on every disk change blinked. In the WebView2 host we ask the
+// launcher to rebuild from disk and push fresh data (it replies via
+// __scratchReload, which only re-renders the preview if the open file changed);
+// in the browser we just reload the page (the server rebuilds per request).
+function requestReload() {
+  if (webview) { try { webview.postMessage({ __scratch_reload: true }); } catch (_) {} }
+  // Browser: full reload (the server rebuilds per request). Stash a flag so the
+  // freshly-loaded page can surface the toast the native path shows inline.
+  else { try { sessionStorage.setItem('scratch_reloaded', '1'); } catch (_) {} location.reload(); }
+}
+document.getElementById('reloadBtn').addEventListener('click', requestReload);
+// Browser reload just happened \u2192 show the toast the pre-reload page couldn't.
+try { if (sessionStorage.getItem('scratch_reloaded')) { sessionStorage.removeItem('scratch_reloaded'); showToast('Reloaded from disk', 'success'); } } catch (_) {}
+(function () {
+  const btn = document.getElementById('closeBtn');
+  if (closeWindow && btn) { btn.style.display = ''; btn.addEventListener('click', closeWindow); }
+})();
+
+// GitHub link: in the WebView2 host a target=_blank popup has no handler, so
+// hand the URL to the system browser via the host (browser fallback keeps the
+// normal anchor behavior).
+document.getElementById('repoLink').addEventListener('click', (e) => {
+  if (!webview) return;
+  e.preventDefault();
+  webview.postMessage({ __glimpse_open: e.currentTarget.href });
+});
+
+// Resizable sidebar: drag the handle to set the tree width, persisted across
+// sessions. Width is clamped so neither pane can be dragged away entirely.
+(function () {
+  const TREE_MIN = 200, TREE_MAX = 640;
+  const resizer = document.getElementById('resizer');
+  const tree = document.getElementById('sidebar');
+  const setW = (px) => {
+    const w = Math.max(TREE_MIN, Math.min(TREE_MAX, px));
+    document.documentElement.style.setProperty('--tree-w', w + 'px');
+    return w;
+  };
+  try { const saved = parseInt(localStorage.getItem('scratch.treeW'), 10); if (saved) setW(saved); } catch (_) {}
+  let dragging = false;
+  const onMove = (e) => { if (dragging) setW(e.clientX - tree.getBoundingClientRect().left); };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    try { localStorage.setItem('scratch.treeW', String(tree.getBoundingClientRect().width | 0)); } catch (_) {}
+  };
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    resizer.classList.add('dragging');
+    // Suppress text selection + keep the resize cursor through the whole drag.
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  });
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  // Double-click resets to the default width. preventDefault stops the browser's
+  // double-click default (text selection / smart-zoom) from firing on the handle.
+  resizer.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    document.documentElement.style.removeProperty('--tree-w');
+    try { localStorage.removeItem('scratch.treeW'); } catch (_) {}
+    showToast('Sidebar width reset', 'info');
+  });
+})();
+
+// Keyboard shortcuts (see the help modal). Ignored while typing in a field.
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (e.key === 'Escape') {
+    if (helpModal.style.display !== 'none') showHelp(false);
+    else if (closeWindow) closeWindow();
+    return;
+  }
+  if (e.key === '?') { showHelp(helpModal.style.display === 'none'); return; }
+  if (e.key === 't') { toggleTheme(); return; }
+  if (e.key === 'r') { requestReload(); return; }
+  if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
+    setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
+  }
+  const next = e.key === 'j' || e.key === 'ArrowDown' || e.key === 'ArrowRight';
+  const prev = e.key === 'k' || e.key === 'ArrowUp' || e.key === 'ArrowLeft';
+  if ((next || prev) && ITEMS.length) {
+    e.preventDefault();
+    const n = curIdx + (next ? 1 : -1);
+    if (n >= 0 && n < ITEMS.length) { renderPreview(ITEMS[n].pad, ITEMS[n].f); }
+  }
+});
+
+// Intercept link clicks in the preview. The viewer is a single self-contained
+// page (loaded via setHTML in the WebView2 host \u2014 NO server, NO back button), so
+// letting a link navigate the webview lands on a dead URL = blank window. Instead:
+//   \u2022 relative link to a pad file  \u2192 open that file in the viewer
+//   \u2022 external (http/https/mailto) \u2192 hand off to the system browser
+//   \u2022 anything else                \u2192 swallow (no navigation)
+document.getElementById('preview').addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a');
+  if (!a) return;
+  e.preventDefault();
+  const href = a.getAttribute('href') || '';
+  if (/^(https?:|mailto:)/i.test(href)) {
+    const wv = window.chrome && window.chrome.webview;
+    if (wv) wv.postMessage({ __glimpse_open: href }); else window.open(href, '_blank');
+    return;
+  }
+  if (!currentRef || !href) return;
+  const target = resolveRel(currentRef.f.path, href.split('#')[0]);
+  const pad = currentRef.pad;
+  const f = pad.files.find(x => x.path === target || x.path === href || x.path.endsWith('/' + target));
+  if (f) { renderPreview(pad, f); }
+});
+
+buildTree();
+</script>
+</body>
+</html>

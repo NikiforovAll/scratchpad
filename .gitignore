@@ -4,6 +4,10 @@ node_modules/
 # build output
 dist/
 
+# vitepress
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
 # logs
 *.log
 
@@ -24,3 +28,6 @@ _ui-check.mjs
 
 # exported viewer HTML (scratch export)
 *.html
+# …except the demo export bundled into the docs site
+!docs/public/**/*.html
+!docs/public/*.html

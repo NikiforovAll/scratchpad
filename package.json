@@ -39,7 +39,10 @@
     "scratch": "bun run src/cli.ts",
     "test": "bun test",
     "build": "bun build src/cli.ts --compile --outfile dist/scratch && bun scripts/build-host.ts",
-    "prepublishOnly": "bun test"
+    "prepublishOnly": "bun test",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "engines": {
     "bun": ">=1.0.0"
@@ -48,6 +51,7 @@
     "glimpseui": "0.8.1"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^20.10.2"
+    "@happy-dom/global-registrator": "^20.10.2",
+    "vitepress": "^1.6.3"
   }
 }

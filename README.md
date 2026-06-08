@@ -3,8 +3,11 @@
 [![npm version](https://img.shields.io/npm/v/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)
 [![npm downloads](https://img.shields.io/npm/dm/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)
 [![license](https://img.shields.io/github/license/nikiforovall/scratchpad.svg)](LICENSE)
+[![docs](https://img.shields.io/badge/docs-nikiforovall.blog%2Fscratchpad-e86f33.svg)](https://nikiforovall.blog/scratchpad/)
 
 CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).
+
+📖 **[Documentation & live demo →](https://nikiforovall.blog/scratchpad/)**
 
 A scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.
 
@@ -39,9 +42,7 @@ bun run build        # → dist/scratch(.exe), bundles + compiles
 
 ### Claude Code plugin
 
-This repo doubles as a Claude Code plugin marketplace. It ships the `scratch`
-skill so the agent knows when and how to drive the CLI (the CLI itself still
-comes from the install above):
+This repo doubles as a Claude Code plugin marketplace. It ships the `scratch` skill so the agent knows when and how to drive the CLI (the CLI itself still comes from the install above):
 
 ```
 /plugin marketplace add NikiforovAll/scratchpad
@@ -50,9 +51,7 @@ comes from the install above):
 
 ### pi package
 
-For the [pi coding agent](https://pi.dev), the [`@nikiforovall/pi-scratchpad`](pi/)
-package ships the same skills plus `/scratch ui | export | stop` commands for the
-viewer (the `scratch` CLI still comes from the install above):
+For the [pi coding agent](https://pi.dev), the [`@nikiforovall/pi-scratchpad`](pi/) package ships the same skills plus `/scratch ui | export | stop` commands for the viewer (the `scratch` CLI still comes from the install above):
 
 ```
 pi install npm:@nikiforovall/pi-scratchpad
