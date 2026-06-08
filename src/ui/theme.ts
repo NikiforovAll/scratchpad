@@ -93,11 +93,19 @@ body {
 /* layout */
 .body { display: flex; flex: 1; min-height: 0; }
 .tree {
-  width: 340px; flex: 0 0 auto; overflow-y: auto;
+  width: var(--tree-w, 340px); flex: 0 0 auto; overflow-y: auto;
   background: var(--surface); border-right: 1px solid var(--border);
   padding: 14px 10px;
 }
 .tree.collapsed { display: none; }
+.tree.collapsed + .resizer { display: none; }
+/* Drag handle between sidebar and preview. A wide hit area (easy to grab) with a
+   thin centered visual line that brightens on hover/drag. */
+.resizer { flex: 0 0 6px; cursor: col-resize; position: relative; background: transparent;
+  margin: 0 -3px; z-index: 5; user-select: none; touch-action: none; }
+.resizer::after { content: ""; position: absolute; inset: 0 auto 0 50%; width: 1px;
+  transform: translateX(-50%); background: var(--border); transition: background 0.15s ease; }
+.resizer:hover::after, .resizer.dragging::after { background: var(--ember); width: 2px; }
 .preview { flex: 1; min-width: 0; overflow-y: auto; padding: 24px 28px; }
 /* Single centered reading column — everything inside shares one left edge and
    fills the column width (rendered markdown AND raw alike). */
@@ -133,24 +141,31 @@ body {
 /* markdown — fills the reading column (width governed by .pbody). Body copy sits
    one step down the ink ramp so bold (full-strength + heavier) clearly stands out;
    heading levels are color-coded down the ember ramp for at-a-glance hierarchy. */
-.md { max-width: 100%; color: var(--ink-2); font-size: 16px; line-height: 1.7; }
+/* Single sizing knob: heading sizes below are em-relative, so adjusting this one
+   font-size scales the whole reading column proportionally. */
+.md { max-width: 100%; color: var(--ink-2); font-size: 15px; line-height: 1.7; }
 .md strong, .md b { font-weight: 700; color: var(--ink-1); }
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
   font-family: var(--serif); font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
 /* Stepped progression: h1 accent, then a uniform size + ink-ramp descent. */
-.md h1 { font-size: 26px; color: var(--ember-glow); }
-.md h2 { font-size: 21px; color: var(--ink-1); border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
-.md h3 { font-size: 18px; color: var(--ink-1); }
-.md h4 { font-size: 16px; color: var(--ink-2); }
-.md h5 { font-size: 14px; color: var(--ink-3); }
-.md h6 { font-size: 13px; color: var(--ink-muted); }
+.md h1 { font-size: 1.625em; color: var(--ember-glow); }
+.md h2 { font-size: 1.3125em; color: var(--ink-1); border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+.md h3 { font-size: 1.125em; color: var(--ink-1); }
+.md h4 { font-size: 1em; color: var(--ink-2); }
+.md h5 { font-size: 0.875em; color: var(--ink-3); }
+.md h6 { font-size: 0.8125em; color: var(--ink-muted); }
 .md p { margin: 0.7em 0; }
 .md a { color: var(--accent-text); text-decoration: none; border-bottom: 1px solid var(--ember-dim); }
 .md ul, .md ol { padding-left: 1.4em; margin: 0.6em 0; }
 .md li { margin: 0.2em 0; }
-/* GFM task list items: hanging checkbox, checked ones tinted green */
-.md li.task { list-style: none; margin-left: -1.4em; display: flex; align-items: baseline; gap: 0.5em; }
-.md li.task .chk { flex: 0 0 auto; width: 1.05em; height: 1.05em; line-height: 1.05em; text-align: center;
+/* GFM task list items: hanging checkbox, checked ones tinted green.
+   NOT a flex container — flex would make every inline fragment (each text run
+   AND each inline <code>) its own flex item, scattering the sentence. The text
+   must flow as normal inline content; only the checkbox hangs (absolute). */
+.md li.task { list-style: none; margin-left: -1.4em; padding-left: 1.6em; position: relative; }
+.md li.task .chk { position: absolute; left: 0; top: 0.28em;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.05em; height: 1.05em;
   border: 1.5px solid var(--ink-muted); border-radius: 3px; font-size: 0.8em; color: transparent; }
 .md li.task.done .chk { background: #2ea043; border-color: #2ea043; color: #fff; }
 .md li.task.done { color: var(--ink-3); }
@@ -170,7 +185,7 @@ body {
 .md tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ink-muted) 5%, transparent); }
 
 /* code / raw — larger, more readable monospace for source/raw views */
-pre.code { font-family: var(--mono); font-size: 16px; line-height: 1.75;
+pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
   background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 14px 16px; margin: 0;

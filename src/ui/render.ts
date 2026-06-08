@@ -214,6 +214,7 @@ export async function renderHtml(view: PadView[], rootLabel: string): Promise<st
   </header>
   <div class="body">
     <nav class="tree" id="tree"></nav>
+    <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
     <main class="preview" id="preview"></main>
   </div>
   <div class="modal-scrim" id="helpModal" style="display:none">
@@ -636,6 +637,48 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
   e.preventDefault();
   webview.postMessage({ __glimpse_open: e.currentTarget.href });
 });
+
+// Resizable sidebar: drag the handle to set the tree width, persisted across
+// sessions. Width is clamped so neither pane can be dragged away entirely.
+(function () {
+  const TREE_MIN = 200, TREE_MAX = 640;
+  const resizer = document.getElementById('resizer');
+  const tree = document.getElementById('tree');
+  const setW = (px) => {
+    const w = Math.max(TREE_MIN, Math.min(TREE_MAX, px));
+    document.documentElement.style.setProperty('--tree-w', w + 'px');
+    return w;
+  };
+  try { const saved = parseInt(localStorage.getItem('scratch.treeW'), 10); if (saved) setW(saved); } catch (_) {}
+  let dragging = false;
+  const onMove = (e) => { if (dragging) setW(e.clientX - tree.getBoundingClientRect().left); };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    try { localStorage.setItem('scratch.treeW', String(tree.getBoundingClientRect().width | 0)); } catch (_) {}
+  };
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    resizer.classList.add('dragging');
+    // Suppress text selection + keep the resize cursor through the whole drag.
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  });
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  // Double-click resets to the default width. preventDefault stops the browser's
+  // double-click default (text selection / smart-zoom) from firing on the handle.
+  resizer.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    document.documentElement.style.removeProperty('--tree-w');
+    try { localStorage.removeItem('scratch.treeW'); } catch (_) {}
+    showToast('Sidebar width reset', 'info');
+  });
+})();
 
 // Keyboard shortcuts (see the help modal). Ignored while typing in a field.
 document.addEventListener('keydown', (e) => {
