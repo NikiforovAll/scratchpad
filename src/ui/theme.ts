@@ -92,13 +92,17 @@ body {
 
 /* layout */
 .body { display: flex; flex: 1; min-height: 0; }
-.tree {
-  width: var(--tree-w, 340px); flex: 0 0 auto; overflow-y: auto;
+.sidebar {
+  width: var(--tree-w, 340px); flex: 0 0 auto; min-height: 0;
+  display: flex; flex-direction: column;
   background: var(--surface); border-right: 1px solid var(--border);
-  padding: 14px 10px;
 }
-.tree.collapsed { display: none; }
-.tree.collapsed + .resizer { display: none; }
+.sidebar.collapsed { display: none; }
+.sidebar.collapsed + .resizer { display: none; }
+.tree { flex: 1; overflow-y: auto; padding: 14px 10px; }
+/* App version, pinned to the sidebar foot (bottom-left). */
+.appver { flex: 0 0 auto; padding: 6px 12px; border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 11px; color: var(--ink-muted); }
 /* Drag handle between sidebar and preview. A wide hit area (easy to grab) with a
    thin centered visual line that brightens on hover/drag. */
 .resizer { flex: 0 0 6px; cursor: col-resize; position: relative; background: transparent;
@@ -204,8 +208,9 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 
 /* preview header controls */
 .pctrls { display: inline-flex; gap: 6px; margin-left: 8px; }
-.pbtn { background: var(--field); color: var(--ink-muted); border: 1px solid var(--border);
-  border-radius: 4px; padding: 1px 8px; font-family: var(--mono); font-size: 11px; cursor: pointer;
+.pbtn { display: inline-flex; align-items: center; gap: 4px; line-height: 1;
+  background: var(--field); color: var(--ink-muted); border: 1px solid var(--border);
+  border-radius: 4px; padding: 3px 8px; font-family: var(--mono); font-size: 11px; cursor: pointer;
   transition: all 0.15s ease; }
 .pbtn:hover { background: var(--hover); color: var(--ink-1); }
 .pbtn.on { color: var(--accent-text); border-color: var(--ember-dim); }

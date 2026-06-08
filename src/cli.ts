@@ -31,9 +31,11 @@ USAGE
       With <file>: unregister it (file on disk untouched).
       Without <file>: delete the whole pad dir (requires --force).
 
-  scratch ui [<pad>] [--dir <root>] [--all] [--browser]
-      Open the read-only visual viewer — glimpse native window, with an automatic
-      browser+local-server fallback. --browser forces the browser path.
+  scratch ui [<pad>] [--dir <root>] [--all] [--browser] [--install-native]
+      Open the read-only visual viewer — glimpse native window by default, falling
+      back to a browser+local-server when the native host isn't built.
+      --browser           force the browser path.
+      --install-native    build the native host on demand (needs the .NET 8 SDK).
       With multiple pads under root, name one or pass --all to view them together.
 
   scratch export [<pad>] [--dir <root>] [--all] [-o <file>]
@@ -62,6 +64,7 @@ const FLAG_SPEC = {
   force: { type: "boolean" as const },
   all: { type: "boolean" as const },
   browser: { type: "boolean" as const },
+  "install-native": { type: "boolean" as const },
   out: { type: "string" as const, short: "o" },
   help: { type: "boolean" as const, short: "h" },
   version: { type: "boolean" as const, short: "v" },
@@ -102,7 +105,10 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
     case "rm":
       return cmdRm({ pad: rest[0], file: rest[1], dir: v.dir, force: v.force }, io);
     case "ui":
-      return cmdUi({ pad: rest[0], dir: v.dir, all: v.all, browser: v.browser }, io);
+      return cmdUi(
+        { pad: rest[0], dir: v.dir, all: v.all, browser: v.browser, installNative: v["install-native"] },
+        io,
+      );
     case "export":
       return cmdExport({ pad: rest[0], dir: v.dir, all: v.all, out: v.out }, io);
     default:

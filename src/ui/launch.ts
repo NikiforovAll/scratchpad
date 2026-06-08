@@ -6,18 +6,22 @@
 // backend is unavailable, fall back to serving the SAME HTML over a local
 // server + the default browser, so `scratch ui` always works.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Pad } from "../discovery.ts";
 import type { IO } from "../commands.ts";
 import { createReloader, type Reloader } from "./reload.ts";
 
 export interface LaunchOpts {
   title: string;
+  /** Force the browser viewer instead of the default glimpse native window. */
   forceBrowser?: boolean;
+  /** Build the native host on demand if it's missing (never automatic). */
+  installNative?: boolean;
   /** Native window without OS chrome (title bar/border). Default true. */
   frameless?: boolean;
 }
@@ -33,11 +37,64 @@ export async function launchViewer(
   const reloader = createReloader(pads, rootLabel);
   const snap = await reloader.rebuild();
 
+  // Native glimpse is the default; --browser forces the browser viewer. When the
+  // native host isn't built, tryGlimpse prints how to install it and we fall back.
   if (!opts.forceBrowser) {
-    const ok = await tryGlimpse(snap.html, opts.title, io, reloader, opts.frameless !== false);
+    const ok = await tryGlimpse(
+      snap.html, opts.title, io, reloader, opts.frameless !== false, !!opts.installNative,
+    );
     if (ok) return 0;
+    io.err("falling back to the browser viewer.");
   }
   return serveBrowser(snap.html, opts.title, io, reloader);
+}
+
+// glimpse's WebView2 host is a compiled .NET binary. On a global `bun add -g`
+// install Bun blocks glimpseui's postinstall (lifecycle scripts of untrusted —
+// and transitive — deps don't run), so the host is never built. We do NOT build
+// it automatically: on a plain `scratch ui` we point the user at how to install
+// it. `--install-native` builds it on demand (needs the .NET 8 SDK), landing it
+// in glimpseui's own native/windows/bin/ where it resolves the host from.
+// Returns true when the host is ready to use.
+function prepareWindowsHost(io: IO, install: boolean): boolean {
+  let root: string;
+  try {
+    // glimpseui's main is src/glimpse.mjs → its package root is two dirs up.
+    root = dirname(dirname(fileURLToPath((import.meta as any).resolve("glimpseui"))));
+  } catch {
+    return false; // unresolvable (e.g. compiled-binary VFS)
+  }
+  const hostBin = join(root, "native", "windows", "bin", "glimpse.exe");
+  if (existsSync(hostBin)) return true; // already built
+  const buildScript = join(root, "scripts", "build.mjs");
+  if (!existsSync(buildScript)) return false; // not a real on-disk glimpseui
+
+  if (!install) {
+    io.err(
+      "note: the native window isn't installed (its WebView2 host isn't built).\n" +
+        "  Build it once with `scratch ui --install-native` (needs the .NET 8 SDK),\n" +
+        "  or use `scratch ui --browser` for the browser viewer.",
+    );
+    return false;
+  }
+
+  const sdk = spawnSync("dotnet", ["--list-sdks"], { encoding: "utf8" });
+  if (sdk.error || sdk.status !== 0 || !sdk.stdout?.trim()) {
+    io.err(
+      "note: --install-native needs the .NET 8 SDK + WebView2 runtime.\n" +
+        "  Install the SDK (https://dotnet.microsoft.com/download/dotnet/8.0), then rerun.",
+    );
+    return false;
+  }
+
+  io.out("note: building the native viewer host (one-time; takes a moment)…");
+  // Reuse glimpse's own build script so its publish flags stay authoritative.
+  const build = spawnSync(process.execPath, [buildScript, "win32"], { cwd: root, stdio: "inherit" });
+  if (build.status !== 0 || !existsSync(hostBin)) {
+    io.err("note: native host build failed — check the .NET output above.");
+    return false;
+  }
+  return true;
 }
 
 async function tryGlimpse(
@@ -46,6 +103,7 @@ async function tryGlimpse(
   io: IO,
   reloader: Reloader,
   frameless: boolean,
+  install: boolean,
 ): Promise<boolean> {
   // glimpseui resolves its native host relative to its own module file. Inside a
   // `bun build --compile` standalone that module lives in the virtual `B:\~BUN\`
@@ -57,6 +115,9 @@ async function tryGlimpse(
   if (process.platform === "win32" && !process.env.GLIMPSE_BINARY_PATH) {
     const sibling = join(dirname(process.execPath), "glimpse", "glimpse.exe");
     if (existsSync(sibling)) process.env.GLIMPSE_BINARY_PATH = sibling;
+    // No staged host (npm/bun install): the host must be built. Never automatic —
+    // recommend `--install-native`, or build now if that flag was passed.
+    else if (!prepareWindowsHost(io, install)) return false;
   }
 
   let open: (html: string, options?: Record<string, unknown>) => any;

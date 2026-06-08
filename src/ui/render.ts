@@ -5,6 +5,7 @@
 // when a ```mermaid block is present.
 
 import { extname, isAbsolute, join, resolve } from "node:path";
+import pkg from "../../package.json" with { type: "json" };
 import type { Pad } from "../discovery.ts";
 import { DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
 import { THEME_CSS } from "./theme.ts";
@@ -58,6 +59,8 @@ type Kind = "markdown" | "code" | "image" | "text" | "html" | "binary" | "toolar
 
 interface FileView {
   path: string;
+  /** Absolute on-disk path (resolves manifest `src`); used for copy-full-path. */
+  abs: string;
   registered: boolean;
   /** Linked from outside the pad — content read from the manifest `src`. */
   external?: boolean;
@@ -121,6 +124,7 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
     }
     views.push({
       path,
+      abs,
       registered: true,
       external: !!meta.src,
       title: meta.title,
@@ -238,7 +242,10 @@ ${vendorCss}<style>${THEME_CSS}</style>
     </div>
   </header>
   <div class="body">
-    <nav class="tree" id="tree"></nav>
+    <div class="sidebar" id="sidebar">
+      <nav class="tree" id="tree"></nav>
+      <div class="appver" title="scratch version">v${escapeHtml(pkg.version)}</div>
+    </div>
     <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
     <main class="preview" id="preview"></main>
   </div>
@@ -454,10 +461,15 @@ function renderPreview(pad, f) {
   (f.tags || []).forEach(t => metaBits.push('#' + esc(t)));
   const metaLine = metaBits.join(' · ');
   const canRaw = (f.kind === 'markdown' || f.kind === 'html') && f.content != null;
-  const ctrls = canRaw
-    ? '<span class="pctrls"><button class="pbtn ' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
-      '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button></span>'
-    : '';
+  const canCopyContent = f.content != null && (f.kind === 'markdown' || f.kind === 'html' || f.kind === 'code' || f.kind === 'text');
+  const ctrls = '<span class="pctrls">' +
+    '<button class="pbtn" id="copyPath">🔗 path</button>' +
+    (canCopyContent ? '<button class="pbtn" id="copyContent">⧉ copy</button>' : '') +
+    (canRaw
+      ? '<button class="pbtn ' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
+        '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button>'
+      : '') +
+    '</span>';
 
   let bodyHtml = '';
   if (f.kind === 'toolarge') bodyHtml = '<div class="notice">File too large to preview.</div>';
@@ -494,6 +506,48 @@ function renderPreview(pad, f) {
     rd.addEventListener('click', () => { if (rawMode) { setRaw(false); renderPreview(pad, f); } });
     rw.addEventListener('click', () => { if (!rawMode) { setRaw(true); renderPreview(pad, f); } });
   }
+  // Clipboard: navigator.clipboard needs a secure context, but glimpse delivers
+  // the page via NavigateToString / file:// — an opaque origin where it's absent
+  // or rejects (the copy silently no-ops). Fall back to a hidden-textarea
+  // execCommand('copy'), which works in that context (and in the browser).
+  const execCopy = (text) => new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('execCommand copy failed'));
+    } catch (e) { reject(e); }
+  });
+  const copyText = (text) =>
+    navigator.clipboard && navigator.clipboard.writeText
+      ? navigator.clipboard.writeText(text).catch(() => execCopy(text))
+      : execCopy(text);
+  // Flash the button label (✓ copied) and pop a toast so the action registers
+  // whether the user is looking at the button or the corner.
+  const flash = (btn, label, toast) => {
+    btn.textContent = '✓ copied';
+    btn.classList.add('on');
+    clearTimeout(btn._flashTimer);
+    btn._flashTimer = setTimeout(() => { btn.textContent = label; btn.classList.remove('on'); }, 1200);
+    showToast(toast, 'success');
+  };
+  const cp = document.getElementById('copyPath');
+  if (cp) cp.addEventListener('click', () =>
+    copyText(f.abs || f.path)
+      .then(() => flash(cp, '🔗 path', 'Path copied'))
+      .catch(() => showToast('Copy failed')));
+  const cc = document.getElementById('copyContent');
+  if (cc) cc.addEventListener('click', () =>
+    copyText(f.content)
+      .then(() => flash(cc, '⧉ copy', 'Content copied'))
+      .catch(() => showToast('Copy failed')));
   enhance(preview);
   document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
 }
@@ -703,7 +757,7 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
 (function () {
   const TREE_MIN = 200, TREE_MAX = 640;
   const resizer = document.getElementById('resizer');
-  const tree = document.getElementById('tree');
+  const tree = document.getElementById('sidebar');
   const setW = (px) => {
     const w = Math.max(TREE_MIN, Math.min(TREE_MAX, px));
     document.documentElement.style.setProperty('--tree-w', w + 'px');

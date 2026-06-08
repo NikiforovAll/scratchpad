@@ -9,9 +9,14 @@ The published package is source-only (`src/` + `README` + `LICENSE`, ~86 KB).
 The `scratch` bin runs under the user's Bun. `glimpseui` is a pinned runtime
 dependency.
 
-Native viewer: `glimpseui`'s `postinstall` **builds its host on install**, and on
-Windows that needs the **.NET 8 SDK** (+ the WebView2 runtime to run it). If the
-SDK is absent the build is skipped and `scratch ui` falls back to the browser.
+Native viewer: under **Bun**, glimpseui's `postinstall` never runs — Bun blocks
+lifecycle scripts for untrusted deps, and a *transitive* dep can't be trusted
+from our `package.json` — so the WebView2 host isn't built at install time. We do
+**not** build it automatically. `scratch ui` opens the native window by default,
+but if the host is missing it prints a one-time instruction and falls back to the
+browser. The user builds it on demand with **`scratch ui --install-native`**,
+which compiles the host into glimpseui's own `native/windows/bin/` (needs the
+**.NET 8 SDK** + WebView2 runtime). `scratch ui --browser` forces the browser.
 
 ### Release steps
 

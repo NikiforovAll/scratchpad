@@ -176,6 +176,29 @@ test("raw/rendered toggle swaps between source and rendered markdown", async () 
   }
 });
 
+test("copy buttons write the absolute file path and content to the clipboard", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (t: string) => { copied = t; return Promise.resolve(); } },
+    });
+    const cp = document.getElementById("copyPath") as any;
+    const cc = document.getElementById("copyContent") as any;
+    expect(cp).not.toBeNull();
+    expect(cc).not.toBeNull();
+    cp.click();
+    // Full on-disk path, not the pad-relative "doc.md".
+    expect(copied).toBe(join(root, "p", "doc.md"));
+    cc.click();
+    expect(copied).toContain("# Heading");
+  } finally {
+    teardown();
+  }
+});
+
 test("auto-detects dark theme from prefers-color-scheme", async () => {
   const html = await renderPad();
   await boot(html); // matchMedia stub returns matches:true (dark)

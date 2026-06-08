@@ -70,8 +70,9 @@ scratch show <pad> [<file>] [--dir <root>]
 scratch rm <pad> [<file>] [--dir <root>] [--force]
     # with <file>: unregister (file left on disk).  without: delete pad (--force).
 
-scratch ui [<pad>] [--dir <root>] [--browser]
-    # read-only viewer: glimpse native window, automatic browser fallback.
+scratch ui [<pad>] [--dir <root>] [--browser] [--install-native]
+    # read-only viewer: glimpse native window by default, browser fallback.
+    # --install-native builds the native host on demand (needs .NET 8 SDK).
 
 scratch export [<pad>] [--dir <root>] [-o <file>]
     # write the viewer to a single HTML file (file contents embedded; highlight.js
