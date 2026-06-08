@@ -635,6 +635,9 @@ function buildTree(preferKey, prevSelJson) {
 // the auto-dismiss timer; an optional variant ('success' | 'info') tints it.
 let _toastTimer;
 function showToast(msg, variant) {
+  // Guard the document ref: a deferred caller (e.g. the reload toast) can fire
+  // after the DOM is gone (headless teardown), where document is undefined.
+  if (typeof document === 'undefined') return;
   const el = document.getElementById('toast');
   if (!el) return;
   clearTimeout(_toastTimer);
