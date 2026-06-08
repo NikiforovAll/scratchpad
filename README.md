@@ -48,6 +48,16 @@ comes from the install above):
 /plugin install scratchpad@scratchpad
 ```
 
+### pi package
+
+For the [pi coding agent](https://pi.dev), the [`@nikiforovall/pi-scratchpad`](pi/)
+package ships the same skills plus `/scratch ui | export | stop` commands for the
+viewer (the `scratch` CLI still comes from the install above):
+
+```
+pi install npm:@nikiforovall/pi-scratchpad
+```
+
 ## Usage
 
 ```bash

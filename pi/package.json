@@ -1,0 +1,60 @@
+{
+  "name": "@nikiforovall/pi-scratchpad",
+  "version": "0.1.0",
+  "description": "pi package for scratchpad — skills to drive the `scratch` CLI plus /scratch ui|export|stop commands for the read-only viewer.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "scratchpad",
+    "notes",
+    "agent-memory"
+  ],
+  "license": "MIT",
+  "author": "nikiforovall",
+  "homepage": "https://github.com/NikiforovAll/scratchpad/tree/main/pi#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NikiforovAll/scratchpad.git",
+    "directory": "pi"
+  },
+  "bugs": {
+    "url": "https://github.com/NikiforovAll/scratchpad/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "extensions/",
+    "skills/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/scratch.ts"
+    ],
+    "skills": [
+      "./skills/scratch",
+      "./skills/planning-with-scratchpad"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
