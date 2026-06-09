@@ -1,6 +1,6 @@
 {
   "name": "scratchpad",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Session scratchpads — organize temporary agent knowledge into a folder + manifest, with a read-only visual viewer. Ships the `scratch` and `planning-with-scratchpad` skills (require the `scratch` CLI on PATH).",
   "author": {
     "name": "Oleksii Nikiforov",
