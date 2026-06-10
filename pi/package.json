@@ -1,6 +1,6 @@
 {
   "name": "@nikiforovall/pi-scratchpad",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "pi package for scratchpad — skills to drive the `scratch` CLI plus /scratch ui|export|stop commands for the read-only viewer.",
   "type": "module",
   "keywords": [
