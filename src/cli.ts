@@ -21,11 +21,14 @@ USAGE
           Link an EXTERNAL file (outside the pad) by reference. Its content stays
           where it is; --as sets the label shown in the pad (default: basename).
 
-  scratch ls [<pad>] [--dir <root>]
+  scratch ls [<pad>] [--dir <root>] [--json]
       No <pad>: list pads found under root.  With <pad>: list its registered files.
+      --json  machine-readable output (relative paths only). No pad: {root, pads:[{name,rel,files}]};
+              with pad: {name, id, rel, files:[<entry>]}.
 
-  scratch show <pad> [<file>] [--dir <root>]
+  scratch show <pad> [<file>] [--dir <root>] [--json]
       No <file>: print the manifest.  With <file>: print metadata + file content.
+      --json  with <file>: emit {metadata, content} (metadata null if unregistered).
 
   scratch rm <pad> [<file>] [--dir <root>] [--force]
       With <file>: unregister it (file on disk untouched).
@@ -63,6 +66,7 @@ const FLAG_SPEC = {
   as: { type: "string" as const },
   force: { type: "boolean" as const },
   all: { type: "boolean" as const },
+  json: { type: "boolean" as const },
   browser: { type: "boolean" as const },
   "install-native": { type: "boolean" as const },
   out: { type: "string" as const, short: "o" },
@@ -99,9 +103,9 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
         io,
       );
     case "ls":
-      return cmdLs({ pad: rest[0], dir: v.dir }, io);
+      return cmdLs({ pad: rest[0], dir: v.dir, json: v.json }, io);
     case "show":
-      return cmdShow({ pad: rest[0], file: rest[1], dir: v.dir }, io);
+      return cmdShow({ pad: rest[0], file: rest[1], dir: v.dir, json: v.json }, io);
     case "rm":
       return cmdRm({ pad: rest[0], file: rest[1], dir: v.dir, force: v.force }, io);
     case "ui":

@@ -37,12 +37,18 @@ async function renderPad(): Promise<string> {
   return renderHtml(await buildView([pad]), "P");
 }
 
-/** Boot happy-dom, inject HTML, stub vendor libs, run the page's inline script. */
-async function boot(html: string, seedStorage?: Record<string, string>) {
+/** Boot happy-dom, inject HTML, stub vendor libs, run the page's inline script.
+ * `pre` runs after registration but before the page script — use it to stub
+ * host objects the script probes at startup (e.g. window.chrome.webview). */
+async function boot(html: string, seedStorage?: Record<string, string>, pre?: (w: any) => void) {
   GlobalRegistrator.register();
   const w = globalThis as any;
+  // A previous test's window.chrome stub survives unregister (it was set straight
+  // on globalThis) and would make later boots think a webview channel exists.
+  delete w.chrome;
   // Seed localStorage BEFORE the page script runs (it reads prefs at startup).
   if (seedStorage) for (const [k, v] of Object.entries(seedStorage)) localStorage.setItem(k, v);
+  if (pre) pre(w);
   // Stub vendored libs (their real bundles are huge / need a real browser).
   const mermaidCalls: any[] = [];
   w.hljs = { highlightElement: (el: any) => el.classList.add("hljs") };
@@ -211,14 +217,162 @@ test("auto-detects dark theme from prefers-color-scheme", async () => {
 
 test("a saved theme overrides the OS and toggling persists the choice", async () => {
   const html = await renderPad();
-  // OS prefers dark (matchMedia stub), but a remembered 'light' must win.
+  // No webview + non-http (happy-dom) = the localStorage fallback path. OS
+  // prefers dark (matchMedia stub), but the remembered choice must win — the
+  // legacy 'scratch.theme' key still seeds it.
   await boot(html, { "scratch.theme": "light" });
   try {
     expect(document.documentElement.dataset.theme).toBe("light");
-    // Toggling writes the new choice back to storage.
+    // Toggling writes the new choice back to storage (new key).
     (document.getElementById("themeToggle") as any).click();
     expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(localStorage.getItem("scratch.theme")).toBe("dark");
+    expect(localStorage.getItem("scratch.themeMode")).toBe("dark");
+  } finally {
+    teardown();
+  }
+});
+
+test("settings modal: mode + color theme switch, persisted via localStorage fallback", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const modal = document.getElementById("settingsModal")!;
+    expect((modal as any).style.display).toBe("none");
+    (document.getElementById("settingsBtn") as any).click();
+    expect((modal as any).style.display).toBe("flex");
+
+    // Explicit light mode via the segmented control.
+    (modal.querySelector('#modeSeg button[data-mode="light"]') as any).click();
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("scratch.themeMode")).toBe("light");
+
+    // Color theme card applies data-color-theme and persists.
+    (modal.querySelector('.theme-card[data-theme-id="gruvbox"]') as any).click();
+    expect(document.documentElement.dataset.colorTheme).toBe("gruvbox");
+    expect(localStorage.getItem("scratch.colorTheme")).toBe("gruvbox");
+
+    // Active states reflected in the modal.
+    expect(modal.querySelector('button[data-mode="light"]')!.classList.contains("on")).toBe(true);
+    expect(modal.querySelector('.theme-card[data-theme-id="gruvbox"]')!.classList.contains("on")).toBe(true);
+
+    // System mode goes back to following the (dark-preferring) OS stub.
+    (modal.querySelector('#modeSeg button[data-mode="system"]') as any).click();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    (document.getElementById("settingsClose") as any).click();
+    expect((modal as any).style.display).toBe("none");
+  } finally {
+    teardown();
+  }
+});
+
+test("embedded settings from the config file apply at boot", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "doc.md"), "# H\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  const html = await renderHtml(await buildView([pad]), "P", {
+    themeMode: "light",
+    colorTheme: "tokyo-night",
+  });
+  await boot(html); // OS stub prefers dark — explicit light must win
+  try {
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.dataset.colorTheme).toBe("tokyo-night");
+  } finally {
+    teardown();
+  }
+});
+
+test("inside the WebView2 host, settings changes post __scratch_settings", async () => {
+  const html = await renderPad();
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    (document.querySelector('.theme-card[data-theme-id="solarized"]') as any).click();
+    const msg = posted.find((m) => m && m.__scratch_settings);
+    expect(msg).toBeDefined();
+    expect(msg.__scratch_settings.colorTheme).toBe("solarized");
+    expect(msg.__scratch_settings.themeMode).toBe("system");
+    // webview present → nothing written to localStorage
+    expect(localStorage.getItem("scratch.colorTheme")).toBeNull();
+  } finally {
+    teardown();
+  }
+});
+
+test("preview header shows file dates (deduped to 'created' for untouched files)", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const dates = document.querySelector(".phead .pdates")!;
+    expect(dates).not.toBeNull();
+    // Just-written file: created ≈ updated → a single "created" entry.
+    expect(dates.textContent).toContain("created just now");
+    expect(dates.textContent).not.toContain("updated");
+    expect(dates.getAttribute("title")).toContain("created");
+  } finally {
+    teardown();
+  }
+});
+
+test("zoom buttons step within 0.5–2, persist via localStorage fallback, and reset", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const label = document.getElementById("zoomReset")!;
+    expect(label.textContent).toBe("100%");
+    (document.getElementById("zoomIn") as any).click();
+    (document.getElementById("zoomIn") as any).click();
+    expect(label.textContent).toBe("120%");
+    expect(localStorage.getItem("scratch.zoom")).toBe("1.2");
+    (document.getElementById("zoomOut") as any).click();
+    expect(label.textContent).toBe("110%");
+    (document.getElementById("zoomReset") as any).click();
+    expect(label.textContent).toBe("100%");
+    expect(localStorage.getItem("scratch.zoom")).toBe("1");
+  } finally {
+    teardown();
+  }
+});
+
+test("saved zoom is restored at boot in the localStorage fallback path", async () => {
+  const html = await renderPad();
+  await boot(html, { "scratch.zoom": "1.5" });
+  try {
+    expect(document.getElementById("zoomReset")!.textContent).toBe("150%");
+  } finally {
+    teardown();
+  }
+});
+
+test("sidebar collapses via the topbar button and '[', persisting to localStorage", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const sidebar = document.getElementById("sidebar")!;
+    expect(sidebar.classList.contains("collapsed")).toBe(false);
+    (document.getElementById("sidebarToggle") as any).click();
+    expect(sidebar.classList.contains("collapsed")).toBe(true);
+    expect(localStorage.getItem("scratch.sidebarCollapsed")).toBe("1");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "[" }));
+    expect(sidebar.classList.contains("collapsed")).toBe(false);
+    expect(localStorage.getItem("scratch.sidebarCollapsed")).toBe("0");
+  } finally {
+    teardown();
+  }
+});
+
+test("a saved collapsed sidebar is restored at boot", async () => {
+  const html = await renderPad();
+  await boot(html, { "scratch.sidebarCollapsed": "1" });
+  try {
+    expect(document.getElementById("sidebar")!.classList.contains("collapsed")).toBe(true);
   } finally {
     teardown();
   }

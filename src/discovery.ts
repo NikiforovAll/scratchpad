@@ -18,6 +18,15 @@ export interface Pad {
   manifest: Manifest;
 }
 
+/** Validate a pad name. Returns an error message, or null if valid. Names must
+ * not contain whitespace — use hyphens (the slug form) instead. */
+export function validateName(name: string): string | null {
+  if (/\s/.test(name)) {
+    return `pad name must not contain whitespace: "${name}"\n       use hyphens instead, e.g. "${slugify(name)}"`;
+  }
+  return null;
+}
+
 /** lowercase, spaces/punct → "-", trim repeats. "Auth Refactor!" → "auth-refactor". */
 export function slugify(name: string): string {
   const s = name

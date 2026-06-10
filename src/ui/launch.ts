@@ -14,7 +14,25 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Pad } from "../discovery.ts";
 import type { IO } from "../commands.ts";
+import { saveConfig } from "../config.ts";
 import { createReloader, type Reloader } from "./reload.ts";
+
+// Persist a settings payload posted by the viewer page (WebView2 postMessage or
+// POST /settings). saveConfig sanitizes field-by-field, so untrusted/extra keys
+// in the payload are simply dropped.
+async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
+  if (!payload || typeof payload !== "object") return;
+  try {
+    const p = payload as { themeMode?: unknown; colorTheme?: unknown; zoom?: unknown };
+    await saveConfig({
+      themeMode: p.themeMode as any,
+      colorTheme: p.colorTheme as any,
+      zoom: p.zoom as any,
+    });
+  } catch (e) {
+    io.err(`note: saving settings failed (${(e as Error).message.split("\n")[0]}).`);
+  }
+}
 
 export interface LaunchOpts {
   title: string;
@@ -195,6 +213,10 @@ async function tryGlimpse(
     // actually changed), or, when new vendor bundles are needed, a full re-render
     // delivered through present() (setHTML, or loadFile if oversized).
     win.on("message", async (d: any) => {
+      if (d && d.__scratch_settings) {
+        await persistViewerSettings(d.__scratch_settings, io);
+        return;
+      }
       if (!d || !d.__scratch_reload) return;
       try {
         const s = await reloader.rebuild();
@@ -233,7 +255,12 @@ async function serveBrowser(
   // so we rebuild from disk on each page request — every load is fresh, no SSE.
   const server = Bun.serve({
     port: 0,
-    async fetch() {
+    async fetch(req) {
+      // Settings write-back from the page's settings panel (no webview here).
+      if (req.method === "POST" && new URL(req.url).pathname === "/settings") {
+        await persistViewerSettings(await req.json().catch(() => null), io);
+        return new Response(null, { status: 204 });
+      }
       let body = html; // first paint uses the prebuilt page; reloads rebuild
       try {
         body = (await reloader.rebuild()).html;

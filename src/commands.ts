@@ -4,7 +4,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm as fsRm } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { findPads, resolvePad, resolveRoot, slugify, type Pad } from "./discovery.ts";
+import { findPads, resolvePad, resolveRoot, slugify, validateName, type Pad } from "./discovery.ts";
 import {
   DEFAULT_TYPE,
   hasManifest,
@@ -27,6 +27,13 @@ export const defaultIO: IO = {
   err: (s) => process.stderr.write(s + "\n"),
 };
 
+/** Forward-slash a path — portable + safe across Git Bash, where backslashes and
+ * drive letters get mangled. */
+const toPosix = (p: string) => p.split("\\").join("/");
+
+/** Emit a value as pretty JSON on one logical write (the shape `show <pad>` uses). */
+const emitJson = (io: IO, value: unknown) => io.out(JSON.stringify(value, null, 2));
+
 /** scratch new <name> --dir <parent> [--id] [--force] */
 export async function cmdNew(
   args: { name?: string; dir?: string; id?: string; force?: boolean },
@@ -36,12 +43,15 @@ export async function cmdNew(
     io.err("error: `new` requires a <name>.\n  usage: scratch new <name> --dir <parent> [--id <id>]");
     return 2;
   }
+  const nameErr = validateName(args.name);
+  if (nameErr) {
+    io.err(`error: ${nameErr}`);
+    return 2;
+  }
   if (!args.dir) {
     io.err(
       "error: `new` requires an explicit --dir <parent>. Placement is always deliberate;\n" +
-        "       there is no assumed location. e.g. scratch new \"" +
-        args.name +
-        '" --dir _plans',
+        `       there is no assumed location. e.g. scratch new ${slugify(args.name)} --dir _plans`,
     );
     return 2;
   }
@@ -118,7 +128,7 @@ export async function cmdAdd(
   const abs = isAbsolute(args.file)
     ? resolve(args.file)
     : resolve(args.link ? process.cwd() : pad.dir, args.file);
-  let rel = relative(pad.dir, abs).split("\\").join("/");
+  let rel = toPosix(relative(pad.dir, abs));
   const inside = !(rel.startsWith("..") || isAbsolute(rel));
 
   // --link (or any out-of-pad target): register the file by REFERENCE. Its
@@ -130,9 +140,9 @@ export async function cmdAdd(
     if (!args.link) {
       io.err(`note: ${abs} is outside the pad; linking by reference (same as --link).`);
     }
-    const label = (args.as ?? basename(abs)).split("\\").join("/").replace(/^\/+/, "");
-    let src = relative(pad.dir, abs).split("\\").join("/");
-    if (!src || isAbsolute(src)) src = abs.split("\\").join("/");
+    const label = toPosix(args.as ?? basename(abs)).replace(/^\/+/, "");
+    let src = toPosix(relative(pad.dir, abs));
+    if (!src || isAbsolute(src)) src = toPosix(abs);
     entry.path = label;
     entry.src = src;
     rel = label;
@@ -163,11 +173,21 @@ export async function cmdAdd(
   return 0;
 }
 
-/** scratch ls [<pad>] [--dir <root>] */
-export async function cmdLs(args: { pad?: string; dir?: string }, io: IO): Promise<number> {
+/** scratch ls [<pad>] [--dir <root>] [--json] */
+export async function cmdLs(args: { pad?: string; dir?: string; json?: boolean }, io: IO): Promise<number> {
   const root = resolveRoot(args.dir);
+  // Relative to root — portable, never absolute (consumed by the fzf wrapper
+  // through Git Bash, where backslashes/drive letters get mangled).
+  const relOf = (dir: string) => toPosix(relative(root, dir)) || ".";
   if (!args.pad) {
     const pads = await findPads(root);
+    if (args.json) {
+      emitJson(io, {
+        root: toPosix(root),
+        pads: pads.map((p) => ({ name: p.manifest.name, rel: relOf(p.dir), files: p.manifest.files.length, created: p.manifest.created, updated: p.manifest.updated })),
+      });
+      return 0;
+    }
     if (pads.length === 0) {
       io.out(`no scratchpads found under ${root}`);
       io.out(`create one:  scratch new <name> --dir <parent>`);
@@ -175,8 +195,7 @@ export async function cmdLs(args: { pad?: string; dir?: string }, io: IO): Promi
     }
     io.out(`PADS under ${root}`);
     for (const p of pads) {
-      const rel = relative(root, p.dir).split("\\").join("/") || ".";
-      io.out(`  ${p.manifest.name}  (${p.manifest.files.length} files)  ${rel}`);
+      io.out(`  ${p.manifest.name}  (${p.manifest.files.length} files)  ${relOf(p.dir)}  · updated ${p.manifest.updated}`);
     }
     return 0;
   }
@@ -186,22 +205,40 @@ export async function cmdLs(args: { pad?: string; dir?: string }, io: IO): Promi
     return 1;
   }
   const m = pad.manifest;
+  if (args.json) {
+    emitJson(io, { name: m.name, id: m.id, rel: relOf(pad.dir), created: m.created, updated: m.updated, files: m.files });
+    return 0;
+  }
   io.out(`${m.name}  ${m.id ? "(" + m.id + ")  " : ""}— ${m.files.length} registered file(s)`);
   io.out(`  dir: ${pad.dir}`);
+  io.out(`  created: ${m.created}  ·  updated: ${m.updated}`);
   if (m.files.length === 0) {
     io.out("  (no files registered yet)");
   }
+  // Group by the `group` field under uppercased headers, mirroring the viewer's
+  // sidebar: the Map preserves first-appearance order of both groups and files
+  // within each; ungrouped files share the '' key, shown under a "FILES" header.
+  const groups = new Map<string, typeof m.files>();
   for (const f of m.files) {
-    const meta = [f.type ?? DEFAULT_TYPE, ...(f.tags ?? []).map((t) => "#" + t)].join(" ");
-    const link = f.src ? `  → ${f.src}` : "";
-    io.out(`  ${f.path}${f.title ? "  — " + f.title : ""}  [${meta}]${link}`);
+    const g = f.group ?? "";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g)!.push(f);
+  }
+  for (const [g, files] of groups) {
+    io.out("");
+    io.out(`  ${(g || "FILES").toUpperCase()}`);
+    for (const f of files) {
+      const meta = [f.type ?? DEFAULT_TYPE, ...(f.tags ?? []).map((t) => "#" + t)].join(" ");
+      const link = f.src ? `  → ${f.src}` : "";
+      io.out(`    ${f.path}${f.title ? "  — " + f.title : ""}  [${meta}]${link}`);
+    }
   }
   return 0;
 }
 
 /** scratch show <pad> [<file>] [--dir <root>] */
 export async function cmdShow(
-  args: { pad?: string; file?: string; dir?: string },
+  args: { pad?: string; file?: string; dir?: string; json?: boolean },
   io: IO,
 ): Promise<number> {
   if (!args.pad) {
@@ -216,16 +253,26 @@ export async function cmdShow(
   }
   const m = pad.manifest;
   if (!args.file) {
-    io.out(JSON.stringify(m, null, 2));
+    emitJson(io, m);
     return 0;
   }
-  const entry = m.files.find((f) => f.path === args.file || f.path === args.file?.split("\\").join("/"));
+  const wanted = toPosix(args.file);
+  const entry = m.files.find((f) => f.path === args.file || f.path === wanted);
   // A linked entry's content lives at `src` (outside the pad); otherwise it's at path under the pad dir.
   const abs = entry?.src
     ? (isAbsolute(entry.src) ? entry.src : resolve(pad.dir, entry.src))
     : isAbsolute(args.file)
       ? args.file
       : join(pad.dir, args.file);
+  if (!existsSync(abs)) {
+    io.err(`error: file not found on disk: ${abs}`);
+    return 1;
+  }
+  const content = await Bun.file(abs).text();
+  if (args.json) {
+    emitJson(io, { metadata: entry ?? null, content });
+    return 0;
+  }
   if (entry) {
     io.out(`# ${entry.title ?? entry.path}`);
     io.out(`path: ${entry.path}  ·  type: ${entry.type ?? DEFAULT_TYPE}${entry.group ? "  ·  group: " + entry.group : ""}${entry.src ? "  ·  linked → " + entry.src : ""}`);
@@ -233,11 +280,7 @@ export async function cmdShow(
     if (entry.description) io.out(`desc: ${entry.description}`);
     io.out("");
   }
-  if (!existsSync(abs)) {
-    io.err(`error: file not found on disk: ${abs}`);
-    return 1;
-  }
-  io.out(await Bun.file(abs).text());
+  io.out(content);
   return 0;
 }
 
@@ -259,7 +302,7 @@ export async function cmdRm(
   const m = pad.manifest;
 
   if (args.file) {
-    const rel = args.file.split("\\").join("/");
+    const rel = toPosix(args.file);
     const idx = m.files.findIndex((f) => f.path === rel || f.path === args.file);
     if (idx < 0) {
       io.err(`error: "${args.file}" is not registered in ${m.name}`);
@@ -314,7 +357,7 @@ async function selectPads(
   if (!args.all) {
     io.err(`error: ${pads.length} scratchpads found under ${root}; name one, or pass --all to view them together:`);
     for (const p of pads) {
-      const rel = relative(root, p.dir).split("\\").join("/") || ".";
+      const rel = toPosix(relative(root, p.dir)) || ".";
       io.err(`  scratch ${verb} ${p.manifest.name}    (${rel})`);
     }
     return null;
@@ -347,14 +390,18 @@ export async function cmdExport(
   io: IO,
 ): Promise<number> {
   const { buildView, renderHtml } = await import("./ui/render.ts");
+  const { loadConfig } = await import("./config.ts");
   const root = resolveRoot(args.dir);
   const sel = await selectPads(args, root, io, "export");
   if (!sel) return 1;
 
   // File contents are embedded; hljs/mermaid load from the pinned CDN (so the
   // file needs network for highlighting/diagrams, but degrades gracefully).
+  // The exporter's saved theme is baked in; the exported file's own settings
+  // panel falls back to localStorage (no host listening to write config).
   const view = await buildView(sel.pads);
-  const html = await renderHtml(view, sel.label);
+  const cfg = await loadConfig();
+  const html = await renderHtml(view, sel.label, cfg.ui);
   const outPath = resolve(args.out ?? `${sel.defaultName}.html`);
   await Bun.write(outPath, html);
   io.out(`✓ exported ${sel.label} → ${outPath}`);

@@ -2,7 +2,137 @@
 // tokens. Dark-first (#101114) + warm-paper light (#e8e6e3) siblings; one ember
 // accent; tonal-first depth, flat at rest; two-voice serif/mono type.
 
-export const THEME_CSS = `
+/** The 12 color variables a color theme must define, per mode. */
+export interface Palette {
+  ember: string;
+  emberGlow: string;
+  emberDim: string;
+  field: string;
+  surface: string;
+  elevated: string;
+  hover: string;
+  border: string;
+  ink1: string;
+  ink2: string;
+  ink3: string;
+  inkMuted: string;
+}
+
+export interface ColorTheme {
+  id: string;
+  label: string;
+  dark: Palette;
+  light: Palette;
+}
+
+export const DEFAULT_COLOR_THEME = "ember";
+
+// Curated registry. "ember" mirrors the :root defaults below (it has no override
+// block — clearing data-color-theme is how you get it); the ports map canonical
+// upstream palettes (Gruvbox, Catppuccin Mocha/Latte, Tokyo Night/Day, Solarized)
+// onto the Lab-Notebook variable roles: one accent (--ember*), four surfaces
+// (field→hover), one hairline (border), four-step ink ramp.
+export const COLOR_THEMES: ColorTheme[] = [
+  {
+    id: "ember",
+    label: "Ember",
+    dark: {
+      ember: "#e86f33", emberGlow: "#f0a070", emberDim: "rgba(232,111,51,0.25)",
+      field: "#101114", surface: "#16181c", elevated: "#1e2025", hover: "#282a30",
+      border: "#363840", ink1: "#f0f1f3", ink2: "#c2c4c9", ink3: "#9a9da5", inkMuted: "#7d808a",
+    },
+    light: {
+      ember: "#e86f33", emberGlow: "#b85a20", emberDim: "rgba(184,90,32,0.18)",
+      field: "#e8e6e3", surface: "#efede9", elevated: "#fbfaf9", hover: "#e0ddd7",
+      border: "#cfcbc4", ink1: "#0a0a0a", ink2: "#2c2c2c", ink3: "#565656", inkMuted: "#767676",
+    },
+  },
+  {
+    id: "gruvbox",
+    label: "Gruvbox",
+    dark: {
+      ember: "#fe8019", emberGlow: "#f9b27c", emberDim: "rgba(254,128,25,0.25)",
+      field: "#1d2021", surface: "#282828", elevated: "#32302f", hover: "#3c3836",
+      border: "#504945", ink1: "#ebdbb2", ink2: "#d5c4a1", ink3: "#bdae93", inkMuted: "#928374",
+    },
+    // Light surfaces are deliberately desaturated vs canonical gruvbox-light
+    // (#f2e5bc/#f9f5d7): the full-strength yellow wash was hard to read on. Keep
+    // the warm cast + gruvbox inks/accent, drop the saturation of the paper.
+    light: {
+      ember: "#d65d0e", emberGlow: "#af3a03", emberDim: "rgba(214,93,14,0.18)",
+      field: "#ede7d5", surface: "#f3eee0", elevated: "#faf7ec", hover: "#e4dcc6",
+      border: "#c9bc9d", ink1: "#3c3836", ink2: "#504945", ink3: "#665c54", inkMuted: "#7c6f64",
+    },
+  },
+  {
+    id: "catppuccin",
+    label: "Catppuccin",
+    dark: {
+      ember: "#cba6f7", emberGlow: "#d8c2fa", emberDim: "rgba(203,166,247,0.25)",
+      field: "#11111b", surface: "#181825", elevated: "#1e1e2e", hover: "#313244",
+      border: "#45475a", ink1: "#cdd6f4", ink2: "#bac2de", ink3: "#a6adc8", inkMuted: "#7f849c",
+    },
+    light: {
+      ember: "#8839ef", emberGlow: "#6f2dbd", emberDim: "rgba(136,57,239,0.18)",
+      field: "#e6e9ef", surface: "#eff1f5", elevated: "#ffffff", hover: "#ccd0da",
+      border: "#bcc0cc", ink1: "#4c4f69", ink2: "#5c5f77", ink3: "#6c6f85", inkMuted: "#8c8fa1",
+    },
+  },
+  {
+    id: "tokyo-night",
+    label: "Tokyo Night",
+    dark: {
+      ember: "#7aa2f7", emberGlow: "#9ab8ff", emberDim: "rgba(122,162,247,0.25)",
+      field: "#16161e", surface: "#1a1b26", elevated: "#1f2335", hover: "#292e42",
+      border: "#3b4261", ink1: "#c0caf5", ink2: "#a9b1d6", ink3: "#787c99", inkMuted: "#565f89",
+    },
+    light: {
+      ember: "#2e7de9", emberGlow: "#1659c7", emberDim: "rgba(46,125,233,0.18)",
+      field: "#e1e2e7", surface: "#e9eaf0", elevated: "#f7f8fc", hover: "#d0d5e3",
+      border: "#a8aecb", ink1: "#343b58", ink2: "#565a6e", ink3: "#6c6e75", inkMuted: "#848cb5",
+    },
+  },
+  {
+    id: "solarized",
+    label: "Solarized",
+    dark: {
+      ember: "#cb4b16", emberGlow: "#e9663a", emberDim: "rgba(203,75,22,0.25)",
+      field: "#002b36", surface: "#073642", elevated: "#0a4250", hover: "#11505f",
+      border: "#586e75", ink1: "#93a1a1", ink2: "#839496", ink3: "#657b83", inkMuted: "#586e75",
+    },
+    light: {
+      ember: "#cb4b16", emberGlow: "#b34a12", emberDim: "rgba(203,75,22,0.18)",
+      field: "#eee8d5", surface: "#f5efdc", elevated: "#fdf6e3", hover: "#e4ddc8",
+      border: "#d3cbb7", ink1: "#073642", ink2: "#586e75", ink3: "#657b83", inkMuted: "#839496",
+    },
+  },
+];
+
+export const COLOR_THEME_IDS = COLOR_THEMES.map((t) => t.id);
+
+function paletteVars(p: Palette): string {
+  return (
+    `--ember: ${p.ember}; --ember-glow: ${p.emberGlow}; --ember-dim: ${p.emberDim}; ` +
+    `--field: ${p.field}; --surface: ${p.surface}; --elevated: ${p.elevated}; ` +
+    `--hover: ${p.hover}; --border: ${p.border}; ` +
+    `--ink-1: ${p.ink1}; --ink-2: ${p.ink2}; --ink-3: ${p.ink3}; --ink-muted: ${p.inkMuted};`
+  );
+}
+
+// Override blocks per non-default theme. Only the 12 color vars change —
+// --accent-text/fonts inherit from :root, and hljs CODE blocks keep their CDN
+// theme (toggled by mode, not color theme).
+function colorThemeCss(): string {
+  let css = "\n/* color themes (settings > theme) */\n";
+  for (const t of COLOR_THEMES) {
+    if (t.id === DEFAULT_COLOR_THEME) continue;
+    css += `:root[data-color-theme="${t.id}"] { ${paletteVars(t.dark)} }\n`;
+    css += `:root[data-color-theme="${t.id}"][data-theme="light"] { ${paletteVars(t.light)} }\n`;
+  }
+  return css;
+}
+
+const BASE_CSS = `
 :root {
   /* dark (canonical) */
   --ember: #e86f33;
@@ -38,7 +168,7 @@ export const THEME_CSS = `
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
 body {
   background: var(--field);
   color: var(--ink-1);
@@ -96,9 +226,15 @@ body {
   width: var(--tree-w, 340px); flex: 0 0 auto; min-height: 0;
   display: flex; flex-direction: column;
   background: var(--surface); border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.sidebar.collapsed { display: none; }
+/* Collapse slides the pane shut instead of popping it away. Rows are
+   nowrap+ellipsis, so the shrinking width clips cleanly. */
+.sidebar.collapsed { width: 0; border-right: none; }
 .sidebar.collapsed + .resizer { display: none; }
+/* Manual drag must track the pointer 1:1 — no easing while resizing. */
+.sidebar.resizing { transition: none; }
 .tree { flex: 1; overflow-y: auto; padding: 14px 10px; }
 /* App version, pinned to the sidebar foot (bottom-left). */
 .appver { flex: 0 0 auto; padding: 6px 12px; border-top: 1px solid var(--border);
@@ -127,7 +263,10 @@ body {
   font-size: 14px; color: var(--ink-2); transition: all 0.15s ease;
 }
 .frow:hover { background: var(--hover); }
-.frow.active { color: var(--ink-1); background: var(--ember-dim); box-shadow: inset 2px 0 0 var(--ember); }
+/* Active row: neutral fill + thin ember bar (a tinted pill read as noise). The
+   bar sits flush against the squared-off left edge; the radius stays on the right. */
+.frow.active { color: var(--ink-1); background: var(--hover);
+  box-shadow: inset 2px 0 0 var(--ember); border-radius: 0 5px 5px 0; }
 .frow.unreg { color: var(--ink-muted); font-style: italic; }
 .frow .fttl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .frow .ftag { color: var(--ink-muted); font-size: 11px; }
@@ -139,6 +278,9 @@ body {
   padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
 .pfile { font-family: var(--mono); font-size: 12px; color: var(--accent-text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* file dates ride the right edge of the header strip, next to the controls */
+.pdates { margin-left: auto; font-family: var(--mono); font-size: 11px;
+  color: var(--ink-muted); white-space: nowrap; flex-shrink: 0; }
 .ptitle { font-family: var(--serif); font-weight: 500; font-size: 22px; line-height: 1.2; margin: 0 0 4px; }
 .pmeta { font-family: var(--mono); font-size: 12px; color: var(--ink-muted);
   letter-spacing: 0.02em; margin-bottom: 6px; }
@@ -261,4 +403,34 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .toast.visible { opacity: 1; transform: translateY(0); }
 .toast.toast-success { border-color: var(--ember); color: var(--ember); }
 .toast.toast-info { color: var(--ink-2); }
+
+/* settings modal — mode segmented control + color theme cards */
+.settings-body { padding: 14px 18px 18px; }
+.settings-section { margin-bottom: 16px; }
+.settings-section:last-child { margin-bottom: 0; }
+.settings-label { font-size: 11px; font-weight: 500; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-muted); margin-bottom: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { background: transparent; border: 0; color: var(--ink-muted);
+  font-family: var(--mono); font-size: 12px; padding: 6px 14px; cursor: pointer;
+  transition: all 0.15s ease; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button:hover { background: var(--hover); color: var(--ink-1); }
+.seg button.on { color: var(--accent-text); background: var(--ember-dim); }
+.theme-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.theme-card { display: flex; align-items: center; gap: 10px;
+  background: var(--field); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; cursor: pointer; text-align: left;
+  font-family: var(--mono); font-size: 12px; color: var(--ink-2); transition: all 0.15s ease; }
+.theme-card:hover { background: var(--hover); color: var(--ink-1); }
+.theme-card.on { color: var(--accent-text); border-color: var(--ember); }
+.swatches { display: inline-flex; gap: 3px; flex: 0 0 auto; }
+.swatch { width: 12px; height: 12px; border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--ink-muted) 40%, transparent); }
+/* Each card carries both mode previews; show only the resolved mode's dots.
+   (No data-theme attribute = dark default, so hide .sw-light via :not.) */
+:root[data-theme="light"] .sw-dark { display: none; }
+:root:not([data-theme="light"]) .sw-light { display: none; }
 `;
+
+export const THEME_CSS = BASE_CSS + colorThemeCss();

@@ -57,18 +57,24 @@ describe("parseManifest", () => {
 describe("new", () => {
   test("requires name and --dir", async () => {
     expect(await run(["new"], io)).toBe(2);
-    expect(await run(["new", "My Pad"], io)).toBe(2);
+    expect(await run(["new", "lonely-pad"], io)).toBe(2);
     expect(allErr()).toContain("--dir");
   });
 
+  test("rejects names containing whitespace", async () => {
+    expect(await run(["new", "My Pad", "--dir", root], io)).toBe(2);
+    expect(allErr()).toContain("whitespace");
+    expect(existsSync(join(root, "my-pad"))).toBe(false);
+  });
+
   test("creates folder + manifest and prints onboarding", async () => {
-    const code = await run(["new", "Auth Refactor", "--dir", root, "--id", "sess123"], io);
+    const code = await run(["new", "auth-refactor", "--dir", root, "--id", "sess123"], io);
     expect(code).toBe(0);
     const padDir = join(root, "auth-refactor");
     expect(existsSync(join(padDir, MANIFEST_NAME))).toBe(true);
     const m = JSON.parse(await readFile(join(padDir, MANIFEST_NAME), "utf8"));
     expect(m.version).toBe(1);
-    expect(m.name).toBe("Auth Refactor");
+    expect(m.name).toBe("auth-refactor");
     expect(m.id).toBe("sess123");
     expect(m.files).toEqual([]);
     expect(all()).toContain("How to use this scratchpad");
@@ -151,6 +157,19 @@ describe("full loop: add / ls / show / rm", () => {
     expect(all()).toContain("#x");
   });
 
+  test("ls <pad> groups files under uppercased headers; ungrouped last", async () => {
+    await seed();
+    await writeFile(join(root, "notes", "b.md"), "x", "utf8");
+    await run(["add", "Notes", "a.md", "--dir", root, "--group", "Findings"], io);
+    await run(["add", "Notes", "b.md", "--dir", root], io); // ungrouped
+    log = []; errs = [];
+    expect(await run(["ls", "Notes", "--dir", root], io)).toBe(0);
+    const out = all();
+    expect(out).toContain("FINDINGS");
+    expect(out).toContain("FILES"); // ungrouped header
+    expect(out.indexOf("FINDINGS")).toBeLessThan(out.indexOf("FILES")); // named groups first
+  });
+
   test("show <pad> prints manifest; show <pad> <file> prints content", async () => {
     await seed();
     await run(["add", "Notes", "a.md", "--dir", root, "--title", "A note"], io);
@@ -161,6 +180,74 @@ describe("full loop: add / ls / show / rm", () => {
     expect(await run(["show", "Notes", "a.md", "--dir", root], io)).toBe(0);
     expect(all()).toContain("# Hello");
     expect(all()).toContain("A note");
+  });
+
+  test("ls --json (no pad) emits relative, forward-slashed paths", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["ls", "--dir", root, "--json"], io)).toBe(0);
+    const out = JSON.parse(all());
+    expect(out.root).not.toContain("\\");
+    const pad = out.pads.find((p: any) => p.name === "Notes");
+    expect(pad).toMatchObject({ name: "Notes", rel: "notes" });
+    expect(typeof pad.files).toBe("number");
+  });
+
+  test("ls <pad> --json emits FileEntry shape under files", async () => {
+    await seed();
+    await run(["add", "Notes", "a.md", "--dir", root, "--title", "A note", "--tag", "x,y"], io);
+    log = []; errs = [];
+    expect(await run(["ls", "Notes", "--dir", root, "--json"], io)).toBe(0);
+    const out = JSON.parse(all());
+    expect(out.name).toBe("Notes");
+    expect(out.rel.toLowerCase()).toBe("notes"); // case-insensitive FS: rel echoes query casing
+    expect(out.files[0]).toMatchObject({ path: "a.md", title: "A note", tags: ["x", "y"] });
+  });
+
+  test("ls <pad> --json exposes created/updated timestamps", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["ls", "Notes", "--dir", root, "--json"], io)).toBe(0);
+    const out = JSON.parse(all());
+    expect(out.created).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(out.updated).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test("ls <pad> human output shows created/updated", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["ls", "Notes", "--dir", root], io)).toBe(0);
+    expect(all()).toContain("created:");
+    expect(all()).toContain("updated:");
+  });
+
+  test("CLI activity bumps updated but preserves created (manual edits don't count)", async () => {
+    const padDir = await seed();
+    const before = JSON.parse(await readFile(join(padDir, MANIFEST_NAME), "utf8"));
+    await new Promise((r) => setTimeout(r, 1100)); // timestamps are second-resolution
+    await run(["add", "Notes", "a.md", "--dir", root, "--title", "A"], io);
+    const after = JSON.parse(await readFile(join(padDir, MANIFEST_NAME), "utf8"));
+    expect(after.created).toBe(before.created); // creation time is stable
+    expect(after.updated > before.updated).toBe(true); // activity advances it
+  });
+
+  test("show <file> --json returns {metadata, content}", async () => {
+    await seed();
+    await run(["add", "Notes", "a.md", "--dir", root, "--title", "A note"], io);
+    log = []; errs = [];
+    expect(await run(["show", "Notes", "a.md", "--dir", root, "--json"], io)).toBe(0);
+    const out = JSON.parse(all());
+    expect(out.metadata).toMatchObject({ path: "a.md", title: "A note" });
+    expect(out.content).toContain("# Hello");
+  });
+
+  test("show <file> --json has null metadata for an unregistered file", async () => {
+    await seed(); // a.md exists on disk but is never `add`ed
+    log = []; errs = [];
+    expect(await run(["show", "Notes", "a.md", "--dir", root, "--json"], io)).toBe(0);
+    const out = JSON.parse(all());
+    expect(out.metadata).toBeNull();
+    expect(out.content).toContain("# Hello");
   });
 
   test("rm <pad> <file> unregisters but leaves file on disk", async () => {

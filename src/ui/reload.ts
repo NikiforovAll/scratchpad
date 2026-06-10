@@ -4,6 +4,7 @@
 // of needed vendor CDN tags GROWS, a full page so highlighting/diagrams that
 // weren't loaded at launch still get their script tag.
 
+import { loadConfig } from "../config.ts";
 import type { Pad } from "../discovery.ts";
 import { readManifest } from "../manifest.ts";
 import { bundleNeeds, buildView, payloadJson, renderHtml } from "./render.ts";
@@ -46,8 +47,11 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
     haveHljs = haveHljs || needs.hljs;
     haveMermaid = haveMermaid || needs.mermaid;
     primed = true;
+    // Re-read the user config so a theme saved from the settings panel is baked
+    // into every rebuilt page (glimpse re-present, browser reload, first launch).
+    const cfg = await loadConfig();
     return {
-      html: await renderHtml(view, rootLabel),
+      html: await renderHtml(view, rootLabel, cfg.ui),
       payloadJson: payloadJson(view, rootLabel),
       full,
     };

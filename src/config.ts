@@ -9,17 +9,40 @@
 // The namespace dir is "scratchpad" to match the package/repo name.
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { COLOR_THEME_IDS, DEFAULT_COLOR_THEME } from "./ui/theme.ts";
+
+export type ThemeMode = "dark" | "light" | "system";
 
 export interface ScratchConfig {
   ui: {
     /** glimpse native window without OS title bar/border (page draws its own
      * close button + drag strip). Default true; set false to keep native chrome. */
     frameless: boolean;
+    /** Viewer light/dark resolution. "system" follows prefers-color-scheme. */
+    themeMode: ThemeMode;
+    /** Color theme id from COLOR_THEMES (settings > theme). */
+    colorTheme: string;
+    /** Viewer zoom factor (CSS zoom on the root), 0.5–2. Neither WebView2 nor a
+     * random-port browser origin remembers zoom across launches, so we own it. */
+    zoom: number;
   };
 }
 
-const DEFAULTS: ScratchConfig = { ui: { frameless: true } };
+const DEFAULTS: ScratchConfig = {
+  ui: { frameless: true, themeMode: "system", colorTheme: DEFAULT_COLOR_THEME, zoom: 1 },
+};
+
+function validThemeMode(v: unknown): v is ThemeMode {
+  return v === "dark" || v === "light" || v === "system";
+}
+function validColorTheme(v: unknown): v is string {
+  return typeof v === "string" && COLOR_THEME_IDS.includes(v);
+}
+function validZoom(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0.5 && v <= 2;
+}
 
 /** Absolute path of the config file `scratch` reads (whether or not it exists). */
 export function configPath(): string {
@@ -41,9 +64,40 @@ export async function loadConfig(): Promise<ScratchConfig> {
       ui: {
         frameless:
           typeof raw?.ui?.frameless === "boolean" ? raw.ui.frameless : DEFAULTS.ui.frameless,
+        themeMode: validThemeMode(raw?.ui?.themeMode) ? raw.ui.themeMode : DEFAULTS.ui.themeMode,
+        colorTheme: validColorTheme(raw?.ui?.colorTheme)
+          ? raw.ui.colorTheme
+          : DEFAULTS.ui.colorTheme,
+        zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
       },
     };
   } catch {
     return DEFAULTS;
   }
+}
+
+/** Persist a partial ui update. The patch arrives from the viewer page (webview
+ * postMessage / POST /settings), so it's sanitized field-by-field: only known
+ * keys with valid values are written. Unknown keys already in the file — both
+ * top-level and under ui — are preserved (hand-edited config survives). */
+export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<void> {
+  const file = configPath();
+  let raw: Record<string, unknown> = {};
+  try {
+    const parsed = await Bun.file(file).json();
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) raw = parsed;
+  } catch {
+    // missing/malformed → start fresh
+  }
+  const ui =
+    raw.ui && typeof raw.ui === "object" && !Array.isArray(raw.ui)
+      ? (raw.ui as Record<string, unknown>)
+      : {};
+  if (typeof patch.frameless === "boolean") ui.frameless = patch.frameless;
+  if (validThemeMode(patch.themeMode)) ui.themeMode = patch.themeMode;
+  if (validColorTheme(patch.colorTheme)) ui.colorTheme = patch.colorTheme;
+  if (validZoom(patch.zoom)) ui.zoom = patch.zoom;
+  raw.ui = ui;
+  await mkdir(dirname(file), { recursive: true });
+  await Bun.write(file, JSON.stringify(raw, null, 2) + "\n");
 }

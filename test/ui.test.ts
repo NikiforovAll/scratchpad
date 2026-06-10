@@ -124,6 +124,47 @@ describe("renderHtml", () => {
     expect(html.length).toBeLessThan(150_000); // mermaid bundle NOT inlined
   });
 
+  test("defaults to system mode + ember and ships the settings UI", async () => {
+    const pad = await seedPad();
+    const html = await renderHtml(await buildView([pad]), "Notes");
+    // system mode = no data-theme attr (dark-first until the client resolves the OS)
+    expect(html).toContain('<html lang="en" data-color-theme="ember">');
+    expect(html).toContain('id="settings"'); // settings island
+    expect(html).toContain('"themeMode":"system"');
+    expect(html).toContain('id="settingsBtn"');
+    expect(html).toContain('id="settingsModal"');
+    expect(html).toContain('data-theme-id="gruvbox"'); // theme cards from the registry
+  });
+
+  test("bakes persisted settings into <html> attrs + the settings island", async () => {
+    const pad = await seedPad();
+    const html = await renderHtml(await buildView([pad]), "Notes", {
+      themeMode: "light",
+      colorTheme: "gruvbox",
+    });
+    expect(html).toContain('<html lang="en" data-color-theme="gruvbox" data-theme="light">');
+    expect(html).toContain('"themeMode":"light"');
+    expect(html).toContain('"colorTheme":"gruvbox"');
+    // the color theme's override CSS is present
+    expect(html).toContain(':root[data-color-theme="gruvbox"]');
+    expect(html).toContain(':root[data-color-theme="gruvbox"][data-theme="light"]');
+  });
+
+  test("zoom ≠ 1 is baked as an inline style; default 1 leaves <html> clean", async () => {
+    const pad = await seedPad();
+    const view = await buildView([pad]);
+    const zoomed = await renderHtml(view, "Notes", {
+      themeMode: "system",
+      colorTheme: "ember",
+      zoom: 1.25,
+    });
+    expect(zoomed).toContain('<html lang="en" data-color-theme="ember" style="zoom: 1.25">');
+    expect(zoomed).toContain('"zoom":1.25');
+    const plain = await renderHtml(view, "Notes");
+    expect(plain).toContain('<html lang="en" data-color-theme="ember">'); // no style attr
+    expect(plain).toContain('"zoom":1');
+  });
+
   test("escapes </script> in embedded data", async () => {
     const dir = join(root, "x");
     await mkdir(dir, { recursive: true });

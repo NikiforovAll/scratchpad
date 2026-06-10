@@ -4,11 +4,13 @@
 // pinned CDN, added CONDITIONALLY — hljs only when a pad has code, mermaid only
 // when a ```mermaid block is present.
 
+import { stat } from "node:fs/promises";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
+import type { ScratchConfig } from "../config.ts";
 import type { Pad } from "../discovery.ts";
 import { DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
-import { THEME_CSS } from "./theme.ts";
+import { COLOR_THEMES, DEFAULT_COLOR_THEME, type Palette, THEME_CSS } from "./theme.ts";
 
 // Pinned CDN builds (version + SRI). The script-global builds (highlight.min.js /
 // mermaid.min.js) set window.hljs / window.mermaid; if they fail to load
@@ -75,6 +77,9 @@ interface FileView {
   lang?: string;
   /** text content for markdown/code/text; data URI for image; null otherwise. */
   content: string | null;
+  /** ISO timestamps from the file on disk (manifest has only pad-level dates). */
+  created?: string;
+  updated?: string;
 }
 interface PadView {
   name: string;
@@ -95,8 +100,9 @@ function classify(ext: string): Kind {
 /** List the pad's registered files (from the manifest), merged with metadata.
  * Unregistered on-disk files are intentionally not shown. */
 async function scanPadFiles(pad: Pad): Promise<FileView[]> {
-  const views: FileView[] = [];
-  for (const meta of pad.manifest.files) {
+  // Files are independent, so read them concurrently; Promise.all keeps the
+  // result in manifest.files[] order — the author's deliberate reading order.
+  const views = pad.manifest.files.map(async (meta): Promise<FileView> => {
     const path = meta.path;
     const ext = extname(path).toLowerCase();
     let kind = classify(ext);
@@ -106,7 +112,20 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       ? (isAbsolute(meta.src) ? meta.src : resolve(pad.dir, meta.src))
       : join(pad.dir, path);
     const file = Bun.file(abs);
+    let created: string | undefined;
+    let updated: string | undefined;
     if (await file.exists()) {
+      try {
+        const st = await stat(abs);
+        updated = st.mtime.toISOString();
+        // birthtime is 0/epoch (or trails mtime) on filesystems that don't track
+        // creation — only surface it when it's a real date.
+        if (st.birthtimeMs > 0 && st.birthtimeMs <= st.mtimeMs) {
+          created = st.birthtime.toISOString();
+        }
+      } catch {
+        // stat raced a delete/rename — dates just stay absent
+      }
       const size = file.size;
       if (size > MAX_EMBED_BYTES) {
         kind = "toolarge";
@@ -122,7 +141,7 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       kind = "binary";
       content = null;
     }
-    views.push({
+    return {
       path,
       abs,
       registered: true,
@@ -135,24 +154,22 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       kind,
       lang: kind === "code" ? ext.slice(1) : undefined,
       content,
-    });
-  }
-
-  // Order follows manifest.files[] — the author's deliberate reading order.
-  return views;
+      created,
+      updated,
+    };
+  });
+  return Promise.all(views);
 }
 
 export async function buildView(pads: Pad[]): Promise<PadView[]> {
-  const out: PadView[] = [];
-  for (const p of pads) {
-    out.push({
+  return Promise.all(
+    pads.map(async (p) => ({
       name: p.manifest.name,
       id: p.manifest.id,
       dir: p.dir,
       files: await scanPadFiles(p),
-    });
-  }
-  return out;
+    })),
+  );
 }
 
 const MERMAID_RE = /```[ \t]*mermaid\b/;
@@ -182,9 +199,32 @@ function needsMermaid(view: PadView[]): boolean {
   );
 }
 
-export async function renderHtml(view: PadView[], rootLabel: string): Promise<string> {
+/** Viewer settings embedded into the page (persisted in the user config file).
+ * Derived from ScratchConfig.ui so the shapes can't drift; frameless is a
+ * launch-time concern, and zoom is optional here (defaults to 1). */
+export type UiSettings = Omit<ScratchConfig["ui"], "frameless" | "zoom"> &
+  Partial<Pick<ScratchConfig["ui"], "zoom">>;
+
+const DEFAULT_UI: UiSettings = { themeMode: "system", colorTheme: DEFAULT_COLOR_THEME };
+
+export async function renderHtml(
+  view: PadView[],
+  rootLabel: string,
+  ui: UiSettings = DEFAULT_UI,
+): Promise<string> {
   const data = payloadJson(view, rootLabel);
   const titleName = view.length === 1 ? view[0]!.name : rootLabel;
+  const zoom = ui.zoom ?? 1;
+  // Persisted theme/zoom land on <html> server-side so the first paint is
+  // already correct (no flash). "system" stays attribute-less until the client
+  // resolves prefers-color-scheme — same dark-first default as today.
+  const htmlAttrs =
+    ` data-color-theme="${escapeHtml(ui.colorTheme)}"` +
+    (ui.themeMode === "system" ? "" : ` data-theme="${ui.themeMode}"`) +
+    (zoom === 1 ? "" : ` style="zoom: ${zoom}"`);
+  // NOT part of payloadJson: __scratchReload diff-compares the data island to
+  // detect "no changes", and settings must not break that.
+  const settingsJson = JSON.stringify({ ...ui, zoom }).replace(/</g, "\\u003c");
 
   // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
   // before the client script runs. SRI + crossorigin guard integrity; on load
@@ -208,7 +248,7 @@ export async function renderHtml(view: PadView[], rootLabel: string): Promise<st
   }
 
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${htmlAttrs}>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -223,12 +263,18 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <span class="padname" id="padname"></span>
     </div>
     <div class="view-actions">
+      <button class="icon-btn" id="sidebarToggle" title="Toggle sidebar ([)" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+      </button>
       <button class="icon-btn" id="reloadBtn" title="Reload from disk (R)" aria-label="Reload">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       </button>
       <button class="icon-btn" id="themeToggle" title="Toggle theme (T)" aria-label="Toggle theme">
         <svg class="i-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
         <svg class="i-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" title="Settings (S)" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
       <button class="icon-btn" id="helpBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
@@ -257,14 +303,19 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt>r</dt><dd>Reload from disk</dd></div>
         <div><dt>v</dt><dd>Toggle raw / rendered (markdown)</dd></div>
         <div><dt>t</dt><dd>Toggle theme</dd></div>
+        <div><dt>[</dt><dd>Toggle sidebar</dd></div>
+        <div><dt>s</dt><dd>Settings</dd></div>
+        <div><dt>Ctrl + − 0</dt><dd>Zoom in / out / reset</dd></div>
         <div><dt>?</dt><dd>Show this help</dd></div>
-        <div><dt>Esc</dt><dd>Close help / window</dd></div>
+        <div><dt>Esc</dt><dd>Close dialogs / window</dd></div>
       </dl>
     </div>
   </div>
+  ${SETTINGS_MODAL_HTML}
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="data" type="application/json">${data}</script>
+<script id="settings" type="application/json">${settingsJson}</script>
 ${vendor}<script>${CLIENT_JS}</script>
 </body>
 </html>`;
@@ -275,6 +326,59 @@ function escapeHtml(s: string): string {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
   );
 }
+
+// Settings modal, generated from the theme registry. Each card carries dot
+// previews for BOTH modes; CSS shows only the resolved mode's set (.sw-dark /
+// .sw-light), so cards always preview what picking them would look like.
+function swatchesHtml(p: Palette, cls: string): string {
+  const dots = [p.field, p.surface, p.ember, p.ink1]
+    .map((c) => `<span class="swatch" style="background:${c}"></span>`)
+    .join("");
+  return `<span class="swatches ${cls}">${dots}</span>`;
+}
+
+function settingsModalHtml(): string {
+  const cards = COLOR_THEMES.map(
+    (t) =>
+      `<button class="theme-card" data-theme-id="${escapeHtml(t.id)}">` +
+      swatchesHtml(t.dark, "sw-dark") +
+      swatchesHtml(t.light, "sw-light") +
+      `<span>${escapeHtml(t.label)}</span></button>`,
+  ).join("\n          ");
+  return `<div class="modal-scrim" id="settingsModal" style="display:none">
+    <div class="modal">
+      <div class="modal-head"><span>Settings</span><button class="icon-btn" id="settingsClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <div class="settings-label">Mode</div>
+          <div class="seg" id="modeSeg">
+            <button data-mode="light">Light</button>
+            <button data-mode="dark">Dark</button>
+            <button data-mode="system">System</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Theme</div>
+          <div class="theme-grid" id="themeGrid">
+          ${cards}
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Zoom</div>
+          <div class="seg" id="zoomSeg">
+            <button id="zoomOut" aria-label="Zoom out" title="Zoom out (Ctrl+-)">&minus;</button>
+            <button id="zoomReset" title="Reset zoom (Ctrl+0)">100%</button>
+            <button id="zoomIn" aria-label="Zoom in" title="Zoom in (Ctrl+=)">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Depends only on the static theme registry, so build it once at module load
+// instead of on every render.
+const SETTINGS_MODAL_HTML = settingsModalHtml();
 
 // Client-side: tree nav, preview switching, minimal markdown renderer, raw/
 // rendered toggle, syntax highlighting (if hljs present), mermaid (if present),
@@ -452,6 +556,24 @@ function enhance(container) {
   }
 }
 
+// Compact "when": relative while it reads naturally (today), then a short date,
+// with the year only when it isn't this year. Hover shows the full timestamp.
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const now = new Date(), diff = now - d;
+  if (diff >= 0 && diff < 60e3) return 'just now';
+  if (diff >= 0 && diff < 3600e3) return Math.round(diff / 60e3) + 'm ago';
+  if (diff >= 0 && diff < 86400e3 && now.toDateString() === d.toDateString()) return Math.round(diff / 3600e3) + 'h ago';
+  const opts = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString(undefined, opts);
+}
+function fmtFull(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString();
+}
+
 function renderPreview(pad, f) {
   current = pad.dir + '::' + f.path; currentRef = { pad, f };
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
@@ -470,6 +592,17 @@ function renderPreview(pad, f) {
         '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button>'
       : '') +
     '</span>';
+  // File dates, kept quiet next to the controls. An untouched file has
+  // created === updated — one "created" entry says it all.
+  const dateBits = [];
+  if (f.created && fmtWhen(f.created)) dateBits.push(['created', f.created]);
+  if (f.updated && fmtWhen(f.updated) && !(f.created && fmtWhen(f.created) === fmtWhen(f.updated))) {
+    dateBits.push(['updated', f.updated]);
+  }
+  const datesHtml = dateBits.length
+    ? '<span class="pdates" title="' + esc(dateBits.map(([w, iso]) => w + ' ' + fmtFull(iso)).join(' · ')) + '">' +
+      dateBits.map(([w, iso]) => w + ' ' + esc(fmtWhen(iso))).join(' · ') + '</span>'
+    : '';
 
   let bodyHtml = '';
   if (f.kind === 'toolarge') bodyHtml = '<div class="notice">File too large to preview.</div>';
@@ -494,7 +627,7 @@ function renderPreview(pad, f) {
   // and body all share a single left edge (per-element margins no longer fight
   // the centering).
   preview.innerHTML = '<div class="pbody">' +
-    '<div class="phead"><span class="pfile">' + esc(f.path) + '</span>' + ctrls + '</div>' +
+    '<div class="phead"><span class="pfile">' + esc(f.path) + '</span>' + datesHtml + ctrls + '</div>' +
     '<h1 class="ptitle">' + esc(f.title || f.path) + '</h1>' +
     '<div class="pmeta">' + metaLine + '</div>' +
     (f.description ? '<div class="pdesc">' + esc(f.description) + '</div>' : '') +
@@ -664,12 +797,50 @@ window.__scratchReload = function (payload) {
   showToast('Reloaded from disk', 'success');
 };
 
-// Auto-detect theme from the OS (works in the glimpse WebView and the browser).
-// A manual toggle overrides and is remembered across files AND sessions
-// (localStorage, like the raw/rendered pref); after that we stop following the OS.
-let manualTheme = false;
-let savedTheme = null;
-try { savedTheme = localStorage.getItem('scratch.theme'); } catch (_) {}
+// Theme + settings. The server embeds the persisted choice (#settings island,
+// from the user config file); changes are pushed back through whichever channel
+// exists: WebView2 postMessage → POST /settings (browser server) → localStorage
+// (the file:// export, where no host is listening).
+const SETTINGS = (function () {
+  let s = { themeMode: 'system', colorTheme: 'ember', zoom: 1 };
+  try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
+  // Over file:// (export) the embedded snapshot is whatever the exporting machine
+  // had saved — the reader's own remembered choice wins ('scratch.theme' is the
+  // pre-settings key, kept as a migration seed).
+  const hasChannel = (window.chrome && window.chrome.webview) || /^https?:$/.test(location.protocol);
+  if (!hasChannel) {
+    try {
+      const m = localStorage.getItem('scratch.themeMode') || localStorage.getItem('scratch.theme');
+      const c = localStorage.getItem('scratch.colorTheme');
+      const z = parseFloat(localStorage.getItem('scratch.zoom'));
+      if (m === 'dark' || m === 'light' || m === 'system') s.themeMode = m;
+      if (c) s.colorTheme = c;
+      if (z >= 0.5 && z <= 2) s.zoom = z;
+    } catch (_) {}
+  }
+  return s;
+})();
+function persistSettings() {
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, zoom: SETTINGS.zoom };
+  const wv = window.chrome && window.chrome.webview;
+  if (wv) { try { wv.postMessage({ __scratch_settings: payload }); } catch (_) {} return; }
+  if (/^https?:$/.test(location.protocol)) {
+    try {
+      fetch('/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
+    } catch (_) {}
+    return;
+  }
+  try {
+    localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
+    localStorage.setItem('scratch.colorTheme', SETTINGS.colorTheme);
+    localStorage.setItem('scratch.zoom', String(SETTINGS.zoom));
+  } catch (_) {}
+}
+function resolvedMode() {
+  if (SETTINGS.themeMode === 'dark' || SETTINGS.themeMode === 'light') return SETTINGS.themeMode;
+  const dark = !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? 'dark' : 'light';
+}
 function syncThemeIcon() {
   const dark = document.documentElement.dataset.theme !== 'light';
   const d = document.querySelector('#themeToggle .i-dark'), l = document.querySelector('#themeToggle .i-light');
@@ -680,36 +851,77 @@ function syncThemeIcon() {
   if (hd) hd.disabled = !dark;
   if (hl) hl.disabled = dark;
 }
-function applySystemTheme() {
-  if (manualTheme) return;
-  const dark = !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches;
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+function applyTheme() {
+  const r = document.documentElement;
+  r.dataset.theme = resolvedMode();
+  r.dataset.colorTheme = SETTINGS.colorTheme;
   syncThemeIcon();
+  // Reflect the active choice in the settings modal.
+  document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === SETTINGS.themeMode));
+  document.querySelectorAll('.theme-card').forEach((b) => b.classList.toggle('on', b.dataset.themeId === SETTINGS.colorTheme));
 }
-// Restore a remembered choice (overrides the OS), else follow the OS.
-if (savedTheme === 'light' || savedTheme === 'dark') {
-  manualTheme = true;
-  document.documentElement.dataset.theme = savedTheme;
-  syncThemeIcon();
-} else {
-  applySystemTheme();
+function setThemeMode(m) {
+  SETTINGS.themeMode = m;
+  applyTheme();
+  persistSettings();
+  // Mode flips swap the mermaid palette → re-render the open preview.
+  if (currentRef) renderPreview(currentRef.pad, currentRef.f);
 }
+function setColorTheme(id) {
+  SETTINGS.colorTheme = id;
+  applyTheme();
+  persistSettings();
+}
+applyTheme();
 if (window.matchMedia) {
   const mq = window.matchMedia('(prefers-color-scheme: dark)');
   (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(() => {
-    applySystemTheme();
+    if (SETTINGS.themeMode !== 'system') return;
+    applyTheme();
     if (currentRef) renderPreview(currentRef.pad, currentRef.f);
   });
 }
-function toggleTheme() {
-  manualTheme = true;
-  const r = document.documentElement;
-  r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
-  try { localStorage.setItem('scratch.theme', r.dataset.theme); } catch (_) {}
-  syncThemeIcon();
-  if (currentRef) renderPreview(currentRef.pad, currentRef.f);
-}
+// Quick toggle (topbar button / 't'): flips to an explicit light/dark mode.
+function toggleTheme() { setThemeMode(resolvedMode() === 'dark' ? 'light' : 'dark'); }
 document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+
+// Settings modal.
+const settingsModal = document.getElementById('settingsModal');
+const showSettings = (v) => { settingsModal.style.display = v ? 'flex' : 'none'; };
+document.getElementById('settingsBtn').addEventListener('click', () => showSettings(true));
+document.getElementById('settingsClose').addEventListener('click', () => showSettings(false));
+settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) showSettings(false); });
+document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));
+document.querySelectorAll('.theme-card').forEach((b) => b.addEventListener('click', () => setColorTheme(b.dataset.themeId)));
+
+// Zoom. Owned by the page (CSS zoom on the root) because neither host remembers
+// zoom across launches: glimpse never exposes WebView2's ZoomFactor, and the
+// browser server binds a random port so the per-origin zoom memory never matches.
+// Persisted as ui.zoom through the same settings channel.
+function applyZoom() {
+  document.documentElement.style.zoom = SETTINGS.zoom;
+  const r = document.getElementById('zoomReset');
+  if (r) r.textContent = Math.round(SETTINGS.zoom * 100) + '%';
+}
+function setZoom(z) {
+  const next = Math.min(2, Math.max(0.5, Math.round(z * 10) / 10));
+  if (next === SETTINGS.zoom) return;
+  SETTINGS.zoom = next;
+  applyZoom();
+  persistSettings();
+  showToast('Zoom ' + Math.round(next * 100) + '%', 'info');
+}
+applyZoom();
+document.getElementById('zoomIn').addEventListener('click', () => setZoom(SETTINGS.zoom + 0.1));
+document.getElementById('zoomOut').addEventListener('click', () => setZoom(SETTINGS.zoom - 0.1));
+document.getElementById('zoomReset').addEventListener('click', () => setZoom(1));
+// Ctrl+wheel: replace the host's transient zoom with ours (non-passive so
+// preventDefault stops Chromium's own page zoom from stacking on top).
+window.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  setZoom(SETTINGS.zoom + (e.deltaY < 0 ? 0.1 : -0.1));
+}, { passive: false });
 
 // Shortcuts help modal.
 const helpModal = document.getElementById('helpModal');
@@ -773,6 +985,7 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
     if (!dragging) return;
     dragging = false;
     resizer.classList.remove('dragging');
+    tree.classList.remove('resizing');
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
     try { localStorage.setItem('scratch.treeW', String(tree.getBoundingClientRect().width | 0)); } catch (_) {}
@@ -781,6 +994,7 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
     e.preventDefault();
     dragging = true;
     resizer.classList.add('dragging');
+    tree.classList.add('resizing');
     // Suppress text selection + keep the resize cursor through the whole drag.
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
@@ -797,18 +1011,46 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
   });
 })();
 
+// Collapsible sidebar (topbar panel button / '['). Like the resizable width
+// (scratch.treeW above), this is per-machine window geometry — localStorage,
+// not the config file.
+const sidebarEl = document.getElementById('sidebar');
+function toggleSidebar() {
+  const c = sidebarEl.classList.toggle('collapsed');
+  try { localStorage.setItem('scratch.sidebarCollapsed', c ? '1' : '0'); } catch (_) {}
+}
+document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
+try {
+  if (localStorage.getItem('scratch.sidebarCollapsed') === '1') {
+    // Restore closed without the slide-shut animation playing at boot.
+    sidebarEl.style.transition = 'none';
+    sidebarEl.classList.add('collapsed');
+    setTimeout(() => { sidebarEl.style.transition = ''; }, 0);
+  }
+} catch (_) {}
+
 // Keyboard shortcuts (see the help modal). Ignored while typing in a field.
 document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+    // Take over the host's zoom accelerators so OUR (persisted) zoom is the one
+    // that moves, instead of Chromium's forgotten-on-relaunch page zoom.
+    if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoom(SETTINGS.zoom + 0.1); return; }
+    if (e.key === '-') { e.preventDefault(); setZoom(SETTINGS.zoom - 0.1); return; }
+    if (e.key === '0') { e.preventDefault(); setZoom(1); return; }
+  }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   if (e.key === 'Escape') {
-    if (helpModal.style.display !== 'none') showHelp(false);
+    if (settingsModal.style.display !== 'none') showSettings(false);
+    else if (helpModal.style.display !== 'none') showHelp(false);
     else if (closeWindow) closeWindow();
     return;
   }
   if (e.key === '?') { showHelp(helpModal.style.display === 'none'); return; }
+  if (e.key === 's') { showSettings(settingsModal.style.display === 'none'); return; }
   if (e.key === 't') { toggleTheme(); return; }
+  if (e.key === '[') { toggleSidebar(); return; }
   if (e.key === 'r') { requestReload(); return; }
   if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
