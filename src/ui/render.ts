@@ -299,15 +299,22 @@ ${vendorCss}<style>${THEME_CSS}</style>
     <div class="modal">
       <div class="modal-head"><span>Keyboard shortcuts</span><button class="icon-btn" id="helpClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
       <dl class="shortcuts">
-        <div><dt>↑ ↓ ← → / j k</dt><dd>Next / previous file</dd></div>
-        <div><dt>r</dt><dd>Reload from disk</dd></div>
-        <div><dt>v</dt><dd>Toggle raw / rendered (markdown)</dd></div>
-        <div><dt>t</dt><dd>Toggle theme</dd></div>
-        <div><dt>[</dt><dd>Toggle sidebar</dd></div>
-        <div><dt>s</dt><dd>Settings</dd></div>
-        <div><dt>Ctrl + − 0</dt><dd>Zoom in / out / reset</dd></div>
-        <div><dt>?</dt><dd>Show this help</dd></div>
-        <div><dt>Esc</dt><dd>Close dialogs / window</dd></div>
+        <div class="sc-group">Navigate</div>
+        <div><dt><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></dt><dd>Next / previous file</dd></div>
+        <div class="sc-group">Scroll</div>
+        <div><dt><kbd>j</kbd><kbd>k</kbd></dt><dd>Down / up</dd></div>
+        <div><dt><kbd>d</kbd><kbd>u</kbd></dt><dd>Half page down / up</dd></div>
+        <div><dt><kbd>g</kbd><kbd>G</kbd></dt><dd>Top / bottom</dd></div>
+        <div class="sc-group">View</div>
+        <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
+        <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
+        <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
+        <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Zoom in / out / reset</dd></div>
+        <div class="sc-group">General</div>
+        <div><dt><kbd>r</kbd></dt><dd>Reload from disk</dd></div>
+        <div><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Close dialogs / window</dd></div>
       </dl>
     </div>
   </div>
@@ -1030,6 +1037,7 @@ try {
 } catch (_) {}
 
 // Keyboard shortcuts (see the help modal). Ignored while typing in a field.
+const previewEl = document.getElementById('preview');
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey) {
     // Take over the host's zoom accelerators so OUR (persisted) zoom is the one
@@ -1055,8 +1063,19 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
   }
-  const next = e.key === 'j' || e.key === 'ArrowDown' || e.key === 'ArrowRight';
-  const prev = e.key === 'k' || e.key === 'ArrowUp' || e.key === 'ArrowLeft';
+  // vimium-style scrolling: j/k line steps, d/u half page. Instant (no smooth) —
+  // smooth scrollBy queues badly under key auto-repeat. File nav stays on arrows.
+  if (e.key === 'j' || e.key === 'k') {
+    e.preventDefault(); previewEl.scrollBy(0, e.key === 'j' ? 60 : -60); return;
+  }
+  if (e.key === 'd' || e.key === 'u') {
+    e.preventDefault(); previewEl.scrollBy(0, (e.key === 'd' ? 1 : -1) * previewEl.clientHeight / 2); return;
+  }
+  if (e.key === 'g' || e.key === 'G') {
+    e.preventDefault(); previewEl.scrollTo(0, e.key === 'g' ? 0 : previewEl.scrollHeight); return;
+  }
+  const next = e.key === 'ArrowDown' || e.key === 'ArrowRight';
+  const prev = e.key === 'ArrowUp' || e.key === 'ArrowLeft';
   if ((next || prev) && ITEMS.length) {
     e.preventDefault();
     const n = curIdx + (next ? 1 : -1);
@@ -1070,7 +1089,7 @@ document.addEventListener('keydown', (e) => {
 //   • relative link to a pad file  → open that file in the viewer
 //   • external (http/https/mailto) → hand off to the system browser
 //   • anything else                → swallow (no navigation)
-document.getElementById('preview').addEventListener('click', (e) => {
+previewEl.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a');
   if (!a) return;
   e.preventDefault();

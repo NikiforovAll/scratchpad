@@ -368,6 +368,49 @@ test("sidebar collapses via the topbar button and '[', persisting to localStorag
   }
 });
 
+test("j/k, d/u, g/G scroll the preview; arrows still switch files", async () => {
+  // Two files so arrow navigation has somewhere to go.
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  for (const n of ["a.md", "b.md"]) await writeFile(join(dir, n), "# " + n + "\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "a.md", title: "A", type: "note" });
+  m.files.push({ path: "b.md", title: "B", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  const html = await renderHtml(await buildView([pad]), "P");
+  await boot(html);
+  try {
+    const preview = document.getElementById("preview")! as any;
+    // happy-dom has no layout: record scrollBy calls and fake a viewport height.
+    const scrolls: number[] = [];
+    const jumps: number[] = [];
+    preview.scrollBy = (_x: number, y: number) => scrolls.push(y);
+    preview.scrollTo = (_x: number, y: number) => jumps.push(y);
+    Object.defineProperty(preview, "clientHeight", { value: 600 });
+    Object.defineProperty(preview, "scrollHeight", { value: 4000 });
+    const activeTitle = () => document.querySelector(".frow.active")?.textContent;
+    const before = activeTitle();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "j" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "d" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "u" }));
+    expect(scrolls).toEqual([60, -60, 300, -300]);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "G" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "g" }));
+    expect(jumps).toEqual([4000, 0]);
+    // scrolling keys must not change the selected file
+    expect(activeTitle()).toBe(before);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
+    expect(activeTitle()).not.toBe(before);
+    expect(activeTitle()).toContain("B");
+  } finally {
+    teardown();
+  }
+});
+
 test("a saved collapsed sidebar is restored at boot", async () => {
   const html = await renderPad();
   await boot(html, { "scratch.sidebarCollapsed": "1" });

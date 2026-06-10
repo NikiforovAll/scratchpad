@@ -214,11 +214,19 @@ body {
 .modal-head { display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px; border-bottom: 1px solid var(--border);
   font-family: var(--serif); font-size: 16px; color: var(--ink-1); }
-.shortcuts { margin: 0; padding: 12px 18px 18px; }
-.shortcuts > div { display: flex; align-items: baseline; gap: 14px; padding: 5px 0; }
-.shortcuts dt { flex: 0 0 118px; margin: 0; }
-.shortcuts dt { font-family: var(--mono); font-size: 12px; color: var(--accent-text); }
+.shortcuts { margin: 0; padding: 4px 18px 18px; }
+.shortcuts > div { display: flex; align-items: center; gap: 14px; padding: 3px 0; }
+.shortcuts dt { flex: 0 0 132px; margin: 0; display: flex; align-items: center; gap: 4px; }
 .shortcuts dd { margin: 0; font-size: 13px; color: var(--ink-2); }
+.shortcuts .sc-group { padding: 12px 0 4px; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted); }
+/* keycap chips: surface fill + thicker bottom border reads as a key */
+.shortcuts kbd { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-1);
+  background: var(--surface); border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 5px; }
+.shortcuts .sc-plus { color: var(--ink-muted); font-size: 11px; }
 
 /* layout */
 .body { display: flex; flex: 1; min-height: 0; }
