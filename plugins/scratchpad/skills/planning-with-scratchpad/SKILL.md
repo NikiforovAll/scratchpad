@@ -16,7 +16,6 @@ Use persistent files for planning, `TaskCreate` for tracking execution. Before c
 
 Read these when you need deeper guidance on a specific aspect:
 
-- **[reference.md](reference.md)** — Context engineering principles (Manus-inspired). Read when designing how to structure planning files for a long-running or multi-agent task.
 - **[examples.md](examples.md)** — Real task examples showing different file combinations. Read when unsure which files to create for a given task shape.
 
 ## When to Use
