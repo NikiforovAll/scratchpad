@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm as fsRm } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { bold, cyan, dim, fail, note, ok, warn } from "./colors.ts";
 import { findPads, resolvePad, resolveRoot, slugify, validateName, type Pad } from "./discovery.ts";
 import {
   DEFAULT_TYPE,
@@ -40,17 +41,18 @@ export async function cmdNew(
   io: IO,
 ): Promise<number> {
   if (!args.name) {
-    io.err("error: `new` requires a <name>.\n  usage: scratch new <name> --dir <parent> [--id <id>]");
+    fail(io, "`new` requires a <name>.\n  usage: scratch new <name> --dir <parent> [--id <id>]");
     return 2;
   }
   const nameErr = validateName(args.name);
   if (nameErr) {
-    io.err(`error: ${nameErr}`);
+    fail(io, nameErr);
     return 2;
   }
   if (!args.dir) {
-    io.err(
-      "error: `new` requires an explicit --dir <parent>. Placement is always deliberate;\n" +
+    fail(
+      io,
+      "`new` requires an explicit --dir <parent>. Placement is always deliberate;\n" +
         `       there is no assumed location. e.g. scratch new ${slugify(args.name)} --dir _plans`,
     );
     return 2;
@@ -61,8 +63,9 @@ export async function cmdNew(
 
   if (await hasManifest(padDir)) {
     if (!args.force) {
-      io.err(
-        `error: a scratchpad already exists at ${padDir}\n       use --force to adopt/overwrite its manifest.`,
+      fail(
+        io,
+        `a scratchpad already exists at ${padDir}\n       use --force to adopt/overwrite its manifest.`,
       );
       return 1;
     }
@@ -75,20 +78,20 @@ export async function cmdNew(
 }
 
 function printOnboarding(padDir: string, name: string, io: IO): void {
-  io.out(`✓ scratchpad "${name}" ready`);
+  ok(io, `scratchpad "${bold(name)}" ready`);
   io.out("");
-  io.out(`  pad dir   : ${padDir}`);
-  io.out(`  manifest  : ${manifestPath(padDir)}`);
+  io.out(`  ${dim("pad dir   :")} ${padDir}`);
+  io.out(`  ${dim("manifest  :")} ${manifestPath(padDir)}`);
   io.out("");
-  io.out("How to use this scratchpad:");
+  io.out(bold("How to use this scratchpad:"));
   io.out(`  1. Write files directly into the pad dir using your normal tools.`);
   io.out(`  2. Register each file so it gets metadata + shows in the viewer:`);
-  io.out(`       scratch add "${name}" <file> --title "..." --desc "why it exists" --type note --tag a,b`);
-  io.out(`       --type ∈ {note, snippet, output, artifact, reference} (default note); --desc is the most useful field.`);
-  io.out(`  3. Inspect:  scratch ls "${name}"   ·   scratch show "${name}" <file>`);
-  io.out(`  4. Browse :  scratch ui "${name}"   (markdown, code highlight, mermaid; read-only)`);
+  io.out(cyan(`       scratch add "${name}" <file> --title "..." --desc "why it exists" --type note --tag a,b`));
+  io.out(dim(`       --type ∈ {note, snippet, output, artifact, reference} (default note); --desc is the most useful field.`));
+  io.out(`  3. Inspect:  ${cyan(`scratch ls "${name}"`)}   ·   ${cyan(`scratch show "${name}" <file>`)}`);
+  io.out(`  4. Browse :  ${cyan(`scratch ui "${name}"`)}   ${dim("(markdown, code highlight, mermaid; read-only)")}`);
   io.out("");
-  io.out("The CLI never authors or moves content — you own the files; it tracks metadata.");
+  io.out(dim("The CLI never authors or moves content — you own the files; it tracks metadata."));
 }
 
 /** scratch add <pad> <file> [--title --desc --tag --type] */
@@ -108,17 +111,17 @@ export async function cmdAdd(
   io: IO,
 ): Promise<number> {
   if (!args.pad || !args.file) {
-    io.err("error: usage: scratch add <pad> <file> [--title .. --desc .. --tag a,b --type note --group ..] [--link [--as <label>]]");
+    fail(io, "usage: scratch add <pad> <file> [--title .. --desc .. --tag a,b --type note --group ..] [--link [--as <label>]]");
     return 2;
   }
   const root = resolveRoot(args.dir);
   const pad = await resolvePad(args.pad, root);
   if (!pad) {
-    io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
+    fail(io, `no scratchpad "${args.pad}" found under ${root}`);
     return 1;
   }
   if (args.type && !isFileType(args.type)) {
-    io.err(`error: invalid --type "${args.type}". one of: note snippet output artifact reference`);
+    fail(io, `invalid --type "${args.type}". one of: note snippet output artifact reference`);
     return 2;
   }
 
@@ -138,7 +141,7 @@ export async function cmdAdd(
   const entry: FileEntry = { path: rel };
   if (args.link || !inside) {
     if (!args.link) {
-      io.err(`note: ${abs} is outside the pad; linking by reference (same as --link).`);
+      note(io, `${abs} is outside the pad; linking by reference (same as --link).`);
     }
     const label = toPosix(args.as ?? basename(abs)).replace(/^\/+/, "");
     let src = toPosix(relative(pad.dir, abs));
@@ -147,11 +150,11 @@ export async function cmdAdd(
     entry.src = src;
     rel = label;
   } else if (args.as) {
-    io.err("note: --as is only meaningful with --link; ignoring for an in-pad file.");
+    note(io, "--as is only meaningful with --link; ignoring for an in-pad file.");
   }
 
   if (!existsSync(abs)) {
-    io.err(`warning: ${abs} does not exist yet — registering anyway (write it before viewing).`);
+    warn(io, `${abs} does not exist yet — registering anyway (write it before viewing).`);
   }
 
   if (args.title) entry.title = args.title;
@@ -161,13 +164,13 @@ export async function cmdAdd(
   entry.type = (args.type as FileType) ?? DEFAULT_TYPE;
 
   const idx = m.files.findIndex((f) => f.path === rel);
-  const linked = entry.src ? ` → ${entry.src}` : "";
+  const linked = entry.src ? dim(` → ${entry.src}`) : "";
   if (idx >= 0) {
     m.files[idx] = { ...m.files[idx], ...entry };
-    io.out(`✓ updated "${rel}"${linked} in ${m.name}`);
+    ok(io, `updated "${bold(rel)}"${linked} in ${m.name}`);
   } else {
     m.files.push(entry);
-    io.out(`✓ ${entry.src ? "linked" : "registered"} "${rel}"${linked} in ${m.name}`);
+    ok(io, `${entry.src ? "linked" : "registered"} "${bold(rel)}"${linked} in ${m.name}`);
   }
   await writeManifest(pad.dir, m);
   return 0;
@@ -190,18 +193,18 @@ export async function cmdLs(args: { pad?: string; dir?: string; json?: boolean }
     }
     if (pads.length === 0) {
       io.out(`no scratchpads found under ${root}`);
-      io.out(`create one:  scratch new <name> --dir <parent>`);
+      io.out(`create one:  ${cyan("scratch new <name> --dir <parent>")}`);
       return 0;
     }
-    io.out(`PADS under ${root}`);
+    io.out(`${bold("PADS")} under ${root}`);
     for (const p of pads) {
-      io.out(`  ${p.manifest.name}  (${p.manifest.files.length} files)  ${relOf(p.dir)}  · updated ${p.manifest.updated}`);
+      io.out(`  ${bold(p.manifest.name)}  ${dim(`(${p.manifest.files.length} files)`)}  ${cyan(relOf(p.dir))}  ${dim(`· updated ${p.manifest.updated}`)}`);
     }
     return 0;
   }
   const pad = await resolvePad(args.pad, root);
   if (!pad) {
-    io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
+    fail(io, `no scratchpad "${args.pad}" found under ${root}`);
     return 1;
   }
   const m = pad.manifest;
@@ -209,9 +212,9 @@ export async function cmdLs(args: { pad?: string; dir?: string; json?: boolean }
     emitJson(io, { name: m.name, id: m.id, rel: relOf(pad.dir), created: m.created, updated: m.updated, files: m.files });
     return 0;
   }
-  io.out(`${m.name}  ${m.id ? "(" + m.id + ")  " : ""}— ${m.files.length} registered file(s)`);
-  io.out(`  dir: ${pad.dir}`);
-  io.out(`  created: ${m.created}  ·  updated: ${m.updated}`);
+  io.out(`${bold(m.name)}  ${m.id ? dim("(" + m.id + ")") + "  " : ""}— ${m.files.length} registered file(s)`);
+  io.out(dim(`  dir: ${pad.dir}`));
+  io.out(dim(`  created: ${m.created}  ·  updated: ${m.updated}`));
   if (m.files.length === 0) {
     io.out("  (no files registered yet)");
   }
@@ -226,11 +229,11 @@ export async function cmdLs(args: { pad?: string; dir?: string; json?: boolean }
   }
   for (const [g, files] of groups) {
     io.out("");
-    io.out(`  ${(g || "FILES").toUpperCase()}`);
+    io.out(`  ${bold((g || "FILES").toUpperCase())}`);
     for (const f of files) {
       const meta = [f.type ?? DEFAULT_TYPE, ...(f.tags ?? []).map((t) => "#" + t)].join(" ");
-      const link = f.src ? `  → ${f.src}` : "";
-      io.out(`    ${f.path}${f.title ? "  — " + f.title : ""}  [${meta}]${link}`);
+      const link = f.src ? cyan(`  → ${f.src}`) : "";
+      io.out(`    ${f.path}${f.title ? dim("  — " + f.title) : ""}  ${dim(`[${meta}]`)}${link}`);
     }
   }
   return 0;
@@ -242,13 +245,13 @@ export async function cmdShow(
   io: IO,
 ): Promise<number> {
   if (!args.pad) {
-    io.err("error: usage: scratch show <pad> [<file>]");
+    fail(io, "usage: scratch show <pad> [<file>]");
     return 2;
   }
   const root = resolveRoot(args.dir);
   const pad = await resolvePad(args.pad, root);
   if (!pad) {
-    io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
+    fail(io, `no scratchpad "${args.pad}" found under ${root}`);
     return 1;
   }
   const m = pad.manifest;
@@ -265,7 +268,7 @@ export async function cmdShow(
       ? args.file
       : join(pad.dir, args.file);
   if (!existsSync(abs)) {
-    io.err(`error: file not found on disk: ${abs}`);
+    fail(io, `file not found on disk: ${abs}`);
     return 1;
   }
   const content = await Bun.file(abs).text();
@@ -274,10 +277,10 @@ export async function cmdShow(
     return 0;
   }
   if (entry) {
-    io.out(`# ${entry.title ?? entry.path}`);
-    io.out(`path: ${entry.path}  ·  type: ${entry.type ?? DEFAULT_TYPE}${entry.group ? "  ·  group: " + entry.group : ""}${entry.src ? "  ·  linked → " + entry.src : ""}`);
-    if (entry.tags?.length) io.out(`tags: ${entry.tags.map((t) => "#" + t).join(" ")}`);
-    if (entry.description) io.out(`desc: ${entry.description}`);
+    io.out(bold(`# ${entry.title ?? entry.path}`));
+    io.out(dim(`path: ${entry.path}  ·  type: ${entry.type ?? DEFAULT_TYPE}${entry.group ? "  ·  group: " + entry.group : ""}${entry.src ? "  ·  linked → " + entry.src : ""}`));
+    if (entry.tags?.length) io.out(dim(`tags: ${entry.tags.map((t) => "#" + t).join(" ")}`));
+    if (entry.description) io.out(dim(`desc: ${entry.description}`));
     io.out("");
   }
   io.out(content);
@@ -290,13 +293,13 @@ export async function cmdRm(
   io: IO,
 ): Promise<number> {
   if (!args.pad) {
-    io.err("error: usage: scratch rm <pad> [<file>] [--force]");
+    fail(io, "usage: scratch rm <pad> [<file>] [--force]");
     return 2;
   }
   const root = resolveRoot(args.dir);
   const pad = await resolvePad(args.pad, root);
   if (!pad) {
-    io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
+    fail(io, `no scratchpad "${args.pad}" found under ${root}`);
     return 1;
   }
   const m = pad.manifest;
@@ -305,24 +308,25 @@ export async function cmdRm(
     const rel = toPosix(args.file);
     const idx = m.files.findIndex((f) => f.path === rel || f.path === args.file);
     if (idx < 0) {
-      io.err(`error: "${args.file}" is not registered in ${m.name}`);
+      fail(io, `"${args.file}" is not registered in ${m.name}`);
       return 1;
     }
     m.files.splice(idx, 1);
     await writeManifest(pad.dir, m);
-    io.out(`✓ unregistered "${rel}" from ${m.name} (file on disk left untouched)`);
+    ok(io, `unregistered "${bold(rel)}" from ${m.name} ${dim("(file on disk left untouched)")}`);
     return 0;
   }
 
   // Removing a whole pad deletes the directory — guard behind --force.
   if (!args.force) {
-    io.err(
-      `error: removing pad "${m.name}" will delete ${pad.dir} and all its files.\n       re-run with --force to confirm.`,
+    fail(
+      io,
+      `removing pad "${m.name}" will delete ${pad.dir} and all its files.\n       re-run with --force to confirm.`,
     );
     return 1;
   }
   await fsRm(pad.dir, { recursive: true, force: true });
-  io.out(`✓ removed scratchpad "${m.name}" (${pad.dir})`);
+  ok(io, `removed scratchpad "${bold(m.name)}" ${dim(`(${pad.dir})`)}`);
   return 0;
 }
 
@@ -339,15 +343,15 @@ async function selectPads(
   if (args.pad) {
     const pad = await resolvePad(args.pad, root);
     if (!pad) {
-      io.err(`error: no scratchpad "${args.pad}" found under ${root}`);
+      fail(io, `no scratchpad "${args.pad}" found under ${root}`);
       return null;
     }
     return { pads: [pad], label: pad.manifest.name, defaultName: slugify(pad.manifest.name) };
   }
   const pads = await findPads(root);
   if (pads.length === 0) {
-    io.err(`error: no scratchpads found under ${root}`);
-    io.err(`create one:  scratch new <name> --dir <parent>`);
+    fail(io, `no scratchpads found under ${root}`);
+    io.err(`create one:  ${cyan("scratch new <name> --dir <parent>")}`);
     return null;
   }
   if (pads.length === 1) {
@@ -355,10 +359,10 @@ async function selectPads(
     return { pads: [pad], label: pad.manifest.name, defaultName: slugify(pad.manifest.name) };
   }
   if (!args.all) {
-    io.err(`error: ${pads.length} scratchpads found under ${root}; name one, or pass --all to view them together:`);
+    fail(io, `${pads.length} scratchpads found under ${root}; name one, or pass --all to view them together:`);
     for (const p of pads) {
       const rel = toPosix(relative(root, p.dir)) || ".";
-      io.err(`  scratch ${verb} ${p.manifest.name}    (${rel})`);
+      io.err(`  ${cyan(`scratch ${verb} ${p.manifest.name}`)}    ${dim(`(${rel})`)}`);
     }
     return null;
   }
@@ -404,7 +408,7 @@ export async function cmdExport(
   const html = await renderHtml(view, sel.label, cfg.ui);
   const outPath = resolve(args.out ?? `${sel.defaultName}.html`);
   await Bun.write(outPath, html);
-  io.out(`✓ exported ${sel.label} → ${outPath}`);
-  io.out(`  ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB; open it in any browser (hljs/mermaid via CDN).`);
+  ok(io, `exported ${bold(sel.label)} → ${cyan(outPath)}`);
+  io.out(dim(`  ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB; open it in any browser (hljs/mermaid via CDN).`));
   return 0;
 }

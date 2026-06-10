@@ -1,0 +1,4 @@
+[test]
+# CLI output assertions compare plain strings — force colors off regardless of
+# whether `bun test` runs on a TTY (src/colors.ts checks NO_COLOR per call).
+preload = ["./test/setup.ts"]

@@ -4,11 +4,14 @@
 
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
+import { bold, red } from "./colors.ts";
 import { cmdAdd, cmdExport, cmdLs, cmdNew, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
 
-const HELP = `scratch — organize temporary agent knowledge into scratchpads (folder + manifest)
+// A function, not a const: styling is decided per call (TTY/NO_COLOR), so it
+// must not be baked in at import time.
+const help = () => `scratch — organize temporary agent knowledge into scratchpads (folder + manifest)
 
-USAGE
+${bold("USAGE")}
   scratch new <name> --dir <parent> [--id <id>] [--force]
       Create <parent>/<slug>/ + manifest, then print an onboarding prompt.
       --dir is REQUIRED — placement is always deliberate (no assumed location).
@@ -46,7 +49,7 @@ USAGE
       load from CDN), openable in any browser. Default out: <pad-name>.html.
       With multiple pads under root, name one or pass --all to merge them.
 
-ADDRESSING
+${bold("ADDRESSING")}
   A pad is a folder containing scratchpad.json; its path is its identity.
   Pads are referenced by name (resolved within the root) or by an explicit path.
   Root = --dir, else $SCRATCH_DIR, else current directory.
@@ -79,7 +82,7 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
   try {
     parsed = parseArgs({ args: argv, options: FLAG_SPEC, allowPositionals: true, strict: true });
   } catch (e) {
-    io.err(`error: ${(e as Error).message}`);
+    io.err(`${red("error:")} ${(e as Error).message}`);
     return 2;
   }
   const { values: v, positionals } = parsed;
@@ -90,7 +93,7 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
   }
   const [cmd, ...rest] = positionals;
   if (!cmd || v.help) {
-    io.out(HELP);
+    io.out(help());
     return cmd ? 0 : v.help ? 0 : 0;
   }
 
@@ -116,7 +119,7 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
     case "export":
       return cmdExport({ pad: rest[0], dir: v.dir, all: v.all, out: v.out }, io);
     default:
-      io.err(`error: unknown command "${cmd}". run \`scratch --help\`.`);
+      io.err(`${red("error:")} unknown command "${cmd}". run \`scratch --help\`.`);
       return 2;
   }
 }
