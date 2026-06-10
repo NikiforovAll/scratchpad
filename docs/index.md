@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: scratch
-  text: A home for temporary agent knowledge
+  text: A home for agent knowledge
   tagline: Organize session notes, snippets, and artifacts into scratchpads — a folder + manifest — with a read-only visual viewer. Just files on disk, no central store, no lock-in.
   image:
     src: /demo.png
@@ -38,7 +38,7 @@ A scratchpad is **just a folder containing `scratchpad.json`** — the folder pa
 
 ## Why
 
-Agents generate a lot of *temporary* knowledge per session — notes, snippets, command output, intermediate artifacts — and it has no home. It ends up scattered across the repo, buried in chat history, or lost when the context window rolls over.
+Agents generate a lot of knowledge per session — notes, snippets, command output, intermediate artifacts — and it has no home. It ends up scattered across the repo, buried in chat history, or lost when the context window rolls over.
 
 A scratchpad gives that working memory a deliberate place: a folder + `scratchpad.json` manifest, kept out of your source tree, that captures **what** each file is and **why** it exists.
 

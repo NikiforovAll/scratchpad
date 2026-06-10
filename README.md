@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/github/license/nikiforovall/scratchpad.svg)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-nikiforovall.blog%2Fscratchpad-e86f33.svg)](https://nikiforovall.blog/scratchpad/)
 
-CLI-first tool to organize **temporary agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).
+CLI-first tool to organize **agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).
 
 📖 **[Documentation & live demo →](https://nikiforovall.blog/scratchpad/)**
 
@@ -15,7 +15,7 @@ A scratchpad is **just a folder containing `scratchpad.json`**; the folder path 
 
 ## Why
 
-Agents generate a lot of *temporary* knowledge per session — notes, snippets, command output, intermediate artifacts — and it has no home. It ends up scattered across the repo, buried in chat history, or lost when the context window rolls over.
+Agents generate a lot of knowledge per session — notes, snippets, command output, intermediate artifacts — and it has no home. It ends up scattered across the repo, buried in chat history, or lost when the context window rolls over.
 
 A scratchpad gives that working memory a deliberate place: a folder + `scratchpad.json` manifest, kept out of your source tree, that captures **what** each file is and **why** it exists.
 

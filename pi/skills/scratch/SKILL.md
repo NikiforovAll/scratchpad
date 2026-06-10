@@ -1,6 +1,6 @@
 ---
 name: scratch
-description: Organize temporary knowledge from an agent session into a scratchpad — a folder of files plus a scratchpad.json manifest. Use when a task generates notes, snippets, command output, diagrams, or artifacts worth keeping together for a session/activity.
+description: Organize knowledge from an agent session into a scratchpad — a folder of files plus a scratchpad.json manifest. Use when a task generates notes, snippets, command output, diagrams, or artifacts worth keeping together for a session/activity.
 ---
 
 # scratch — session scratchpads
@@ -88,4 +88,4 @@ renders markdown/code/`mermaid`, raw↔rendered toggle, auto light/dark.
 - `scratch rm "<name>" <file>` — unregister (file on disk is left untouched).
 - `scratch rm "<name>" --force` — delete the whole pad directory.
 
-Pads persist until removed — "temporary" knowledge is not auto-deleted.
+Pads persist until removed — nothing is auto-deleted.

@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "description": "CLI-first tool to organize temporary agent knowledge into scratchpads (folder + manifest), with a read-only visual viewer.",
+  "description": "CLI-first tool to organize agent knowledge into scratchpads (folder + manifest), with a read-only visual viewer.",
   "keywords": [
     "cli",
     "scratchpad",

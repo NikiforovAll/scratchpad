@@ -78,6 +78,6 @@ scratch rm "<name>" <file>      # unregister (file on disk is left untouched)
 scratch rm "<name>" --force     # delete the whole pad directory
 ```
 
-Pads persist until removed — "temporary" knowledge is **not** auto-deleted.
+Pads persist until removed — nothing is auto-deleted.
 
 See the [CLI Reference](/cli-reference) for every command and flag.

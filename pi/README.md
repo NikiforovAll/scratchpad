@@ -1,6 +1,6 @@
 # @nikiforovall/pi-scratchpad
 
-A [pi](https://pi.dev) package for [scratchpad](https://www.npmjs.com/package/@nikiforovall/scratchpad) — organize temporary agent knowledge into *scratchpads* (a folder + `scratchpad.json` manifest) with a read-only visual viewer.
+A [pi](https://pi.dev) package for [scratchpad](https://www.npmjs.com/package/@nikiforovall/scratchpad) — organize agent knowledge into *scratchpads* (a folder + `scratchpad.json` manifest) with a read-only visual viewer.
 
 It ships:
 
