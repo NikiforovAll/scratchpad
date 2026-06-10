@@ -411,6 +411,20 @@ test("j/k, d/u, g/G scroll the preview; arrows still switch files", async () => 
   }
 });
 
+test("'q' closes the window when a close channel exists", async () => {
+  const html = await renderPad();
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+    expect(posted.some((m) => m && m.__glimpse_close)).toBe(true);
+  } finally {
+    teardown();
+  }
+});
+
 test("a saved collapsed sidebar is restored at boot", async () => {
   const html = await renderPad();
   await boot(html, { "scratch.sidebarCollapsed": "1" });

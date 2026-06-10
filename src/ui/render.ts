@@ -314,6 +314,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>r</kbd></dt><dd>Reload from disk</dd></div>
         <div><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
         <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
+        <div><dt><kbd>q</kbd></dt><dd>Quit (close window)</dd></div>
         <div><dt><kbd>Esc</kbd></dt><dd>Close dialogs / window</dd></div>
       </dl>
     </div>
@@ -1055,6 +1056,7 @@ document.addEventListener('keydown', (e) => {
     else if (closeWindow) closeWindow();
     return;
   }
+  if (e.key === 'q' && closeWindow) { closeWindow(); return; }
   if (e.key === '?') { showHelp(helpModal.style.display === 'none'); return; }
   if (e.key === 's') { showSettings(settingsModal.style.display === 'none'); return; }
   if (e.key === 't') { toggleTheme(); return; }

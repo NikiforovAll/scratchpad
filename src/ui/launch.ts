@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Pad } from "../discovery.ts";
 import type { IO } from "../commands.ts";
+import { bold, cyan, dim, note } from "../colors.ts";
 import { saveConfig } from "../config.ts";
 import { createReloader, type Reloader } from "./reload.ts";
 
@@ -30,8 +31,37 @@ async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
       zoom: p.zoom as any,
     });
   } catch (e) {
-    io.err(`note: saving settings failed (${(e as Error).message.split("\n")[0]}).`);
+    note(io, `saving settings failed (${(e as Error).message.split("\n")[0]}).`);
   }
+}
+
+// Quit from the terminal with 'q', pager-style. Raw mode swallows Ctrl+C as
+// \x03, which we route through the same graceful quit — that also stops the
+// console from delivering CTRL_C_EVENT to the console-attached WebView2 host
+// (abrupt kill mid-teardown is what spews Chromium errors onto our stderr).
+// No-op when stdin isn't a TTY (piped/CI). Returns a cleanup function.
+function watchQuitKey(quit: () => void): () => void {
+  const stdin = process.stdin;
+  if (!stdin.isTTY || typeof stdin.setRawMode !== "function") return () => {};
+  const onData = (b: Buffer) => {
+    const s = b.toString();
+    if (s === "q" || s === "\x03") quit();
+  };
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.on("data", onData);
+  // Idempotent: quit paths can overlap (q + window close), and re-pausing or
+  // un-raw-ing stdin twice must not throw mid-shutdown.
+  let cleaned = false;
+  return () => {
+    if (cleaned) return;
+    cleaned = true;
+    stdin.off("data", onData);
+    try {
+      stdin.setRawMode(false);
+    } catch {}
+    stdin.pause();
+  };
 }
 
 export interface LaunchOpts {
@@ -88,8 +118,9 @@ function prepareWindowsHost(io: IO, install: boolean): boolean {
   if (!existsSync(buildScript)) return false; // not a real on-disk glimpseui
 
   if (!install) {
-    io.err(
-      "note: the native window isn't installed (its WebView2 host isn't built).\n" +
+    note(
+      io,
+      "the native window isn't installed (its WebView2 host isn't built).\n" +
         "  Build it once with `scratch ui --install-native` (needs the .NET 8 SDK),\n" +
         "  or use `scratch ui --browser` for the browser viewer.",
     );
@@ -98,18 +129,19 @@ function prepareWindowsHost(io: IO, install: boolean): boolean {
 
   const sdk = spawnSync("dotnet", ["--list-sdks"], { encoding: "utf8" });
   if (sdk.error || sdk.status !== 0 || !sdk.stdout?.trim()) {
-    io.err(
-      "note: --install-native needs the .NET 8 SDK + WebView2 runtime.\n" +
+    note(
+      io,
+      "--install-native needs the .NET 8 SDK + WebView2 runtime.\n" +
         "  Install the SDK (https://dotnet.microsoft.com/download/dotnet/8.0), then rerun.",
     );
     return false;
   }
 
-  io.out("note: building the native viewer host (one-time; takes a moment)…");
+  io.out(`${dim("note:")} building the native viewer host (one-time; takes a moment)…`);
   // Reuse glimpse's own build script so its publish flags stay authoritative.
   const build = spawnSync(process.execPath, [buildScript, "win32"], { cwd: root, stdio: "inherit" });
   if (build.status !== 0 || !existsSync(hostBin)) {
-    io.err("note: native host build failed — check the .NET output above.");
+    note(io, "native host build failed — check the .NET output above.");
     return false;
   }
   return true;
@@ -145,6 +177,15 @@ async function tryGlimpse(
     return false;
   }
 
+  // The host inherits our stderr, and on an abrupt shutdown (Ctrl+C in the
+  // terminal kills the console-attached host mid-teardown) Chromium logs e.g.
+  // "Failed to unregister class Chrome_WidgetWin_0" onto it. WebView2 honors
+  // this env var, so silence Chromium's logging in the host we spawn.
+  const flag = "--disable-logging";
+  const extra = process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS;
+  if (!extra?.includes(flag))
+    process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = extra ? `${extra} ${flag}` : flag;
+
   let win: any;
   try {
     // Open with NO initial HTML so the host emits 'ready' (instead of doing its
@@ -159,14 +200,14 @@ async function tryGlimpse(
       frameless,
     });
   } catch (e) {
-    io.err(`note: native window unavailable (${(e as Error).message.split("\n")[0]}); using browser.`);
+    note(io, `native window unavailable (${(e as Error).message.split("\n")[0]}); using browser.`);
     return false;
   }
 
   // The native window has no address bar / terminal output of its own, so echo
   // what was opened — otherwise `scratch ui` looks like it did nothing.
-  io.out(title);
-  io.out("  opened in a native window — press 'r' or the ⟳ button to reload; close the window to exit.");
+  io.out(bold(title));
+  io.out(dim("  opened in a native window — press 'r' or the ⟳ button to reload; 'q' here (or close the window) to exit."));
 
   // A temp file is only needed for the loadFile fallback below, so stage it
   // lazily — most pages (CDN-vendored) go the setHTML path and never touch disk.
@@ -206,6 +247,11 @@ async function tryGlimpse(
 
   return new Promise<boolean>((resolve) => {
     let settled = false;
+    const stopKeys = watchQuitKey(() => {
+      try {
+        win.close(); // graceful: host disposes WebView2, then 'closed' fires below
+      } catch {}
+    });
 
     // Manual reload: the page posts {__scratch_reload:true} (its reload button /
     // 'r' key). We rebuild from disk and push a fresh payload — an in-place data
@@ -223,21 +269,23 @@ async function tryGlimpse(
         if (s.full) await present(s.html);
         else win.send(`window.__scratchReload(${s.payloadJson})`);
       } catch (e) {
-        io.err(`note: reload failed (${(e as Error).message.split("\n")[0]}).`);
+        note(io, `reload failed (${(e as Error).message.split("\n")[0]}).`);
       }
     });
 
     win.on("error", (e: Error) => {
       if (!settled) {
         settled = true;
+        stopKeys();
         cleanupTmp();
-        io.err(`note: native window failed (${e.message.split("\n")[0]}); using browser.`);
+        note(io, `native window failed (${e.message.split("\n")[0]}); using browser.`);
         resolve(false);
       }
     });
     win.on("closed", () => {
       if (!settled) {
         settled = true;
+        stopKeys();
         cleanupTmp();
         resolve(true);
       }
@@ -265,7 +313,7 @@ async function serveBrowser(
       try {
         body = (await reloader.rebuild()).html;
       } catch (e) {
-        io.err(`note: rebuild failed (${(e as Error).message.split("\n")[0]}); serving last good page.`);
+        note(io, `rebuild failed (${(e as Error).message.split("\n")[0]}); serving last good page.`);
       }
       return new Response(body, {
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -273,17 +321,23 @@ async function serveBrowser(
     },
   });
   const url = `http://localhost:${server.port}/`;
-  io.out(title);
-  io.out(`  serving viewer at ${url}`);
-  io.out(`  (reload the page to refresh from disk; Ctrl+C to stop)`);
+  io.out(bold(title));
+  io.out(`  serving viewer at ${cyan(url)}`);
+  io.out(dim(`  (reload the page to refresh from disk; 'q' or Ctrl+C to stop)`));
   openBrowser(url);
-  // Keep alive until interrupted.
+  // Keep alive until quit from the terminal ('q'/Ctrl+C via watchQuitKey when
+  // stdin is a TTY, plain SIGINT otherwise).
   await new Promise<void>((resolve) => {
-    process.on("SIGINT", () => {
+    // stop only ever runs after stopKeys is assigned (event-driven), so the
+    // forward reference is safe; the cleanup itself is idempotent.
+    const stop = () => {
+      stopKeys();
       io.out("\nstopped.");
       server.stop();
       resolve();
-    });
+    };
+    const stopKeys = watchQuitKey(stop);
+    process.on("SIGINT", stop);
   });
   return 0;
 }
