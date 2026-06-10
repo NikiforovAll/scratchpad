@@ -1,10 +1,10 @@
 {
   "name": "scratchpad",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Session scratchpads — organize agent knowledge into a folder + manifest, with a read-only visual viewer. Ships the `scratch` and `planning-with-scratchpad` skills (require the `scratch` CLI on PATH).",
   "author": {
     "name": "Oleksii Nikiforov",
-    "email": "oleksii_nikiforov@epam.com"
+    "email": "alexey.nikiforovall@gmail.com"
   },
   "homepage": "https://github.com/nikiforovall/scratchpad#readme",
   "repository": "https://github.com/nikiforovall/scratchpad.git",

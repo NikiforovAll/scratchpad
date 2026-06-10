@@ -25,7 +25,7 @@
     "url": "git+https://github.com/nikiforovall/scratchpad.git"
   },
   "license": "MIT",
-  "author": "Oleksii Nikiforov <oleksii_nikiforov@epam.com>",
+  "author": "Oleksii Nikiforov <alexey.nikiforovall@gmail.com>",
   "type": "module",
   "bin": {
     "scratch": "./src/cli.ts"
