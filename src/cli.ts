@@ -1,22 +1,22 @@
 #!/usr/bin/env bun
-// scratch — CLI-first tool for organizing temporary agent knowledge into
+// scratch — CLI-first tool for organizing agent knowledge into
 // scratchpads (a folder + scratchpad.json manifest). Thin layer over the FS.
 
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
-import { bold, red } from "./colors.ts";
+import { bold, cyan, dim, red } from "./colors.ts";
 import { cmdAdd, cmdExport, cmdLs, cmdNew, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
 
 // A function, not a const: styling is decided per call (TTY/NO_COLOR), so it
 // must not be baked in at import time.
-const help = () => `scratch — organize temporary agent knowledge into scratchpads (folder + manifest)
+const help = () => `${bold("scratch")} — organize agent knowledge into scratchpads (folder + manifest)
 
 ${bold("USAGE")}
-  scratch new <name> --dir <parent> [--id <id>] [--force]
+  ${cyan("scratch new")} <name> ${dim("--dir <parent> [--id <id>] [--force]")}
       Create <parent>/<slug>/ + manifest, then print an onboarding prompt.
       --dir is REQUIRED — placement is always deliberate (no assumed location).
 
-  scratch add <pad> <file> [--title ..] [--desc ..] [--tag a,b] [--type note] [--group ..]
+  ${cyan("scratch add")} <pad> <file> ${dim("[--title ..] [--desc ..] [--tag a,b] [--type note] [--group ..]")}
       Register an already-present file into the pad's manifest with metadata.
       --group <name> places the file under a named group header in the viewer.
       The CLI never copies/moves/authors content — you write the file, it tracks it.
@@ -24,27 +24,27 @@ ${bold("USAGE")}
           Link an EXTERNAL file (outside the pad) by reference. Its content stays
           where it is; --as sets the label shown in the pad (default: basename).
 
-  scratch ls [<pad>] [--dir <root>] [--json]
+  ${cyan("scratch ls")} [<pad>] ${dim("[--dir <root>] [--json]")}
       No <pad>: list pads found under root.  With <pad>: list its registered files.
       --json  machine-readable output (relative paths only). No pad: {root, pads:[{name,rel,files}]};
               with pad: {name, id, rel, files:[<entry>]}.
 
-  scratch show <pad> [<file>] [--dir <root>] [--json]
+  ${cyan("scratch show")} <pad> [<file>] ${dim("[--dir <root>] [--json]")}
       No <file>: print the manifest.  With <file>: print metadata + file content.
       --json  with <file>: emit {metadata, content} (metadata null if unregistered).
 
-  scratch rm <pad> [<file>] [--dir <root>] [--force]
+  ${cyan("scratch rm")} <pad> [<file>] ${dim("[--dir <root>] [--force]")}
       With <file>: unregister it (file on disk untouched).
       Without <file>: delete the whole pad dir (requires --force).
 
-  scratch ui [<pad>] [--dir <root>] [--all] [--browser] [--install-native]
+  ${cyan("scratch ui")} [<pad>] ${dim("[--dir <root>] [--all] [--browser] [--install-native]")}
       Open the read-only visual viewer — glimpse native window by default, falling
       back to a browser+local-server when the native host isn't built.
       --browser           force the browser path.
       --install-native    build the native host on demand (needs the .NET 8 SDK).
       With multiple pads under root, name one or pass --all to view them together.
 
-  scratch export [<pad>] [--dir <root>] [--all] [-o <file>]
+  ${cyan("scratch export")} [<pad>] ${dim("[--dir <root>] [--all] [-o <file>]")}
       Write the viewer to a single HTML file (file contents embedded; hljs/mermaid
       load from CDN), openable in any browser. Default out: <pad-name>.html.
       With multiple pads under root, name one or pass --all to merge them.
@@ -54,8 +54,8 @@ ${bold("ADDRESSING")}
   Pads are referenced by name (resolved within the root) or by an explicit path.
   Root = --dir, else $SCRATCH_DIR, else current directory.
 
-  -h, --help        Show this help.
-  -v, --version     Show version.`;
+  ${cyan("-h, --help")}        Show this help.
+  ${cyan("-v, --version")}     Show version.`;
 
 const FLAG_SPEC = {
   dir: { type: "string" as const },
