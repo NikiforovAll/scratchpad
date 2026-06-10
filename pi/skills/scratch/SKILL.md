@@ -30,11 +30,23 @@ the CLI lives; don't look there for an entrypoint to invoke.
 4. INSPECT:  scratch ls           # pads under root
              scratch ls "<name>"  # files in a pad
              scratch show "<name>" <file>
+             # add --json to `ls`/`show <file>` for machine-readable output (scripting/agents)
 
 5. BROWSE:   scratch ui "<name>"  # see viewer note — launch backgrounded
 ```
 
 To extend an existing pad later, skip step 1 — `ls` to find it, write, `add`.
+
+## Scripting (`--json`)
+
+`ls` and `show <pad> <file>` accept `--json` for parseable output (paths are relative,
+forward-slashed — never absolute, safe across shells/platforms):
+
+- `scratch ls --json` → `{ root, pads: [{ name, rel, files }] }`
+- `scratch ls "<name>" --json` → `{ name, id, rel, files: [<entry>] }`
+- `scratch show "<name>" <file> --json` → `{ metadata, content }` (`metadata` null if unregistered)
+
+Errors stay as text on stderr; stdout carries only the JSON, so pipe to `jq` freely.
 
 ## Choosing a location (`--dir`)
 

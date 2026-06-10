@@ -10,6 +10,7 @@
 ```
 _plans/2026-01-08-fix-login-bug/
   plan.md
+  errors.md
 ```
 
 ### plan.md
@@ -33,8 +34,13 @@ Identify and fix the bug preventing successful login.
 ## Decisions
 - Auth handler is in src/auth/login.ts
 - Error occurs in validateToken() function
+```
 
-## Errors Encountered
+### errors.md
+
+```markdown
+# Errors: Fix Login Bug
+
 - TypeError: Cannot read property 'token' of undefined
   → Root cause: user object not awaited properly
 ```
@@ -125,6 +131,7 @@ Evaluate rate limiting strategies and recommend an approach.
 _plans/2026-01-08-dark-mode-toggle/
   plan.md
   decisions.md
+  errors.md
 ```
 
 ### plan.md
@@ -144,8 +151,13 @@ Add functional dark mode toggle to settings page.
 
 ## Status
 **Current:** Building toggle component
+```
 
-## Errors Encountered
+### errors.md
+
+```markdown
+# Errors: Dark Mode Toggle
+
 - CSS variables not updating on Safari
   → Added -webkit-transition property
 ```
@@ -255,8 +267,7 @@ Action: Read config.json  # Another retry
 Action: Read config.json
 Error: File not found
 
-# Update plan.md:
-## Errors Encountered
+# Append to errors.md:
 - config.json not found → Will create default config
 
 Action: Write config.json (default config)
@@ -301,3 +312,65 @@ Don't overuse it - reading before every small action adds overhead.
 | Documentation task | `plan.md` + `[deliverable].md` |
 
 Start minimal. Add file types as the task demands them.
+
+---
+
+## Templates
+
+Copy and adapt these starting points.
+
+### plan.md
+
+```markdown
+# Plan: [Brief Description]
+
+## Goal
+[One sentence describing the end state]
+
+## Phases
+- [ ] Phase 1: [Description]
+- [ ] Phase 2: [Description]
+- [ ] Phase 3: [Description]
+
+## Status
+**Current:** [What's happening now]
+
+## Decisions
+- [Decision]: [Rationale]
+```
+
+### errors.md
+
+```markdown
+# Errors: [Task]
+
+- [Error]: [Resolution]
+```
+
+### research-<topic>.md
+
+```markdown
+# Research: [Topic]
+
+## Sources
+- [Source]: [Key findings]
+
+## Findings
+### [Category]
+- [Finding]
+```
+
+### decision-<name>.md
+
+```markdown
+# Decisions: [Task]
+
+## [Decision Title]
+**Status:** Decided | Pending
+**Options:**
+1. [Option A] - [Pros/Cons]
+2. [Option B] - [Pros/Cons]
+
+**Choice:** [Selected option]
+**Rationale:** [Why]
+```

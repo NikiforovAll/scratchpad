@@ -9,8 +9,6 @@ Use persistent markdown files as external memory for complex tasks. Files surviv
 
 **Load the `scratch` skill first** — it owns all CLI mechanics (`new`, `add`, `ls`, `show`, `ui`). This skill adds the planning conventions on top.
 
-Use persistent files for planning, `TaskCreate` for tracking execution. Before closing session, use `AskUserQuestion` to confirm findings, decisions, and deliverables are satisfactory.
-
 ## Bundled References
 
 Read these when you need deeper guidance on a specific aspect:
@@ -63,80 +61,61 @@ _plans/
 
 ## File Types — One Concern Per File
 
-Each file owns a single concern. Never merge concerns into one file — a 200-line plan.md that also contains research notes, decisions, and scratch work is hard to navigate and easy to lose track of. Split early; you can always cross-reference with relative links. Register each file with the matching `scratch add --type`.
+Each file owns a single concern. **When in doubt, create a new file.** A pad with 8 focused files is better than one with 3 bloated ones. Split early — you can always cross-reference with relative links. Register each file with `scratch add --type`.
 
-| File | Concern | Create when | `--type` |
-|------|---------|-------------|----------|
-| `plan.md` | Goal, phases, status, errors | Always — this is the index | `note` |
-| `research-<topic>.md` | Sources, findings for one topic | Any research needed. One file per distinct topic — e.g. `research-auth-providers.md`, `research-perf-benchmarks.md` | `reference` |
-| `decisions.md` | ADRs, options, rationale | Any non-obvious tradeoff. For large efforts, split per decision: `decision-database-choice.md` | `note` |
-| `scratch-<label>.md` | Drafts, working notes, exploratory code | Complex reasoning or prototyping. Disposable — can be deleted after use | `snippet` |
-| `<deliverable>.md` | Final outputs | Reports, summaries, documentation | `artifact` |
-| `references.md` | Links to external resources, docs, prior art | When multiple sources inform the work | `reference` |
+The table below is a **starting point, not an exhaustive list**. Invent file names that match your task. If a concern doesn't fit a pattern below, name it after the concern and create it anyway.
+
+| Pattern | Concern | `--type` |
+|---------|---------|----------|
+| `plan.md` | Goal, phases, status — the index | `note` |
+| `errors.md` | Errors encountered + resolutions. One running log. | `note` |
+| `research-<topic>.md` | Findings for one topic. One file per topic. | `reference` |
+| `decision-<name>.md` | One ADR: options, rationale, choice | `note` |
+| `scratch-<label>.md` | Drafts, working notes, exploratory code. Disposable. | `snippet` |
+| `<deliverable>.md` | Final output: report, summary, spec | `artifact` |
+| `references.md` | Links to external resources, docs, prior art | `reference` |
+| **`<anything>-<label>.md`** | **Any other distinct concern — name it and create it** | pick closest |
+
+**Examples of task-specific files you should create freely:**
+
+```
+api-shape.md           # sketching the API surface before implementing
+risk-<area>.md         # risks identified for a specific area
+constraints.md         # hard limits discovered during research
+timeline.md            # sequencing and dependency notes
+test-plan.md           # what to verify and how
+migration-steps.md     # ordered rollout steps
+open-questions.md      # unresolved questions to revisit
+```
 
 Always pass `--desc "why this file exists"` — it's the most valuable metadata in the viewer.
 
-### Splitting heuristic
+### Split eagerly — don't wait for files to get big
 
-- If a section in any file exceeds ~80 lines, extract it into its own file
-- If you're about to add a second `## Research:` or `## Decision:` heading to an existing file, create a new file instead
-- `plan.md` should stay lean — it's the map, not the territory. Link to detail files:
-  ```markdown
-  ## Research
-  - [Auth providers](research-auth-providers.md)
-  - [Performance](research-perf-benchmarks.md)
-  ```
+Create a new file **before** the content exists, at the moment you know a distinct concern will need tracking. Triggers:
 
-### plan.md Template
+- You are about to write a second `##` heading of the same kind in any file → **split now**
+- You think "I'll add this to plan.md for now" → **it needs its own file**
+- A section you're about to write could stand alone as a document → **give it one**
+- ~30 lines of content exist on a single concern → **extract before it grows**
+
+`plan.md` should stay lean — it's the map, not the territory. Link to detail files:
 
 ```markdown
-# Plan: [Brief Description]
+## Research
+- [Auth providers](research-auth-providers.md)
+- [Token storage](research-token-storage.md)
 
-## Goal
-[One sentence describing the end state]
+## Constraints
+- [Hard limits](constraints.md)
 
-## Phases
-- [ ] Phase 1: [Description]
-- [ ] Phase 2: [Description]
-- [ ] Phase 3: [Description]
-
-## Status
-**Current:** [What's happening now]
-
-## Decisions
-- [Decision]: [Rationale]
-
-## Errors Encountered
-- [Error]: [Resolution]
+## Open Questions
+- [Unresolved items](open-questions.md)
 ```
 
-### research.md Template
+### Templates
 
-```markdown
-# Research: [Topic]
-
-## Sources
-- [Source]: [Key findings]
-
-## Findings
-### [Category]
-- [Finding]
-```
-
-### decisions.md Template
-
-```markdown
-# Decisions: [Task]
-
-## [Decision Title]
-**Status:** Decided | Pending
-**Options:**
-1. [Option A] - [Pros/Cons]
-2. [Option B] - [Pros/Cons]
-
-**Choice:** [Selected option]
-**Rationale:** [Why]
-```
+Copy starting templates for `plan.md`, `research-*.md`, and `decision-*.md` from **[examples.md](examples.md)**.
 
 ## Task System Integration
 
@@ -158,6 +137,47 @@ Planning files and tasks serve different stages:
 6. Link tasks back to planning docs
 7. scratch ui "<task>" --dir _plans   # backgrounded, for the human
 ```
+
+**Updating plan.md is part of the workflow, not optional bookkeeping.** After every completed unit of work — phase, decision, or error — run the Progress Checkpoint below before moving on.
+
+### Progress Checkpoint (run after EVERY completed unit)
+
+Three steps, in order. Do not skip or defer:
+
+1. **Mark done** — change `- [ ]` → `- [x]` for the completed phase/task in `plan.md`
+2. **Update Status** — rewrite the `## Status` line to reflect what's happening *right now*
+3. **Log anything new** — append any decision to plan.md's `## Decisions`, any error to `errors.md`
+
+Trigger conditions (any one is sufficient):
+- A phase completes
+- A non-obvious decision is made
+- An error is encountered (even if recovered)
+- You are about to start a new phase
+
+**Example — before / after completing Phase 1:**
+
+```markdown
+# Before
+## Phases
+- [ ] Phase 1: Research auth providers
+- [ ] Phase 2: Implement auth flow
+
+## Status
+**Current:** Researching OAuth2 options
+
+# After
+## Phases
+- [x] Phase 1: Research auth providers
+- [ ] Phase 2: Implement auth flow
+
+## Status
+**Current:** Starting Phase 2 — implementing /auth/login endpoint
+
+## Decisions
+- Use Auth0 over rolling our own: team lacks ops capacity for token rotation
+```
+
+This pattern keeps `plan.md` accurate for the human watching the viewer, and forces you to re-anchor on goals before context drifts.
 
 ### Outline Before Creating Tasks
 
@@ -226,21 +246,21 @@ Planning is complete when:
 
 ## Critical Rules
 
-### Refresh Goals When Context Gets Long
+### Refresh Goals Before Major Decisions
 
-After many tool calls (~20+), re-read `plan.md` before major decisions. This brings goals back into the attention window.
+Before a significant decision or starting a new phase, re-read `plan.md`. This brings the goal back into the attention window before context drifts.
 
 ### 1. Store, Don't Stuff
 Large outputs go to files, not context. Keep paths in working memory, content in files.
 
 ### 2. Log All Errors
-Every error goes in plan.md under "Errors Encountered". This builds knowledge and shows recovery.
+Every error goes in `errors.md` with its resolution. This builds knowledge and shows recovery.
 
 ### 3. Decisions Need Rationale
 Don't just record what you decided - record WHY. Future-you needs this context.
 
-### 4. Update Status Immediately
-Mark phases complete as soon as they're done. Don't batch status updates.
+### 4. Run the Progress Checkpoint After Every Completed Unit
+Mark the phase done, rewrite `## Status`, log decisions/errors — in that order, before starting the next thing. See the **Progress Checkpoint** section in Workflow for the exact steps. Never batch updates at the end.
 
 ## Anti-Patterns
 
@@ -249,8 +269,13 @@ Mark phases complete as soon as they're done. Don't batch status updates.
 | Create files in project root | Use a pad under `_plans/YYYY-MM-DD-name/` |
 | Write files but forget to register them | `scratch add` each file so it shows in the viewer |
 | State goals once and forget | Re-read plan.md when context is long |
+| Finish a phase without updating plan.md | Run the Progress Checkpoint immediately — mark done, update Status, log decisions |
+| Defer all plan.md updates to the end | Update after *each* completed unit so the viewer stays accurate |
 | Hide errors and retry silently | Log errors with resolution |
 | Stuff everything in context | Store large content in files |
 | Start executing immediately | Create plan.md first for complex tasks |
 | Put research + decisions + notes in one big file | One file per concern — split by topic |
 | Let plan.md grow past ~80 lines | Extract sections into dedicated files, link from plan.md |
+| Treat the file-type table as a closed list | Invent file names for any new concern — `constraints.md`, `open-questions.md`, etc. |
+| Think "I'll add this to plan.md for now" | That thought is the signal to create a new file instead |
+| Wait until a file is long before splitting | Split at the moment you identify a new distinct concern |
