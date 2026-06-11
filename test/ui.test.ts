@@ -133,7 +133,20 @@ describe("renderHtml", () => {
     expect(html).toContain('"themeMode":"system"');
     expect(html).toContain('id="settingsBtn"');
     expect(html).toContain('id="settingsModal"');
-    expect(html).toContain('data-theme-id="gruvbox"'); // theme cards from the registry
+    expect(html).toContain('"starredThemes":[]'); // default: no favorites
+    // Cards render client-side: settings carries the starred strip + Browse,
+    // the gallery modal the full grid, and the #themes island the registry.
+    expect(html).toContain('id="starredGrid"');
+    expect(html).toContain('id="browseThemes"');
+    expect(html).toContain('id="galleryModal"');
+    expect(html).toContain('id="galleryGrid"');
+    expect(html).toContain('id="themes"');
+    expect(html).toContain('"id":"gruvbox"');
+    expect(html).toContain('"id":"dracula"');
+    // every ported theme ships its override CSS
+    for (const id of ["dracula", "nord", "rose-pine", "everforest", "kanagawa", "one-dark", "night-owl", "monokai", "github", "ayu", "vitesse", "synthwave"]) {
+      expect(html).toContain(`:root[data-color-theme="${id}"]`);
+    }
   });
 
   test("bakes persisted settings into <html> attrs + the settings island", async () => {

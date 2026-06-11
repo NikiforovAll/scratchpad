@@ -99,6 +99,27 @@ describe("loadConfig", () => {
     expect((await loadConfig()).ui.wideMode).toBe(false); // non-boolean → default
   });
 
+  test("starredThemes: defaults to []; sanitizes unknown ids, dupes, and clamps to 3", async () => {
+    process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
+    expect((await loadConfig()).ui.starredThemes).toEqual([]);
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { starredThemes: ["gruvbox", "nord"] } }), "utf8");
+    expect((await loadConfig()).ui.starredThemes).toEqual(["gruvbox", "nord"]);
+    // unknown ids + dupes dropped, non-array → default
+    await writeFile(f, JSON.stringify({ ui: { starredThemes: ["nope", "dracula", "dracula", 7] } }), "utf8");
+    expect((await loadConfig()).ui.starredThemes).toEqual(["dracula"]);
+    await writeFile(f, JSON.stringify({ ui: { starredThemes: "gruvbox" } }), "utf8");
+    expect((await loadConfig()).ui.starredThemes).toEqual([]);
+    // over 3 → newest 3 kept (the array is ordered oldest-first / FIFO)
+    await writeFile(
+      f,
+      JSON.stringify({ ui: { starredThemes: ["gruvbox", "nord", "dracula", "vitesse"] } }),
+      "utf8",
+    );
+    expect((await loadConfig()).ui.starredThemes).toEqual(["nord", "dracula", "vitesse"]);
+  });
+
   test("zoom: defaults to 1; reads valid value; rejects out-of-range/garbage", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     expect((await loadConfig()).ui.zoom).toBe(1);
@@ -149,6 +170,15 @@ describe("saveConfig", () => {
     const raw = await Bun.file(f).json();
     expect(raw.ui.themeMode).toBeUndefined();
     expect(raw.ui.colorTheme).toBeUndefined();
+  });
+
+  test("starredThemes round-trips sanitized; non-array is dropped", async () => {
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await saveConfig({ starredThemes: ["solarized", "bogus", "kanagawa"] });
+    expect((await loadConfig()).ui.starredThemes).toEqual(["solarized", "kanagawa"]);
+    await saveConfig({ starredThemes: "all" as any });
+    expect((await loadConfig()).ui.starredThemes).toEqual(["solarized", "kanagawa"]); // bad patch leaves last good value
   });
 
   test("zoom round-trips; invalid zoom is dropped", async () => {

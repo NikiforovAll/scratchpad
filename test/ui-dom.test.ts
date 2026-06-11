@@ -246,14 +246,31 @@ test("settings modal: mode + color theme switch, persisted via localStorage fall
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(localStorage.getItem("scratch.themeMode")).toBe("light");
 
-    // Color theme card applies data-color-theme and persists.
-    (modal.querySelector('.theme-card[data-theme-id="gruvbox"]') as any).click();
+    // No stars yet → the starred strip carries just the active (ember) card.
+    const starred = document.getElementById("starredGrid")!;
+    expect(starred.querySelectorAll(".theme-card").length).toBe(1);
+    expect(starred.querySelector('.theme-card[data-theme-id="ember"]')).not.toBeNull();
+
+    // Browse opens the gallery with every registry theme as a card.
+    const gallery = document.getElementById("galleryModal")!;
+    expect((gallery as any).style.display).toBe("none");
+    (document.getElementById("browseThemes") as any).click();
+    expect((gallery as any).style.display).toBe("flex");
+
+    // Clicking a gallery card applies data-color-theme and persists.
+    (gallery.querySelector('.theme-card[data-theme-id="gruvbox"]') as any).click();
     expect(document.documentElement.dataset.colorTheme).toBe("gruvbox");
     expect(localStorage.getItem("scratch.colorTheme")).toBe("gruvbox");
 
-    // Active states reflected in the modal.
+    // Active states reflected: mode seg + gallery card, and the active (still
+    // unstarred) theme replaces ember in the starred strip.
     expect(modal.querySelector('button[data-mode="light"]')!.classList.contains("on")).toBe(true);
-    expect(modal.querySelector('.theme-card[data-theme-id="gruvbox"]')!.classList.contains("on")).toBe(true);
+    expect(gallery.querySelector('.theme-card[data-theme-id="gruvbox"]')!.classList.contains("on")).toBe(true);
+    expect(starred.querySelectorAll(".theme-card").length).toBe(1);
+    expect(starred.querySelector('.theme-card[data-theme-id="gruvbox"]')!.classList.contains("on")).toBe(true);
+
+    (document.getElementById("galleryClose") as any).click();
+    expect((gallery as any).style.display).toBe("none");
 
     // System mode goes back to following the (dark-preferring) OS stub.
     (modal.querySelector('#modeSeg button[data-mode="system"]') as any).click();
@@ -261,6 +278,76 @@ test("settings modal: mode + color theme switch, persisted via localStorage fall
 
     (document.getElementById("settingsClose") as any).click();
     expect((modal as any).style.display).toBe("none");
+  } finally {
+    teardown();
+  }
+});
+
+test("theme gallery: star toggles favorites without applying, FIFO caps at 3", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const gallery = document.getElementById("galleryModal")!;
+    const starred = document.getElementById("starredGrid")!;
+    const star = (id: string) =>
+      (gallery.querySelector(`.theme-star[data-star="${id}"]`) as any).click();
+
+    // Starring must NOT apply the theme.
+    star("gruvbox");
+    expect(document.documentElement.dataset.colorTheme).toBe("ember");
+    expect(JSON.parse(localStorage.getItem("scratch.starredThemes")!)).toEqual(["gruvbox"]);
+    expect(
+      gallery.querySelector('.theme-star[data-star="gruvbox"]')!.classList.contains("on"),
+    ).toBe(true);
+
+    // Strip = starred + active-unstarred (ember).
+    star("nord");
+    star("dracula");
+    let ids = Array.from(starred.querySelectorAll(".theme-card")).map(
+      (c) => (c as any).dataset.themeId,
+    );
+    expect(ids).toEqual(["gruvbox", "nord", "dracula", "ember"]);
+
+    // 4th star drops the oldest (gruvbox).
+    star("vitesse");
+    expect(JSON.parse(localStorage.getItem("scratch.starredThemes")!)).toEqual([
+      "nord",
+      "dracula",
+      "vitesse",
+    ]);
+    expect(
+      gallery.querySelector('.theme-star[data-star="gruvbox"]')!.classList.contains("on"),
+    ).toBe(false);
+
+    // Unstar removes without touching the rest.
+    star("dracula");
+    expect(JSON.parse(localStorage.getItem("scratch.starredThemes")!)).toEqual([
+      "nord",
+      "vitesse",
+    ]);
+
+    // A starred theme that becomes active doesn't duplicate in the strip.
+    (gallery.querySelector('.theme-card[data-theme-id="nord"]') as any).click();
+    ids = Array.from(starred.querySelectorAll(".theme-card")).map(
+      (c) => (c as any).dataset.themeId,
+    );
+    expect(ids).toEqual(["nord", "vitesse"]);
+  } finally {
+    teardown();
+  }
+});
+
+test("starred themes seed from localStorage and clamp unknown ids", async () => {
+  const html = await renderPad();
+  await boot(html, {
+    "scratch.starredThemes": JSON.stringify(["bogus", "solarized", "solarized", "kanagawa"]),
+  });
+  try {
+    const ids = Array.from(
+      document.querySelectorAll("#starredGrid .theme-card"),
+    ).map((c) => (c as any).dataset.themeId);
+    // unknown + dupes dropped, active (ember) appended.
+    expect(ids).toEqual(["solarized", "kanagawa", "ember"]);
   } finally {
     teardown();
   }
@@ -299,6 +386,7 @@ test("inside the WebView2 host, settings changes post __scratch_settings", async
     expect(msg).toBeDefined();
     expect(msg.__scratch_settings.colorTheme).toBe("solarized");
     expect(msg.__scratch_settings.themeMode).toBe("system");
+    expect(msg.__scratch_settings.starredThemes).toEqual([]);
     // webview present → nothing written to localStorage
     expect(localStorage.getItem("scratch.colorTheme")).toBeNull();
   } finally {
@@ -325,6 +413,7 @@ test("after a native reload, __scratchSettings re-applies config saved since lau
     (globalThis as any).__scratchSettings({
       themeMode: "light",
       colorTheme: "gruvbox",
+      starredThemes: ["nord", "dracula"],
       gridStyle: "lines",
       wideMode: true,
       zoom: 1.2,
@@ -335,6 +424,11 @@ test("after a native reload, __scratchSettings re-applies config saved since lau
     expect(document.documentElement.dataset.grid).toBe("lines");
     expect(document.documentElement.hasAttribute("data-wide")).toBe(true);
     expect(document.documentElement.style.zoom).toBe("1.2");
+    // Starred drift re-renders the strip: stars + active-unstarred gruvbox.
+    const ids = Array.from(
+      document.querySelectorAll("#starredGrid .theme-card"),
+    ).map((c) => (c as any).dataset.themeId);
+    expect(ids).toEqual(["nord", "dracula", "gruvbox"]);
   } finally {
     teardown();
   }

@@ -28,6 +28,7 @@ async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
     const p = payload as {
       themeMode?: unknown;
       colorTheme?: unknown;
+      starredThemes?: unknown;
       gridStyle?: unknown;
       wideMode?: unknown;
       zoom?: unknown;
@@ -35,6 +36,7 @@ async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
     await saveConfig({
       themeMode: p.themeMode as any,
       colorTheme: p.colorTheme as any,
+      starredThemes: p.starredThemes as any,
       gridStyle: p.gridStyle as any,
       wideMode: p.wideMode as any,
       zoom: p.zoom as any,

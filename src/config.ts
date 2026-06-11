@@ -28,6 +28,9 @@ export interface ScratchConfig {
     themeMode: ThemeMode;
     /** Color theme id from COLOR_THEMES (settings > theme). */
     colorTheme: string;
+    /** Starred theme ids shown in the settings panel (gallery favorites).
+     * Ordered oldest-first, max 3 — starring a 4th drops the oldest (FIFO). */
+    starredThemes: string[];
     /** Background grid drawn in the preview margins around the reading card. */
     gridStyle: GridStyle;
     /** Wide reading column: roomier card that still leaves a margin (default false). */
@@ -43,6 +46,7 @@ const DEFAULTS: ScratchConfig = {
     frameless: true,
     themeMode: "system",
     colorTheme: DEFAULT_COLOR_THEME,
+    starredThemes: [],
     gridStyle: "dots",
     wideMode: false,
     zoom: 1,
@@ -54,6 +58,18 @@ function validThemeMode(v: unknown): v is ThemeMode {
 }
 function validColorTheme(v: unknown): v is string {
   return typeof v === "string" && COLOR_THEME_IDS.includes(v);
+}
+/** Normalizing sanitizer (not a type guard): keeps known theme ids, drops dupes,
+ * clamps to the newest 3 (FIFO — the array is ordered oldest-first). Non-arrays
+ * return null so callers can fall back / skip the field. Keep in sync with
+ * clampStarred in the viewer page JS (render.ts CLIENT_JS), which can't import this. */
+function sanitizeStarred(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: string[] = [];
+  for (const id of v) {
+    if (typeof id === "string" && COLOR_THEME_IDS.includes(id) && !out.includes(id)) out.push(id);
+  }
+  return out.slice(-3);
 }
 function validGridStyle(v: unknown): v is GridStyle {
   return v === "off" || v === "dots" || v === "lines";
@@ -83,6 +99,7 @@ export async function loadConfig(): Promise<ScratchConfig> {
         colorTheme: validColorTheme(raw?.ui?.colorTheme)
           ? raw.ui.colorTheme
           : DEFAULTS.ui.colorTheme,
+        starredThemes: sanitizeStarred(raw?.ui?.starredThemes) ?? [],
         gridStyle: validGridStyle(raw?.ui?.gridStyle)
           ? raw.ui.gridStyle
           : DEFAULTS.ui.gridStyle,
@@ -116,6 +133,8 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (typeof patch.frameless === "boolean") ui.frameless = patch.frameless;
   if (validThemeMode(patch.themeMode)) ui.themeMode = patch.themeMode;
   if (validColorTheme(patch.colorTheme)) ui.colorTheme = patch.colorTheme;
+  const starred = sanitizeStarred(patch.starredThemes);
+  if (starred) ui.starredThemes = starred;
   if (validGridStyle(patch.gridStyle)) ui.gridStyle = patch.gridStyle;
   if (typeof patch.wideMode === "boolean") ui.wideMode = patch.wideMode;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;

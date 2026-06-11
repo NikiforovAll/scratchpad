@@ -29,9 +29,10 @@ export const DEFAULT_COLOR_THEME = "ember";
 
 // Curated registry. "ember" mirrors the :root defaults below (it has no override
 // block — clearing data-color-theme is how you get it); the ports map canonical
-// upstream palettes (Gruvbox, Catppuccin Mocha/Latte, Tokyo Night/Day, Solarized)
-// onto the Lab-Notebook variable roles: one accent (--ember*), four surfaces
-// (field→hover), one hairline (border), four-step ink ramp.
+// upstream palettes onto the Lab-Notebook variable roles: one accent (--ember*),
+// four surfaces (field→hover), one hairline (border), four-step ink ramp.
+// Dark-only upstreams get a hand-derived light sibling (see per-theme comments);
+// emberDim is mechanical: rgba(ember, 0.25) dark / 0.18 light.
 export const COLOR_THEMES: ColorTheme[] = [
   {
     id: "ember",
@@ -104,6 +105,197 @@ export const COLOR_THEMES: ColorTheme[] = [
       ember: "#cb4b16", emberGlow: "#b34a12", emberDim: "rgba(203,75,22,0.18)",
       field: "#eee8d5", surface: "#f5efdc", elevated: "#fdf6e3", hover: "#e4ddc8",
       border: "#d3cbb7", ink1: "#073642", ink2: "#586e75", ink3: "#657b83", inkMuted: "#839496",
+    },
+  },
+  {
+    id: "dracula",
+    label: "Dracula",
+    dark: {
+      ember: "#bd93f9", emberGlow: "#d6b5ff", emberDim: "rgba(189,147,249,0.25)",
+      field: "#21222c", surface: "#282a36", elevated: "#343746", hover: "#44475a",
+      border: "#565a75", ink1: "#f8f8f2", ink2: "#d8d8d2", ink3: "#b0b3c5", inkMuted: "#6272a4",
+    },
+    // No official Dracula light: cool slate paper + the purple darkened until it
+    // holds as accent text, inks pulled down to near-black.
+    light: {
+      ember: "#7c3aed", emberGlow: "#5b21b6", emberDim: "rgba(124,58,237,0.18)",
+      field: "#e8e8ee", surface: "#f0f0f5", elevated: "#fbfbfd", hover: "#dfdfe8",
+      border: "#c9c9d6", ink1: "#16161e", ink2: "#34343f", ink3: "#5a5a68", inkMuted: "#787885",
+    },
+  },
+  {
+    id: "nord",
+    label: "Nord",
+    dark: {
+      ember: "#88c0d0", emberGlow: "#a8d8e8", emberDim: "rgba(136,192,208,0.25)",
+      field: "#272c36", surface: "#2e3440", elevated: "#3b4252", hover: "#434c5e",
+      border: "#4c566a", ink1: "#eceff4", ink2: "#d8dee9", ink3: "#aeb6c5", inkMuted: "#7b88a1",
+    },
+    // Snow Storm surfaces; accent switches to the darker frost blue (nord10) —
+    // nord8 cyan has no contrast on paper.
+    light: {
+      ember: "#5e81ac", emberGlow: "#44688f", emberDim: "rgba(94,129,172,0.18)",
+      field: "#e5e9f0", surface: "#eceff4", elevated: "#f8f9fb", hover: "#d8dee9",
+      border: "#c2c9d6", ink1: "#2e3440", ink2: "#3b4252", ink3: "#4c566a", inkMuted: "#6b7589",
+    },
+  },
+  {
+    id: "rose-pine",
+    label: "Rosé Pine",
+    dark: {
+      ember: "#c4a7e7", emberGlow: "#d9c4f2", emberDim: "rgba(196,167,231,0.25)",
+      field: "#191724", surface: "#1f1d2e", elevated: "#26233a", hover: "#34304e",
+      border: "#403d52", ink1: "#e0def4", ink2: "#c5c2dd", ink3: "#908caa", inkMuted: "#6e6a86",
+    },
+    // Rosé Pine Dawn.
+    light: {
+      ember: "#907aa9", emberGlow: "#6f598c", emberDim: "rgba(144,122,169,0.18)",
+      field: "#f2e9e1", surface: "#faf4ed", elevated: "#fffaf3", hover: "#ebdfd4",
+      border: "#dfdad9", ink1: "#575279", ink2: "#635e87", ink3: "#797593", inkMuted: "#9893a5",
+    },
+  },
+  {
+    id: "everforest",
+    label: "Everforest",
+    dark: {
+      ember: "#a7c080", emberGlow: "#c3d6a2", emberDim: "rgba(167,192,128,0.25)",
+      field: "#232a2e", surface: "#2d353b", elevated: "#343f44", hover: "#3d484d",
+      border: "#475258", ink1: "#d3c6aa", ink2: "#bfb6a3", ink3: "#9da9a0", inkMuted: "#859289",
+    },
+    // Toned down from the canonical light palette: the chartreuse green
+    // (#8da101) and bg1-deep paper read harsh — muted moss accent, one step
+    // lighter paper, darker neutral ink.
+    light: {
+      ember: "#6f8352", emberGlow: "#56683f", emberDim: "rgba(111,131,82,0.18)",
+      field: "#f4f0d9", surface: "#fdf6e3", elevated: "#fffbef", hover: "#efebd4",
+      border: "#d8d3ba", ink1: "#4d5960", ink2: "#5c6a72", ink3: "#7a8478", inkMuted: "#939f91",
+    },
+  },
+  {
+    id: "kanagawa",
+    label: "Kanagawa",
+    dark: {
+      ember: "#7e9cd8", emberGlow: "#9fb9ec", emberDim: "rgba(126,156,216,0.25)",
+      field: "#16161d", surface: "#1f1f28", elevated: "#2a2a37", hover: "#363646",
+      border: "#54546d", ink1: "#dcd7ba", ink2: "#c8c093", ink3: "#a6a69c", inkMuted: "#727169",
+    },
+    // Kanagawa Lotus, the canonical light sibling (yellow-tan paper).
+    light: {
+      ember: "#4d699b", emberGlow: "#38537f", emberDim: "rgba(77,105,155,0.18)",
+      field: "#e5ddb0", surface: "#f2ecbc", elevated: "#faf5d2", hover: "#dcd5ac",
+      border: "#c7bf94", ink1: "#545464", ink2: "#66667a", ink3: "#716e61", inkMuted: "#8a8775",
+    },
+  },
+  {
+    id: "one-dark",
+    label: "One Dark",
+    // Upstream card (#21252b) is darker than its bg — surfaces reordered by luminance.
+    dark: {
+      ember: "#61afef", emberGlow: "#8cc7ff", emberDim: "rgba(97,175,239,0.25)",
+      field: "#21252b", surface: "#282c34", elevated: "#2f343e", hover: "#3e4452",
+      border: "#4b5263", ink1: "#d7dae0", ink2: "#abb2bf", ink3: "#8b919e", inkMuted: "#5c6370",
+    },
+    // One Light (Atom's sibling theme).
+    light: {
+      ember: "#4078f2", emberGlow: "#2c5dd4", emberDim: "rgba(64,120,242,0.18)",
+      field: "#eaeaeb", surface: "#fafafa", elevated: "#ffffff", hover: "#e0e0e2",
+      border: "#d4d4d6", ink1: "#383a42", ink2: "#50525a", ink3: "#696c77", inkMuted: "#a0a1a7",
+    },
+  },
+  {
+    id: "night-owl",
+    label: "Night Owl",
+    dark: {
+      ember: "#82aaff", emberGlow: "#a8c4ff", emberDim: "rgba(130,170,255,0.25)",
+      field: "#011627", surface: "#0b2942", elevated: "#13344f", hover: "#1d3b53",
+      border: "#5f7e97", ink1: "#d6deeb", ink2: "#b8c5d6", ink3: "#8ba3b8", inkMuted: "#637777",
+    },
+    // Light Owl (the official light variant): teal accent, soft grays.
+    light: {
+      ember: "#0c969b", emberGlow: "#0a7479", emberDim: "rgba(12,150,155,0.18)",
+      field: "#ededed", surface: "#f6f6f6", elevated: "#fbfbfb", hover: "#e2e2e2",
+      border: "#d0d0d0", ink1: "#403f53", ink2: "#545167", ink3: "#6f6e85", inkMuted: "#989fb1",
+    },
+  },
+  {
+    id: "monokai",
+    label: "Monokai Pro",
+    dark: {
+      ember: "#ffd866", emberGlow: "#ffe6a0", emberDim: "rgba(255,216,102,0.25)",
+      field: "#221f22", surface: "#2d2a2e", elevated: "#403e41", hover: "#4a484b",
+      border: "#5b595c", ink1: "#fcfcfa", ink2: "#d9d8d6", ink3: "#939293", inkMuted: "#727072",
+    },
+    // Monokai Pro is dark-only: warm gray paper, yellow deepened to amber so
+    // accent text survives on light.
+    light: {
+      ember: "#c08a00", emberGlow: "#9a6e00", emberDim: "rgba(192,138,0,0.18)",
+      field: "#e9e6e4", surface: "#f1efed", elevated: "#fcfbfa", hover: "#e0dcda",
+      border: "#cdc8c5", ink1: "#2c292d", ink2: "#46434a", ink3: "#6b686d", inkMuted: "#8d8a8d",
+    },
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    // Upstream --border (#1b1f23) is darker than the bg — swapped for a visible
+    // Primer hairline.
+    dark: {
+      ember: "#58a6ff", emberGlow: "#85bdff", emberDim: "rgba(88,166,255,0.25)",
+      field: "#1f2428", surface: "#24292e", elevated: "#2b3138", hover: "#2f363d",
+      border: "#444d56", ink1: "#e1e4e8", ink2: "#d1d5da", ink3: "#959da5", inkMuted: "#6a737d",
+    },
+    light: {
+      ember: "#0366d6", emberGlow: "#044289", emberDim: "rgba(3,102,214,0.18)",
+      field: "#f0f2f4", surface: "#f6f8fa", elevated: "#ffffff", hover: "#e8eaed",
+      border: "#d1d5da", ink1: "#24292e", ink2: "#444d56", ink3: "#586069", inkMuted: "#6a737d",
+    },
+  },
+  {
+    id: "ayu",
+    label: "Ayu",
+    // Upstream --border (#1b1f29) vanishes on these surfaces — bumped two steps.
+    dark: {
+      ember: "#e6b450", emberGlow: "#f0cd85", emberDim: "rgba(230,180,80,0.25)",
+      field: "#0d1017", surface: "#10141c", elevated: "#141821", hover: "#1d2330",
+      border: "#2d3343", ink1: "#bfbdb6", ink2: "#a8a6a0", ink3: "#8a9199", inkMuted: "#6c7380",
+    },
+    // ayu-light: the yellow stays for fills, but accent text (glow) drops to a
+    // burnt orange for contrast.
+    light: {
+      ember: "#f2ae49", emberGlow: "#b87514", emberDim: "rgba(242,174,73,0.18)",
+      field: "#eff1f3", surface: "#f8f9fa", elevated: "#fcfcfc", hover: "#e7eaed",
+      border: "#d8dde2", ink1: "#3d4149", ink2: "#5c6166", ink3: "#787b80", inkMuted: "#8a9199",
+    },
+  },
+  {
+    id: "vitesse",
+    label: "Vitesse",
+    // Upstream borders (#252525 / #f0f0f0) are near-invisible — bumped a step.
+    dark: {
+      ember: "#4d9375", emberGlow: "#6fb392", emberDim: "rgba(77,147,117,0.25)",
+      field: "#121212", surface: "#181818", elevated: "#1e1e1e", hover: "#262626",
+      border: "#333333", ink1: "#dbd7ca", ink2: "#bfbaaa", ink3: "#8f8f85", inkMuted: "#758575",
+    },
+    light: {
+      ember: "#1c6b48", emberGlow: "#145236", emberDim: "rgba(28,107,72,0.18)",
+      field: "#f0f0f0", surface: "#f7f7f7", elevated: "#ffffff", hover: "#e7e7e7",
+      border: "#d6d6d6", ink1: "#393a34", ink2: "#4e4f47", ink3: "#6b6d63", inkMuted: "#a0ada0",
+    },
+  },
+  {
+    id: "synthwave",
+    label: "Synthwave '84",
+    // Upstream --muted-foreground is #ffffff99 — replaced with the canonical
+    // comment lavender; elevated/hover derived (upstream card ≈ bg).
+    dark: {
+      ember: "#ff7edb", emberGlow: "#ffa9e7", emberDim: "rgba(255,126,219,0.25)",
+      field: "#241b2f", surface: "#262335", elevated: "#322a47", hover: "#3d3460",
+      border: "#495495", ink1: "#ffffff", ink2: "#d8d6e8", ink3: "#b6b1d8", inkMuted: "#848bbd",
+    },
+    // Dark-only upstream: lavender-tinted paper, magenta deepened for contrast.
+    light: {
+      ember: "#c936a6", emberGlow: "#9c2381", emberDim: "rgba(201,54,166,0.18)",
+      field: "#e6e2f0", surface: "#efecf6", elevated: "#fbfafd", hover: "#ddd7ec",
+      border: "#c5bcdd", ink1: "#241b2f", ink2: "#3d3455", ink3: "#5c5380", inkMuted: "#7d76a3",
     },
   },
 ];
@@ -507,6 +699,27 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
    (No data-theme attribute = dark default, so hide .sw-light via :not.) */
 :root[data-theme="light"] .sw-dark { display: none; }
 :root:not([data-theme="light"]) .sw-light { display: none; }
+
+/* theme gallery — settings shows only starred cards (max 3) + a Browse button;
+   the gallery modal lists every theme with a star toggle per card. */
+/* The Browse button is a grid cell: display:contents lifts the starred cards
+   into the parent grid so the button flows inline right after them. */
+.starred-cards { display: contents; }
+/* Match .theme-card's natural height (8px padding + 14px content row — the
+   12px swatch plus its borders) so the button is the same size whether it
+   shares a row with a card (stretched) or sits on its own row (natural). */
+.browse-themes { justify-content: center; padding: 8px 10px; line-height: 14px; }
+.gallery-scrim { z-index: 60; } /* above the settings scrim (50) — settings stays open */
+.modal-wide { width: 560px; max-width: 560px; }
+.gallery-body { padding: 14px 18px 18px; max-height: 70vh; overflow-y: auto; }
+/* Star rides the card's right edge; it toggles a favorite without applying the
+   theme (click is swallowed before the card handler). */
+.theme-card .fttl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-star { flex: 0 0 auto; margin-left: auto; background: none; border: 0; padding: 0 2px;
+  font-size: 14px; line-height: 1; color: var(--ink-muted); cursor: pointer;
+  transition: color 0.15s ease; }
+.theme-star:hover { color: var(--ember-glow); }
+.theme-star.on { color: var(--ember); }
 `;
 
 export const THEME_CSS = BASE_CSS + colorThemeCss();

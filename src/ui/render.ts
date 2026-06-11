@@ -10,7 +10,7 @@ import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
 import type { Pad } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
-import { COLOR_THEMES, DEFAULT_COLOR_THEME, type Palette, THEME_CSS } from "./theme.ts";
+import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 
 // Pinned CDN builds (version + SRI). The script-global builds (highlight.min.js /
 // mermaid.min.js) set window.hljs / window.mermaid; if they fail to load
@@ -204,13 +204,15 @@ function needsMermaid(view: PadView[]): boolean {
 
 /** Viewer settings embedded into the page (persisted in the user config file).
  * Derived from ScratchConfig.ui so the shapes can't drift; frameless is a
- * launch-time concern, and zoom is optional here (defaults to 1). */
-export type UiSettings = Omit<ScratchConfig["ui"], "frameless" | "zoom"> &
-  Partial<Pick<ScratchConfig["ui"], "zoom">>;
+ * launch-time concern, and zoom / starredThemes are optional here (default
+ * 1 / []) so partial call sites keep working. */
+export type UiSettings = Omit<ScratchConfig["ui"], "frameless" | "zoom" | "starredThemes"> &
+  Partial<Pick<ScratchConfig["ui"], "zoom" | "starredThemes">>;
 
 const DEFAULT_UI: UiSettings = {
   themeMode: "system",
   colorTheme: DEFAULT_COLOR_THEME,
+  starredThemes: [],
   gridStyle: "dots",
   wideMode: false,
 };
@@ -236,7 +238,13 @@ export async function renderHtml(
     (zoom === 1 ? "" : ` style="zoom: ${zoom}"`);
   // NOT part of payloadJson: __scratchReload diff-compares the data island to
   // detect "no changes", and settings must not break that.
-  const settingsJson = JSON.stringify({ ...ui, gridStyle, wideMode, zoom }).replace(/</g, "\\u003c");
+  const settingsJson = JSON.stringify({
+    ...ui,
+    starredThemes: ui.starredThemes ?? [],
+    gridStyle,
+    wideMode,
+    zoom,
+  }).replace(/</g, "\\u003c");
 
   // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
   // before the client script runs. SRI + crossorigin guard integrity; on load
@@ -336,10 +344,12 @@ ${vendorCss}<style>${THEME_CSS}</style>
     </div>
   </div>
   ${SETTINGS_MODAL_HTML}
+  ${GALLERY_MODAL_HTML}
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="data" type="application/json">${data}</script>
 <script id="settings" type="application/json">${settingsJson}</script>
+<script id="themes" type="application/json">${THEMES_JSON}</script>
 ${vendor}<script>${CLIENT_JS}</script>
 </body>
 </html>`;
@@ -351,24 +361,20 @@ function escapeHtml(s: string): string {
   );
 }
 
-// Settings modal, generated from the theme registry. Each card carries dot
-// previews for BOTH modes; CSS shows only the resolved mode's set (.sw-dark /
-// .sw-light), so cards always preview what picking them would look like.
-function swatchesHtml(p: Palette, cls: string): string {
-  const dots = [p.field, p.surface, p.ember, p.ink1]
-    .map((c) => `<span class="swatch" style="background:${c}"></span>`)
-    .join("");
-  return `<span class="swatches ${cls}">${dots}</span>`;
-}
+// Theme registry slimmed for the page: id/label + the 4 swatch-dot colors per
+// mode. Cards (settings strip AND gallery) are rendered client-side from this
+// island — the starred strip changes as stars toggle, so static server markup
+// can't carry it. Static registry → build once at module load.
+const THEMES_JSON = JSON.stringify(
+  COLOR_THEMES.map((t) => ({
+    id: t.id,
+    label: t.label,
+    dark: [t.dark.field, t.dark.surface, t.dark.ember, t.dark.ink1],
+    light: [t.light.field, t.light.surface, t.light.ember, t.light.ink1],
+  })),
+).replace(/</g, "\\u003c");
 
 function settingsModalHtml(): string {
-  const cards = COLOR_THEMES.map(
-    (t) =>
-      `<button class="theme-card" data-theme-id="${escapeHtml(t.id)}">` +
-      swatchesHtml(t.dark, "sw-dark") +
-      swatchesHtml(t.light, "sw-light") +
-      `<span>${escapeHtml(t.label)}</span></button>`,
-  ).join("\n          ");
   return `<div class="modal-scrim" id="settingsModal" style="display:none">
     <div class="modal">
       <div class="modal-head"><span>Settings</span><button class="icon-btn" id="settingsClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
@@ -383,8 +389,9 @@ function settingsModalHtml(): string {
         </div>
         <div class="settings-section">
           <div class="settings-label">Theme</div>
-          <div class="theme-grid" id="themeGrid">
-          ${cards}
+          <div class="theme-grid">
+            <div class="starred-cards" id="starredGrid"></div>
+            <button class="pbtn browse-themes" id="browseThemes">Browse all themes…</button>
           </div>
         </div>
         <div class="settings-section">
@@ -418,6 +425,16 @@ function settingsModalHtml(): string {
 // Depends only on the static theme registry, so build it once at module load
 // instead of on every render.
 const SETTINGS_MODAL_HTML = settingsModalHtml();
+
+// Theme gallery: every theme, each card with a star toggle (max 3 starred —
+// those are the cards the settings panel shows). Grid filled client-side from
+// the #themes island; scrim sits above the settings scrim so settings stays open.
+const GALLERY_MODAL_HTML = `<div class="modal-scrim gallery-scrim" id="galleryModal" style="display:none">
+    <div class="modal modal-wide">
+      <div class="modal-head"><span>Themes</span><button class="icon-btn" id="galleryClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="gallery-body"><div class="theme-grid" id="galleryGrid"></div></div>
+    </div>
+  </div>`;
 
 // Client-side: tree nav, preview switching, minimal markdown renderer, raw/
 // rendered toggle, syntax highlighting (if hljs present), mermaid (if present),
@@ -844,8 +861,21 @@ window.__scratchReload = function (payload) {
 // from the user config file); changes are pushed back through whichever channel
 // exists: WebView2 postMessage → POST /settings (browser server) → localStorage
 // (the file:// export, where no host is listening).
+// Theme registry for the page (id/label + 4 swatch dots per mode) — theme cards
+// are rendered client-side because the starred strip changes as stars toggle.
+const THEMES = (function () {
+  try { return JSON.parse(document.getElementById('themes').textContent); } catch (_) { return []; }
+})();
+const THEME_IDS = THEMES.map((t) => t.id);
+// Mirror of sanitizeStarred (src/config.ts) — keep in sync: known ids, deduped, newest 3 (FIFO).
+function clampStarred(v) {
+  if (!Array.isArray(v)) return null;
+  const out = [];
+  for (const id of v) if (typeof id === 'string' && THEME_IDS.indexOf(id) >= 0 && out.indexOf(id) < 0) out.push(id);
+  return out.slice(-3);
+}
 const SETTINGS = (function () {
-  let s = { themeMode: 'system', colorTheme: 'ember', gridStyle: 'dots', wideMode: false, zoom: 1 };
+  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, zoom: 1 };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // Over file:// (export) the embedded snapshot is whatever the exporting machine
   // had saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -855,11 +885,14 @@ const SETTINGS = (function () {
     try {
       const m = localStorage.getItem('scratch.themeMode') || localStorage.getItem('scratch.theme');
       const c = localStorage.getItem('scratch.colorTheme');
+      let st = null;
+      try { st = clampStarred(JSON.parse(localStorage.getItem('scratch.starredThemes') || 'null')); } catch (_) {}
       const g = localStorage.getItem('scratch.gridStyle');
       const w = localStorage.getItem('scratch.wideMode');
       const z = parseFloat(localStorage.getItem('scratch.zoom'));
       if (m === 'dark' || m === 'light' || m === 'system') s.themeMode = m;
       if (c) s.colorTheme = c;
+      if (st) s.starredThemes = st;
       if (g === 'off' || g === 'dots' || g === 'lines') s.gridStyle = g;
       if (w === 'true' || w === 'false') s.wideMode = w === 'true';
       if (z >= 0.5 && z <= 2) s.zoom = z;
@@ -887,11 +920,12 @@ function postToHost(key, path, payload, onFail) {
   return false;
 }
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, zoom: SETTINGS.zoom };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, zoom: SETTINGS.zoom };
   if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
     localStorage.setItem('scratch.colorTheme', SETTINGS.colorTheme);
+    localStorage.setItem('scratch.starredThemes', JSON.stringify(SETTINGS.starredThemes));
     localStorage.setItem('scratch.gridStyle', SETTINGS.gridStyle);
     localStorage.setItem('scratch.wideMode', String(SETTINGS.wideMode));
     localStorage.setItem('scratch.zoom', String(SETTINGS.zoom));
@@ -912,6 +946,52 @@ function syncThemeIcon() {
   if (hd) hd.disabled = !dark;
   if (hl) hl.disabled = dark;
 }
+// Theme cards (settings strip + gallery), rendered from THEMES. Each card
+// carries dot previews for BOTH modes; CSS shows only the resolved mode's set
+// (.sw-dark / .sw-light). The star is a span (a button can't nest in the card
+// button) that toggles a favorite WITHOUT applying the theme.
+function swatchesHtml(dots, cls) {
+  return '<span class="swatches ' + cls + '">' + dots.map((c) => '<span class="swatch" style="background:' + c + '"></span>').join('') + '</span>';
+}
+function themeCardHtml(t, withStar) {
+  return '<button class="theme-card" data-theme-id="' + esc(t.id) + '">' +
+    swatchesHtml(t.dark, 'sw-dark') + swatchesHtml(t.light, 'sw-light') +
+    '<span class="fttl">' + esc(t.label) + '</span>' +
+    (withStar ? '<span class="theme-star" role="button" tabindex="0" data-star="' + esc(t.id) + '" aria-label="Star theme"></span>' : '') +
+    '</button>';
+}
+// Settings shows the starred cards (max 3) plus the active theme when it isn't
+// starred — the current choice must always be visible/clickable there.
+function renderStarredGrid() {
+  const g = document.getElementById('starredGrid');
+  if (!g) return;
+  const ids = SETTINGS.starredThemes.slice();
+  if (ids.indexOf(SETTINGS.colorTheme) < 0) ids.push(SETTINGS.colorTheme);
+  g.innerHTML = ids.map((id) => THEMES.find((t) => t.id === id)).filter(Boolean).map((t) => themeCardHtml(t, false)).join('');
+  syncThemeCards();
+}
+function renderGalleryGrid() {
+  const g = document.getElementById('galleryGrid');
+  if (!g) return;
+  g.innerHTML = THEMES.map((t) => themeCardHtml(t, true)).join('');
+  syncThemeCards();
+}
+function syncThemeCards() {
+  document.querySelectorAll('.theme-card').forEach((b) => b.classList.toggle('on', b.dataset.themeId === SETTINGS.colorTheme));
+  document.querySelectorAll('.theme-star').forEach((s) => {
+    const on = SETTINGS.starredThemes.indexOf(s.dataset.star) >= 0;
+    s.classList.toggle('on', on);
+    s.textContent = on ? '★' : '☆';
+  });
+}
+function toggleStar(id) {
+  const st = SETTINGS.starredThemes;
+  const i = st.indexOf(id);
+  if (i >= 0) st.splice(i, 1);
+  else { st.push(id); if (st.length > 3) st.shift(); } // FIFO: the oldest star drops
+  renderStarredGrid();
+  persistSettings();
+}
 function applyTheme() {
   const r = document.documentElement;
   r.dataset.theme = resolvedMode();
@@ -921,7 +1001,7 @@ function applyTheme() {
   syncThemeIcon();
   // Reflect the active choice in the settings modal.
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === SETTINGS.themeMode));
-  document.querySelectorAll('.theme-card').forEach((b) => b.classList.toggle('on', b.dataset.themeId === SETTINGS.colorTheme));
+  syncThemeCards();
   document.querySelectorAll('#gridSeg button').forEach((b) => b.classList.toggle('on', b.dataset.grid === SETTINGS.gridStyle));
   document.querySelectorAll('#widthSeg button').forEach((b) => b.classList.toggle('on', b.dataset.wide === (SETTINGS.wideMode ? 'on' : 'off')));
 }
@@ -934,6 +1014,9 @@ function setThemeMode(m) {
 }
 function setColorTheme(id) {
   SETTINGS.colorTheme = id;
+  // The active-but-unstarred card rides the starred strip — re-render it so the
+  // new choice appears there (and the old one drops out).
+  renderStarredGrid();
   applyTheme();
   persistSettings();
 }
@@ -947,6 +1030,8 @@ function setWideMode(on) {
   applyTheme();
   persistSettings();
 }
+renderGalleryGrid();
+renderStarredGrid();
 applyTheme();
 if (window.matchMedia) {
   const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -967,9 +1052,29 @@ document.getElementById('settingsBtn').addEventListener('click', () => showSetti
 document.getElementById('settingsClose').addEventListener('click', () => showSettings(false));
 settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) showSettings(false); });
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));
-document.querySelectorAll('.theme-card').forEach((b) => b.addEventListener('click', () => setColorTheme(b.dataset.themeId)));
 document.querySelectorAll('#gridSeg button').forEach((b) => b.addEventListener('click', () => setGridStyle(b.dataset.grid)));
 document.querySelectorAll('#widthSeg button').forEach((b) => b.addEventListener('click', () => setWideMode(b.dataset.wide === 'on')));
+
+// Theme grids use delegation — the starred strip re-renders its cards, so
+// per-card listeners would go stale. Star click toggles a favorite only; it
+// must not bubble into the card (which would also apply the theme).
+function bindThemeGrid(el) {
+  el.addEventListener('click', (e) => {
+    const star = e.target.closest && e.target.closest('.theme-star');
+    if (star) { e.stopPropagation(); toggleStar(star.dataset.star); return; }
+    const card = e.target.closest && e.target.closest('.theme-card');
+    if (card) setColorTheme(card.dataset.themeId);
+  });
+}
+bindThemeGrid(document.getElementById('starredGrid'));
+bindThemeGrid(document.getElementById('galleryGrid'));
+
+// Theme gallery modal: opened from settings (which stays open underneath).
+const galleryModal = document.getElementById('galleryModal');
+const showGallery = (v) => { galleryModal.style.display = v ? 'flex' : 'none'; };
+document.getElementById('browseThemes').addEventListener('click', () => showGallery(true));
+document.getElementById('galleryClose').addEventListener('click', () => showGallery(false));
+galleryModal.addEventListener('click', (e) => { if (e.target === galleryModal) showGallery(false); });
 
 // Zoom. Owned by the page (CSS zoom on the root) because neither host remembers
 // zoom across launches: glimpse never exposes WebView2's ZoomFactor, and the
@@ -1012,10 +1117,13 @@ window.__scratchSettings = function (cfg) {
   let drift = false;
   if ((cfg.themeMode === 'dark' || cfg.themeMode === 'light' || cfg.themeMode === 'system') && cfg.themeMode !== SETTINGS.themeMode) { SETTINGS.themeMode = cfg.themeMode; drift = true; }
   if (cfg.colorTheme && cfg.colorTheme !== SETTINGS.colorTheme) { SETTINGS.colorTheme = cfg.colorTheme; drift = true; }
+  const starred = clampStarred(cfg.starredThemes);
+  if (starred && JSON.stringify(starred) !== JSON.stringify(SETTINGS.starredThemes)) { SETTINGS.starredThemes = starred; drift = true; }
   if ((cfg.gridStyle === 'off' || cfg.gridStyle === 'dots' || cfg.gridStyle === 'lines') && cfg.gridStyle !== SETTINGS.gridStyle) { SETTINGS.gridStyle = cfg.gridStyle; drift = true; }
   if (typeof cfg.wideMode === 'boolean' && cfg.wideMode !== SETTINGS.wideMode) { SETTINGS.wideMode = cfg.wideMode; drift = true; }
   if (typeof cfg.zoom === 'number' && cfg.zoom >= 0.5 && cfg.zoom <= 2 && cfg.zoom !== SETTINGS.zoom) { SETTINGS.zoom = cfg.zoom; drift = true; }
   if (!drift) return;
+  renderStarredGrid();
   applyTheme();
   applyZoom();
   // A mode flip swaps the mermaid palette → re-render the open file.
@@ -1146,7 +1254,8 @@ document.addEventListener('keydown', (e) => {
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   if (e.key === 'Escape') {
-    if (settingsModal.style.display !== 'none') showSettings(false);
+    if (galleryModal.style.display !== 'none') showGallery(false);
+    else if (settingsModal.style.display !== 'none') showSettings(false);
     else if (helpModal.style.display !== 'none') showHelp(false);
     else if (closeWindow) closeWindow();
     return;
