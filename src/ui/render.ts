@@ -205,7 +205,11 @@ function needsMermaid(view: PadView[]): boolean {
 export type UiSettings = Omit<ScratchConfig["ui"], "frameless" | "zoom"> &
   Partial<Pick<ScratchConfig["ui"], "zoom">>;
 
-const DEFAULT_UI: UiSettings = { themeMode: "system", colorTheme: DEFAULT_COLOR_THEME };
+const DEFAULT_UI: UiSettings = {
+  themeMode: "system",
+  colorTheme: DEFAULT_COLOR_THEME,
+  gridStyle: "dots",
+};
 
 export async function renderHtml(
   view: PadView[],
@@ -215,16 +219,18 @@ export async function renderHtml(
   const data = payloadJson(view, rootLabel);
   const titleName = view.length === 1 ? view[0]!.name : rootLabel;
   const zoom = ui.zoom ?? 1;
+  const gridStyle = ui.gridStyle ?? "dots";
   // Persisted theme/zoom land on <html> server-side so the first paint is
   // already correct (no flash). "system" stays attribute-less until the client
   // resolves prefers-color-scheme — same dark-first default as today.
   const htmlAttrs =
     ` data-color-theme="${escapeHtml(ui.colorTheme)}"` +
+    ` data-grid="${escapeHtml(gridStyle)}"` +
     (ui.themeMode === "system" ? "" : ` data-theme="${ui.themeMode}"`) +
     (zoom === 1 ? "" : ` style="zoom: ${zoom}"`);
   // NOT part of payloadJson: __scratchReload diff-compares the data island to
   // detect "no changes", and settings must not break that.
-  const settingsJson = JSON.stringify({ ...ui, zoom }).replace(/</g, "\\u003c");
+  const settingsJson = JSON.stringify({ ...ui, gridStyle, zoom }).replace(/</g, "\\u003c");
 
   // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
   // before the client script runs. SRI + crossorigin guard integrity; on load
@@ -369,6 +375,14 @@ function settingsModalHtml(): string {
           <div class="settings-label">Theme</div>
           <div class="theme-grid" id="themeGrid">
           ${cards}
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Background</div>
+          <div class="seg" id="gridSeg">
+            <button data-grid="off">Off</button>
+            <button data-grid="dots">Dots</button>
+            <button data-grid="lines">Lines</button>
           </div>
         </div>
         <div class="settings-section">
@@ -810,7 +824,7 @@ window.__scratchReload = function (payload) {
 // exists: WebView2 postMessage → POST /settings (browser server) → localStorage
 // (the file:// export, where no host is listening).
 const SETTINGS = (function () {
-  let s = { themeMode: 'system', colorTheme: 'ember', zoom: 1 };
+  let s = { themeMode: 'system', colorTheme: 'ember', gridStyle: 'dots', zoom: 1 };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // Over file:// (export) the embedded snapshot is whatever the exporting machine
   // had saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -820,16 +834,18 @@ const SETTINGS = (function () {
     try {
       const m = localStorage.getItem('scratch.themeMode') || localStorage.getItem('scratch.theme');
       const c = localStorage.getItem('scratch.colorTheme');
+      const g = localStorage.getItem('scratch.gridStyle');
       const z = parseFloat(localStorage.getItem('scratch.zoom'));
       if (m === 'dark' || m === 'light' || m === 'system') s.themeMode = m;
       if (c) s.colorTheme = c;
+      if (g === 'off' || g === 'dots' || g === 'lines') s.gridStyle = g;
       if (z >= 0.5 && z <= 2) s.zoom = z;
     } catch (_) {}
   }
   return s;
 })();
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, zoom: SETTINGS.zoom };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, gridStyle: SETTINGS.gridStyle, zoom: SETTINGS.zoom };
   const wv = window.chrome && window.chrome.webview;
   if (wv) { try { wv.postMessage({ __scratch_settings: payload }); } catch (_) {} return; }
   if (/^https?:$/.test(location.protocol)) {
@@ -841,6 +857,7 @@ function persistSettings() {
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
     localStorage.setItem('scratch.colorTheme', SETTINGS.colorTheme);
+    localStorage.setItem('scratch.gridStyle', SETTINGS.gridStyle);
     localStorage.setItem('scratch.zoom', String(SETTINGS.zoom));
   } catch (_) {}
 }
@@ -863,10 +880,12 @@ function applyTheme() {
   const r = document.documentElement;
   r.dataset.theme = resolvedMode();
   r.dataset.colorTheme = SETTINGS.colorTheme;
+  r.dataset.grid = SETTINGS.gridStyle;
   syncThemeIcon();
   // Reflect the active choice in the settings modal.
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === SETTINGS.themeMode));
   document.querySelectorAll('.theme-card').forEach((b) => b.classList.toggle('on', b.dataset.themeId === SETTINGS.colorTheme));
+  document.querySelectorAll('#gridSeg button').forEach((b) => b.classList.toggle('on', b.dataset.grid === SETTINGS.gridStyle));
 }
 function setThemeMode(m) {
   SETTINGS.themeMode = m;
@@ -877,6 +896,11 @@ function setThemeMode(m) {
 }
 function setColorTheme(id) {
   SETTINGS.colorTheme = id;
+  applyTheme();
+  persistSettings();
+}
+function setGridStyle(g) {
+  SETTINGS.gridStyle = g;
   applyTheme();
   persistSettings();
 }
@@ -901,6 +925,7 @@ document.getElementById('settingsClose').addEventListener('click', () => showSet
 settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) showSettings(false); });
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));
 document.querySelectorAll('.theme-card').forEach((b) => b.addEventListener('click', () => setColorTheme(b.dataset.themeId)));
+document.querySelectorAll('#gridSeg button').forEach((b) => b.addEventListener('click', () => setGridStyle(b.dataset.grid)));
 
 // Zoom. Owned by the page (CSS zoom on the root) because neither host remembers
 // zoom across launches: glimpse never exposes WebView2's ZoomFactor, and the
@@ -930,6 +955,31 @@ window.addEventListener('wheel', (e) => {
   e.preventDefault();
   setZoom(SETTINGS.zoom + (e.deltaY < 0 ? 0.1 : -0.1));
 }, { passive: false });
+
+// Re-sync settings from the host after a native reload. A WebView2 reload
+// (Ctrl+R/F5) re-renders the HTML string presented at launch, so the #settings
+// island — and thus SETTINGS above — reflects config as of launch, not changes
+// saved since. We ask the host for the authoritative config (it replies via
+// __scratchSettings) and re-apply whatever drifted. No-op on first launch (island
+// already matches disk) and outside the webview (the browser re-fetches a freshly
+// rebuilt page; the file:// export has no host to ask).
+window.__scratchSettings = function (cfg) {
+  if (!cfg || typeof cfg !== 'object') return;
+  let drift = false;
+  if ((cfg.themeMode === 'dark' || cfg.themeMode === 'light' || cfg.themeMode === 'system') && cfg.themeMode !== SETTINGS.themeMode) { SETTINGS.themeMode = cfg.themeMode; drift = true; }
+  if (cfg.colorTheme && cfg.colorTheme !== SETTINGS.colorTheme) { SETTINGS.colorTheme = cfg.colorTheme; drift = true; }
+  if ((cfg.gridStyle === 'off' || cfg.gridStyle === 'dots' || cfg.gridStyle === 'lines') && cfg.gridStyle !== SETTINGS.gridStyle) { SETTINGS.gridStyle = cfg.gridStyle; drift = true; }
+  if (typeof cfg.zoom === 'number' && cfg.zoom >= 0.5 && cfg.zoom <= 2 && cfg.zoom !== SETTINGS.zoom) { SETTINGS.zoom = cfg.zoom; drift = true; }
+  if (!drift) return;
+  applyTheme();
+  applyZoom();
+  // A mode flip swaps the mermaid palette → re-render the open file.
+  if (currentRef) renderPreview(currentRef.pad, currentRef.f);
+};
+(function () {
+  const wv = window.chrome && window.chrome.webview;
+  if (wv) { try { wv.postMessage({ __scratch_get_settings: true }); } catch (_) {} }
+})();
 
 // Shortcuts help modal.
 const helpModal = document.getElementById('helpModal');

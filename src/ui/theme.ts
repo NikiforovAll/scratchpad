@@ -254,10 +254,28 @@ body {
 .resizer::after { content: ""; position: absolute; inset: 0 auto 0 50%; width: 1px;
   transform: translateX(-50%); background: var(--border); transition: background 0.15s ease; }
 .resizer:hover::after, .resizer.dragging::after { background: var(--ember); width: 2px; }
-.preview { flex: 1; min-width: 0; overflow-y: auto; padding: 24px 28px; }
-/* Single centered reading column — everything inside shares one left edge and
-   fills the column width (rendered markdown AND raw alike). */
-.pbody { max-width: 1200px; margin: 0 auto; }
+/* Recessed margin field. The optional grid (settings > background) is an
+   engineering-notebook texture drawn from the ink ramp so it tracks every color
+   theme + mode; it reads only in the margins around the raised .pbody card. The
+   pattern is attribute-driven (data-grid on <html>) — default dots, see below. */
+.preview { flex: 1; min-width: 0; overflow-y: auto; padding: 28px;
+  --grid: color-mix(in srgb, var(--ink-muted) 30%, transparent);
+  background-color: var(--field); background-size: 22px 22px; }
+/* off = no image (flat field). dots = intersections; lines = crosshatch (a touch
+   fainter since lines cover more area). */
+:root[data-grid="dots"] .preview {
+  background-image: radial-gradient(circle, var(--grid) 1px, transparent 1.5px); }
+:root[data-grid="lines"] .preview {
+  --grid: color-mix(in srgb, var(--ink-muted) 18%, transparent);
+  background-image:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px); }
+/* Single centered reading column, lifted onto a card surface one step up from
+   the margin field so it pops in both dark & light. Everything inside shares one
+   left edge and fills the column width (rendered markdown AND raw alike). */
+.pbody { max-width: 1200px; margin: 0 auto; padding: 34px 44px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.12); }
 
 /* tree */
 .label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;

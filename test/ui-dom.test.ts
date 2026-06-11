@@ -306,6 +306,37 @@ test("inside the WebView2 host, settings changes post __scratch_settings", async
   }
 });
 
+test("after a native reload, __scratchSettings re-applies config saved since launch", async () => {
+  // Page presented at launch with default settings (dark-first system + ember +
+  // dots); a WebView2 reload re-runs this same HTML, so the island is stale.
+  const html = await renderPad();
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    // On load the page asks the host for the authoritative config.
+    expect(posted.some((m) => m && m.__scratch_get_settings)).toBe(true);
+    expect(document.documentElement.dataset.colorTheme).toBe("ember");
+    expect(document.documentElement.dataset.grid).toBe("dots");
+
+    // Host replies with what's actually on disk (changed since launch).
+    (globalThis as any).__scratchSettings({
+      themeMode: "light",
+      colorTheme: "gruvbox",
+      gridStyle: "lines",
+      zoom: 1.2,
+    });
+
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.dataset.colorTheme).toBe("gruvbox");
+    expect(document.documentElement.dataset.grid).toBe("lines");
+    expect(document.documentElement.style.zoom).toBe("1.2");
+  } finally {
+    teardown();
+  }
+});
+
 test("preview header shows file dates (deduped to 'created' for untouched files)", async () => {
   const html = await renderPad();
   await boot(html);

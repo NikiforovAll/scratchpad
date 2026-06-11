@@ -128,7 +128,7 @@ describe("renderHtml", () => {
     const pad = await seedPad();
     const html = await renderHtml(await buildView([pad]), "Notes");
     // system mode = no data-theme attr (dark-first until the client resolves the OS)
-    expect(html).toContain('<html lang="en" data-color-theme="ember">');
+    expect(html).toContain('<html lang="en" data-color-theme="ember" data-grid="dots">');
     expect(html).toContain('id="settings"'); // settings island
     expect(html).toContain('"themeMode":"system"');
     expect(html).toContain('id="settingsBtn"');
@@ -142,7 +142,7 @@ describe("renderHtml", () => {
       themeMode: "light",
       colorTheme: "gruvbox",
     });
-    expect(html).toContain('<html lang="en" data-color-theme="gruvbox" data-theme="light">');
+    expect(html).toContain('<html lang="en" data-color-theme="gruvbox" data-grid="dots" data-theme="light">');
     expect(html).toContain('"themeMode":"light"');
     expect(html).toContain('"colorTheme":"gruvbox"');
     // the color theme's override CSS is present
@@ -158,10 +158,10 @@ describe("renderHtml", () => {
       colorTheme: "ember",
       zoom: 1.25,
     });
-    expect(zoomed).toContain('<html lang="en" data-color-theme="ember" style="zoom: 1.25">');
+    expect(zoomed).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" style="zoom: 1.25">');
     expect(zoomed).toContain('"zoom":1.25');
     const plain = await renderHtml(view, "Notes");
-    expect(plain).toContain('<html lang="en" data-color-theme="ember">'); // no style attr
+    expect(plain).toContain('<html lang="en" data-color-theme="ember" data-grid="dots">'); // no style attr
     expect(plain).toContain('"zoom":1');
   });
 

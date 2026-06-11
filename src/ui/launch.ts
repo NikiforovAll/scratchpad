@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import type { Pad } from "../discovery.ts";
 import type { IO } from "../commands.ts";
 import { bold, cyan, dim, note } from "../colors.ts";
-import { saveConfig } from "../config.ts";
+import { loadConfig, saveConfig } from "../config.ts";
 import { createReloader, type Reloader } from "./reload.ts";
 
 // Persist a settings payload posted by the viewer page (WebView2 postMessage or
@@ -24,10 +24,16 @@ import { createReloader, type Reloader } from "./reload.ts";
 async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
   if (!payload || typeof payload !== "object") return;
   try {
-    const p = payload as { themeMode?: unknown; colorTheme?: unknown; zoom?: unknown };
+    const p = payload as {
+      themeMode?: unknown;
+      colorTheme?: unknown;
+      gridStyle?: unknown;
+      zoom?: unknown;
+    };
     await saveConfig({
       themeMode: p.themeMode as any,
       colorTheme: p.colorTheme as any,
+      gridStyle: p.gridStyle as any,
       zoom: p.zoom as any,
     });
   } catch (e) {
@@ -263,6 +269,20 @@ async function tryGlimpse(
         await persistViewerSettings(d.__scratch_settings, io);
         return;
       }
+      // A native WebView2 reload (Ctrl+R/F5) re-renders the HTML string we
+      // presented at launch, whose embedded #settings island is frozen at
+      // launch-time config. The reloaded page asks us for the authoritative
+      // config so it can re-apply settings saved since — keeping the config file
+      // the single source of truth (no client-side shadow store).
+      if (d && d.__scratch_get_settings) {
+        try {
+          const cfg = await loadConfig();
+          win.send(`window.__scratchSettings(${JSON.stringify(cfg.ui)})`);
+        } catch (e) {
+          note(io, `settings sync failed (${(e as Error).message.split("\n")[0]}).`);
+        }
+        return;
+      }
       if (!d || !d.__scratch_reload) return;
       try {
         const s = await reloader.rebuild();
@@ -315,8 +335,14 @@ async function serveBrowser(
       } catch (e) {
         note(io, `rebuild failed (${(e as Error).message.split("\n")[0]}); serving last good page.`);
       }
+      // no-store: the server rebuilds per request (picking up settings just
+      // POSTed to /settings), but a cached document would let the browser serve
+      // the launch-time page on reload — losing those changes. Force a re-fetch.
       return new Response(body, {
-        headers: { "content-type": "text/html; charset=utf-8" },
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store, must-revalidate",
+        },
       });
     },
   });

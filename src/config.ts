@@ -4,9 +4,12 @@
 // Resolution (first hit wins):
 //   1. $SCRATCHPAD_CONFIG            — explicit file path override
 //   2. $XDG_CONFIG_HOME/scratchpad/config.json
-//   3. %APPDATA%\scratchpad\config.json    (Windows)
-//   4. ~/.config/scratchpad/config.json
-// The namespace dir is "scratchpad" to match the package/repo name.
+//   3. ~/.config/scratchpad/config.json
+// Deterministic per machine: ~/.config is the canonical home on every platform
+// (Windows included). We deliberately do NOT branch to %APPDATA% — that made the
+// path depend on which env a launch inherited (a shell with XDG_CONFIG_HOME set
+// vs. a bare Windows process), so settings saved from one launch went missing in
+// another. The namespace dir is "scratchpad" to match the package/repo name.
 
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -14,6 +17,7 @@ import { mkdir } from "node:fs/promises";
 import { COLOR_THEME_IDS, DEFAULT_COLOR_THEME } from "./ui/theme.ts";
 
 export type ThemeMode = "dark" | "light" | "system";
+export type GridStyle = "off" | "dots" | "lines";
 
 export interface ScratchConfig {
   ui: {
@@ -24,6 +28,8 @@ export interface ScratchConfig {
     themeMode: ThemeMode;
     /** Color theme id from COLOR_THEMES (settings > theme). */
     colorTheme: string;
+    /** Background grid drawn in the preview margins around the reading card. */
+    gridStyle: GridStyle;
     /** Viewer zoom factor (CSS zoom on the root), 0.5–2. Neither WebView2 nor a
      * random-port browser origin remembers zoom across launches, so we own it. */
     zoom: number;
@@ -31,7 +37,13 @@ export interface ScratchConfig {
 }
 
 const DEFAULTS: ScratchConfig = {
-  ui: { frameless: true, themeMode: "system", colorTheme: DEFAULT_COLOR_THEME, zoom: 1 },
+  ui: {
+    frameless: true,
+    themeMode: "system",
+    colorTheme: DEFAULT_COLOR_THEME,
+    gridStyle: "dots",
+    zoom: 1,
+  },
 };
 
 function validThemeMode(v: unknown): v is ThemeMode {
@@ -39,6 +51,9 @@ function validThemeMode(v: unknown): v is ThemeMode {
 }
 function validColorTheme(v: unknown): v is string {
   return typeof v === "string" && COLOR_THEME_IDS.includes(v);
+}
+function validGridStyle(v: unknown): v is GridStyle {
+  return v === "off" || v === "dots" || v === "lines";
 }
 function validZoom(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0.5 && v <= 2;
@@ -50,9 +65,6 @@ export function configPath(): string {
   if (explicit) return explicit;
   const xdg = process.env.XDG_CONFIG_HOME;
   if (xdg) return join(xdg, "scratchpad", "config.json");
-  if (process.platform === "win32" && process.env.APPDATA) {
-    return join(process.env.APPDATA, "scratchpad", "config.json");
-  }
   return join(homedir(), ".config", "scratchpad", "config.json");
 }
 
@@ -68,6 +80,9 @@ export async function loadConfig(): Promise<ScratchConfig> {
         colorTheme: validColorTheme(raw?.ui?.colorTheme)
           ? raw.ui.colorTheme
           : DEFAULTS.ui.colorTheme,
+        gridStyle: validGridStyle(raw?.ui?.gridStyle)
+          ? raw.ui.gridStyle
+          : DEFAULTS.ui.gridStyle,
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
       },
     };
@@ -96,6 +111,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (typeof patch.frameless === "boolean") ui.frameless = patch.frameless;
   if (validThemeMode(patch.themeMode)) ui.themeMode = patch.themeMode;
   if (validColorTheme(patch.colorTheme)) ui.colorTheme = patch.colorTheme;
+  if (validGridStyle(patch.gridStyle)) ui.gridStyle = patch.gridStyle;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;
   raw.ui = ui;
   await mkdir(dirname(file), { recursive: true });

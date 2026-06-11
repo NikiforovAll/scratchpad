@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { configPath, loadConfig, saveConfig } from "../src/config.ts";
 
@@ -25,6 +25,12 @@ describe("configPath", () => {
     delete process.env.SCRATCHPAD_CONFIG;
     process.env.XDG_CONFIG_HOME = dir;
     expect(configPath()).toBe(join(dir, "scratchpad", "config.json"));
+  });
+  test("with no env overrides, resolves to ~/.config (no %APPDATA% branch)", () => {
+    delete process.env.SCRATCHPAD_CONFIG;
+    delete process.env.XDG_CONFIG_HOME;
+    process.env.APPDATA = join(dir, "roaming"); // must be IGNORED for determinism
+    expect(configPath()).toBe(join(homedir(), ".config", "scratchpad", "config.json"));
   });
 });
 
@@ -71,6 +77,17 @@ describe("loadConfig", () => {
     expect(cfg.ui.colorTheme).toBe("ember");
   });
 
+  test("gridStyle: defaults to dots; reads valid value; rejects garbage", async () => {
+    process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
+    expect((await loadConfig()).ui.gridStyle).toBe("dots");
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { gridStyle: "lines" } }), "utf8");
+    expect((await loadConfig()).ui.gridStyle).toBe("lines");
+    await writeFile(f, JSON.stringify({ ui: { gridStyle: "waffle" } }), "utf8");
+    expect((await loadConfig()).ui.gridStyle).toBe("dots"); // unknown → default
+  });
+
   test("zoom: defaults to 1; reads valid value; rejects out-of-range/garbage", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     expect((await loadConfig()).ui.zoom).toBe(1);
@@ -89,10 +106,11 @@ describe("saveConfig", () => {
   test("creates dir + file and round-trips through loadConfig", async () => {
     const f = join(dir, "nested", "config.json"); // parent doesn't exist yet
     process.env.SCRATCHPAD_CONFIG = f;
-    await saveConfig({ themeMode: "dark", colorTheme: "tokyo-night" });
+    await saveConfig({ themeMode: "dark", colorTheme: "tokyo-night", gridStyle: "lines" });
     const cfg = await loadConfig();
     expect(cfg.ui.themeMode).toBe("dark");
     expect(cfg.ui.colorTheme).toBe("tokyo-night");
+    expect(cfg.ui.gridStyle).toBe("lines");
     expect(cfg.ui.frameless).toBe(true); // untouched → default
   });
 
