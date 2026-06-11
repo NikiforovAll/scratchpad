@@ -16,6 +16,7 @@ import type { Pad } from "../discovery.ts";
 import type { IO } from "../commands.ts";
 import { bold, cyan, dim, note } from "../colors.ts";
 import { loadConfig, saveConfig } from "../config.ts";
+import { readManifest, sanitizeComments, writeManifest } from "../manifest.ts";
 import { createReloader, type Reloader } from "./reload.ts";
 
 // Persist a settings payload posted by the viewer page (WebView2 postMessage or
@@ -40,6 +41,33 @@ async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
     });
   } catch (e) {
     note(io, `saving settings failed (${(e as Error).message.split("\n")[0]}).`);
+  }
+}
+
+// Persist a file's inline comments posted by the viewer page (WebView2
+// postMessage or POST /comments) — the manifest-writeback mirror of
+// persistViewerSettings. The pad is identified by its dir (a pad's identity),
+// the file by its manifest path; the comment array replaces the entry's
+// wholesale. Comments are sanitized with the same rules the parser applies, so
+// a hostile/buggy page can't write malformed entries. The manifest is re-read
+// from disk first so we never clobber metadata edited while the viewer is open
+// (last write wins only on the comments themselves).
+export async function persistFileComments(pads: Pad[], payload: unknown, io: IO): Promise<void> {
+  if (!payload || typeof payload !== "object") return;
+  const p = payload as { padDir?: unknown; filePath?: unknown; comments?: unknown };
+  if (typeof p.padDir !== "string" || typeof p.filePath !== "string") return;
+  const pad = pads.find((x) => x.dir === p.padDir);
+  if (!pad) return;
+  try {
+    const m = await readManifest(pad.dir);
+    const entry = m.files.find((f) => f.path === p.filePath);
+    if (!entry) return;
+    const comments = sanitizeComments(p.comments);
+    if (comments.length > 0) entry.comments = comments;
+    else delete entry.comments;
+    await writeManifest(pad.dir, m);
+  } catch (e) {
+    note(io, `saving comments failed (${(e as Error).message.split("\n")[0]}).`);
   }
 }
 
@@ -92,17 +120,20 @@ export async function launchViewer(
   // primed from exactly what the launched page loaded.
   const reloader = createReloader(pads, rootLabel);
   const snap = await reloader.rebuild();
+  // Comment writeback handler shared by both transports.
+  const persistComments = (payload: unknown) => persistFileComments(pads, payload, io);
 
   // Native glimpse is the default; --browser forces the browser viewer. When the
   // native host isn't built, tryGlimpse prints how to install it and we fall back.
   if (!opts.forceBrowser) {
     const ok = await tryGlimpse(
       snap.html, opts.title, io, reloader, opts.frameless !== false, !!opts.installNative,
+      persistComments,
     );
     if (ok) return 0;
     io.err("falling back to the browser viewer.");
   }
-  return serveBrowser(snap.html, opts.title, io, reloader);
+  return serveBrowser(snap.html, opts.title, io, reloader, persistComments);
 }
 
 // glimpse's WebView2 host is a compiled .NET binary. On a global `bun add -g`
@@ -162,6 +193,7 @@ async function tryGlimpse(
   reloader: Reloader,
   frameless: boolean,
   install: boolean,
+  persistComments: (payload: unknown) => Promise<void>,
 ): Promise<boolean> {
   // glimpseui resolves its native host relative to its own module file. Inside a
   // `bun build --compile` standalone that module lives in the virtual `B:\~BUN\`
@@ -271,6 +303,12 @@ async function tryGlimpse(
         await persistViewerSettings(d.__scratch_settings, io);
         return;
       }
+      // Comment mutations from the page (add/edit/delete) — write the file's
+      // comment array back into its pad manifest.
+      if (d && d.__scratch_comments) {
+        await persistComments(d.__scratch_comments);
+        return;
+      }
       // A native WebView2 reload (Ctrl+R/F5) re-renders the HTML string we
       // presented at launch, whose embedded #settings island is frozen at
       // launch-time config. The reloaded page asks us for the authoritative
@@ -320,6 +358,7 @@ async function serveBrowser(
   title: string,
   io: IO,
   reloader: Reloader,
+  persistComments: (payload: unknown) => Promise<void>,
 ): Promise<number> {
   // Reload is on-demand (the page's reload button / 'r' just does location.reload),
   // so we rebuild from disk on each page request — every load is fresh, no SSE.
@@ -329,6 +368,11 @@ async function serveBrowser(
       // Settings write-back from the page's settings panel (no webview here).
       if (req.method === "POST" && new URL(req.url).pathname === "/settings") {
         await persistViewerSettings(await req.json().catch(() => null), io);
+        return new Response(null, { status: 204 });
+      }
+      // Comment write-back — browser mirror of the WebView2 __scratch_comments path.
+      if (req.method === "POST" && new URL(req.url).pathname === "/comments") {
+        await persistComments(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
       }
       let body = html; // first paint uses the prebuilt page; reloads rebuild

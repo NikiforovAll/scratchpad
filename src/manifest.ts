@@ -17,6 +17,26 @@ export const FILE_TYPES = [
 export type FileType = (typeof FILE_TYPES)[number];
 export const DEFAULT_TYPE: FileType = "note";
 
+export interface CommentAnchor {
+  /** Exact selected text, as it appeared in the rendered preview. */
+  quote: string;
+  /** Up to ~32 chars of rendered text immediately before the quote. */
+  prefix: string;
+  /** Up to ~32 chars of rendered text immediately after the quote. */
+  suffix: string;
+}
+
+export interface Comment {
+  /** Stable id (crypto.randomUUID). */
+  id: string;
+  body: string;
+  anchor: CommentAnchor;
+  /** ISO-8601 UTC. */
+  created: string;
+  /** ISO-8601 UTC. */
+  updated: string;
+}
+
 export interface FileEntry {
   /** Path relative to the pad dir — keeps the pad portable. */
   path: string;
@@ -33,6 +53,9 @@ export interface FileEntry {
   /** Optional visual group — files sharing a group are listed together under a
    * group header in the viewer. Absent = ungrouped (listed under "FILES"). */
   group?: string;
+  /** Inline comments anchored to the file's rendered preview. "Orphaned" is
+   * computed at render time when the quote can't be re-found — never stored. */
+  comments?: Comment[];
 }
 
 export interface Manifest {
@@ -61,6 +84,35 @@ export function newManifest(name: string, id?: string): Manifest {
   return m;
 }
 
+/** Validate a raw comments value, dropping malformed entries. Shared by the
+ * manifest parser and the viewer writeback path, so both apply the same rules:
+ * id, body, and a non-empty anchor.quote are required; the rest is defaulted. */
+export function sanitizeComments(raw: unknown): Comment[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Comment[] = [];
+  for (const c of raw) {
+    if (typeof c !== "object" || c === null) continue;
+    const o = c as Record<string, unknown>;
+    const a = o.anchor as Record<string, unknown> | null | undefined;
+    if (typeof o.id !== "string" || o.id.length === 0) continue;
+    if (typeof o.body !== "string") continue;
+    if (typeof a !== "object" || a === null || typeof a.quote !== "string" || a.quote.length === 0) continue;
+    const ts = nowIso();
+    out.push({
+      id: o.id,
+      body: o.body,
+      anchor: {
+        quote: a.quote,
+        prefix: typeof a.prefix === "string" ? a.prefix : "",
+        suffix: typeof a.suffix === "string" ? a.suffix : "",
+      },
+      created: typeof o.created === "string" ? o.created : ts,
+      updated: typeof o.updated === "string" ? o.updated : ts,
+    });
+  }
+  return out;
+}
+
 /** Validate + normalize a parsed object into a Manifest. Throws on hard errors. */
 export function parseManifest(raw: unknown, source: string): Manifest {
   if (typeof raw !== "object" || raw === null) {
@@ -83,6 +135,8 @@ export function parseManifest(raw: unknown, source: string): Manifest {
     if (Array.isArray(e.tags)) entry.tags = e.tags.filter((t): t is string => typeof t === "string");
     if (isFileType(e.type)) entry.type = e.type;
     if (typeof e.group === "string" && e.group.length > 0) entry.group = e.group;
+    const comments = sanitizeComments(e.comments);
+    if (comments.length > 0) entry.comments = comments;
     return entry;
   });
   const ts = nowIso();

@@ -420,6 +420,46 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .mdsrc .hljs-emphasis { font-style: italic; color: var(--ink-1); }
 .mdsrc .hljs-strong { font-weight: 700; color: var(--ink-1); }
 
+/* inline comments — highlighted spans, popover, add affordance, orphan pill */
+.cmt-hl { background: color-mix(in srgb, var(--ember) 18%, transparent);
+  border-bottom: 1px dotted var(--ember); cursor: pointer; }
+.cmt-hl:hover { background: color-mix(in srgb, var(--ember) 32%, transparent); }
+:root[data-comments-off] .cmt-hl { background: transparent; border-bottom: 0; cursor: inherit; }
+:root[data-comments-off] .cmt-orphans { display: none; }
+/* Always-visible concise note after the highlight. Rendered from data-note via
+   ::after so the text is unselectable and invisible to quote-matching. */
+.cmt-note { cursor: pointer; }
+.cmt-note::after { content: '💬 ' attr(data-note); margin-left: 4px; padding: 1px 7px;
+  border-radius: 9px; background: color-mix(in srgb, var(--ember) 12%, transparent);
+  border: 1px solid var(--ember-dim); color: var(--ink-2);
+  font-family: var(--mono); font-size: 0.72em; font-style: normal; font-weight: 400;
+  vertical-align: baseline; white-space: nowrap; }
+.cmt-note:hover::after { color: var(--accent-text); border-color: var(--ember); }
+:root[data-comments-off] .cmt-note { display: none; }
+.cmt-add { position: fixed; z-index: 9000; background: var(--elevated); color: var(--ink-1);
+  border: 1px solid var(--ember-dim); border-radius: 5px; padding: 4px 10px;
+  font-family: var(--mono); font-size: 11px; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25); }
+.cmt-add:hover { color: var(--accent-text); border-color: var(--ember); }
+.cmt-pop { position: fixed; z-index: 9001; width: 300px; background: var(--elevated);
+  border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.3); font-size: 13px; color: var(--ink-1); }
+.cmt-pop .cmt-body { white-space: pre-wrap; word-break: break-word; }
+.cmt-pop .cmt-when { margin-top: 6px; font-family: var(--mono); font-size: 10px; color: var(--ink-muted); }
+.cmt-pop .cmt-quote { font-family: var(--mono); font-size: 11px; color: var(--ink-muted);
+  font-style: italic; margin-bottom: 4px; word-break: break-word; }
+.cmt-pop textarea { width: 100%; min-height: 64px; box-sizing: border-box; resize: vertical;
+  background: var(--field); color: var(--ink-1); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 8px; font-family: inherit; font-size: 13px; }
+.cmt-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+.cmt-orow { padding: 6px 0; }
+.cmt-orow + .cmt-orow { border-top: 1px solid var(--border); }
+.cmt-orphans { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 10px;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-muted);
+  border: 1px dashed var(--border); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+.cmt-orphans:hover { color: var(--ink-1); border-color: var(--ember-dim); }
+.icon-btn.muted { opacity: 0.45; }
+
 /* empty states */
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
   height: 100%; color: var(--ink-muted); text-align: center; gap: 8px; }

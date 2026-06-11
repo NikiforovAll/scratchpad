@@ -9,7 +9,7 @@ import { extname, isAbsolute, join, resolve } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
 import type { Pad } from "../discovery.ts";
-import { DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
+import { type Comment, DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, type Palette, THEME_CSS } from "./theme.ts";
 
 // Pinned CDN builds (version + SRI). The script-global builds (highlight.min.js /
@@ -80,6 +80,8 @@ interface FileView {
   /** ISO timestamps from the file on disk (manifest has only pad-level dates). */
   created?: string;
   updated?: string;
+  /** Inline comments from the manifest (quote-anchored; see manifest.ts). */
+  comments?: Comment[];
 }
 interface PadView {
   name: string;
@@ -156,6 +158,7 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       content,
       created,
       updated,
+      comments: meta.comments,
     };
   });
   return Promise.all(views);
@@ -282,6 +285,9 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <svg class="i-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
         <svg class="i-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       </button>
+      <button class="icon-btn" id="commentsToggle" title="Toggle comments (C)" aria-label="Toggle comments">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
       <button class="icon-btn" id="settingsBtn" title="Settings (S)" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -316,6 +322,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>g</kbd><kbd>G</kbd></dt><dd>Top / bottom</dd></div>
         <div class="sc-group">View</div>
         <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
+        <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
         <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Zoom in / out / reset</dd></div>
@@ -714,6 +721,10 @@ function renderPreview(pad, f) {
       .then(() => flash(cc, '⧉ copy', 'Content copied'))
       .catch(() => showToast('Copy failed')));
   enhance(preview);
+  // After hljs rewrote the code blocks' text nodes — comment quote-matching
+  // walks the final DOM. (Comments are a rendered-markdown concept: applyComments
+  // no-ops when there's no .md container, i.e. raw mode or non-markdown files.)
+  applyComments();
   document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
 }
 
@@ -856,16 +867,28 @@ const SETTINGS = (function () {
   }
   return s;
 })();
-function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, zoom: SETTINGS.zoom };
+// Push a payload to whichever host is listening: WebView2 postMessage (wrapped
+// under the given message key) or a POST to the browser server. Returns false
+// when neither channel exists (the file:// export) so callers can fall back.
+function postToHost(key, path, payload, onFail) {
   const wv = window.chrome && window.chrome.webview;
-  if (wv) { try { wv.postMessage({ __scratch_settings: payload }); } catch (_) {} return; }
+  if (wv) {
+    try { const m = {}; m[key] = payload; wv.postMessage(m); } catch (_) {}
+    return true;
+  }
   if (/^https?:$/.test(location.protocol)) {
     try {
-      fetch('/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
+      fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+        .then(r => { if (!r.ok && onFail) onFail(); })
+        .catch(() => { if (onFail) onFail(); });
     } catch (_) {}
-    return;
+    return true;
   }
+  return false;
+}
+function persistSettings() {
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, zoom: SETTINGS.zoom };
+  if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
     localStorage.setItem('scratch.colorTheme', SETTINGS.colorTheme);
@@ -1137,6 +1160,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
   }
+  if (e.key === 'c') { setCommentsVisible(!commentsVisible); return; }
   // vimium-style scrolling: j/k line steps, d/u half page. Instant (no smooth) —
   // smooth scrollBy queues badly under key auto-repeat. File nav stays on arrows.
   if (e.key === 'j' || e.key === 'k') {
@@ -1179,6 +1203,385 @@ previewEl.addEventListener('click', (e) => {
   const f = pad.files.find(x => x.path === target || x.path === href || x.path.endsWith('/' + target));
   if (f) { renderPreview(pad, f); }
 });
+
+// ---------------------------------------------------------------------------
+// Inline comments. Quote-anchored margin notes on the RENDERED markdown view
+// (see _plans/SPEC.md): the manifest stores {quote, prefix, suffix} and we
+// re-find the quote in the preview's text on every render. Mutations replace
+// the file's whole comments array and persist through the same channel as
+// settings (WebView2 postMessage / POST /comments); the page updates in place.
+let commentsVisible = true;
+try { commentsVisible = localStorage.getItem('scratch.comments') !== '0'; } catch (_) {}
+let ORPHANS = []; // comments whose quote wasn't found in the current render
+
+function cmtNowIso() { return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+function cmtId() {
+  if (window.crypto && window.crypto.randomUUID) { try { return window.crypto.randomUUID(); } catch (_) {} }
+  return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+// All text nodes under root, excluding SVG (mermaid output) subtrees — anchoring
+// inside a diagram is too brittle, so those comments render as orphaned instead.
+function cmtTextNodes(root) {
+  const out = [];
+  (function walk(n) {
+    if (n.nodeType === 3) { out.push(n); return; }
+    if (n.nodeType !== 1) return;
+    const tag = n.tagName ? n.tagName.toLowerCase() : '';
+    if (tag === 'svg' || (n.classList && n.classList.contains('mermaid'))) return;
+    for (let c = n.firstChild; c; c = c.nextSibling) walk(c);
+  })(root);
+  return out;
+}
+
+// Re-find a comment's quote in the container. Multiple occurrences are
+// disambiguated by how many chars of prefix/suffix match contiguously from the
+// quote's boundary outward; ties keep the first match (deterministic).
+function cmtFindAnchor(container, anchor) {
+  if (!anchor || !anchor.quote) return null;
+  const nodes = cmtTextNodes(container);
+  let text = '';
+  const starts = nodes.map(n => { const s = text.length; text += n.nodeValue; return s; });
+  const q = anchor.quote;
+  const hits = [];
+  let i = text.indexOf(q);
+  while (i !== -1) { hits.push(i); i = text.indexOf(q, i + 1); }
+  if (!hits.length) return null;
+  let best = hits[0];
+  if (hits.length > 1) {
+    const p = anchor.prefix || '', s = anchor.suffix || '';
+    let bestScore = -1;
+    hits.forEach(h => {
+      const before = text.slice(Math.max(0, h - p.length), h);
+      const after = text.slice(h + q.length, h + q.length + s.length);
+      let score = 0;
+      for (let k = 1; k <= before.length; k++) { if (p[p.length - k] === before[before.length - k]) score++; else break; }
+      for (let k = 0; k < after.length; k++) { if (s[k] === after[k]) score++; else break; }
+      if (score > bestScore) { bestScore = score; best = h; }
+    });
+  }
+  return { nodes, starts, start: best, end: best + q.length };
+}
+
+// Wrap the matched flat-text range in highlight spans. Markdown nests elements,
+// so the range may cross several text nodes — split each at the boundaries and
+// wrap the inner piece (find-and-highlight style). Returns the created spans.
+function cmtWrap(found, cid) {
+  const spans = [];
+  for (let ni = 0; ni < found.nodes.length; ni++) {
+    const node = found.nodes[ni];
+    const ns = found.starts[ni], ne = ns + node.nodeValue.length;
+    if (ne <= found.start || ns >= found.end) continue;
+    const from = Math.max(found.start, ns) - ns;
+    const to = Math.min(found.end, ne) - ns;
+    let target = node;
+    if (from > 0) target = target.splitText(from);
+    if (to - from < target.nodeValue.length) target.splitText(to - from);
+    const span = document.createElement('span');
+    span.className = 'cmt-hl';
+    span.dataset.cid = cid;
+    target.parentNode.replaceChild(span, target);
+    span.appendChild(target);
+    spans.push(span);
+  }
+  return spans;
+}
+
+// Always-visible concise note pill after the highlight. The text lives in a
+// data attribute rendered via CSS ::after, so it's not a DOM text node — it
+// can't be selected and never pollutes quote/prefix matching.
+function cmtNoteText(body) { return body.length > 48 ? body.slice(0, 48) + '…' : body; }
+function cmtAttachNote(c, lastSpan) {
+  const n = document.createElement('span');
+  n.className = 'cmt-note';
+  n.dataset.cid = c.id;
+  n.dataset.note = cmtNoteText(c.body);
+  n.title = c.body;
+  lastSpan.parentNode.insertBefore(n, lastSpan.nextSibling);
+}
+function cmtMark(found, c) {
+  const spans = cmtWrap(found, c.id);
+  if (spans.length) cmtAttachNote(c, spans[spans.length - 1]);
+}
+
+function cmtUnwrap(cid) {
+  document.querySelectorAll('.cmt-note').forEach(n => { if (n.dataset.cid === cid) n.remove(); });
+  document.querySelectorAll('.cmt-hl').forEach(sp => {
+    if (sp.dataset.cid !== cid) return;
+    const p = sp.parentNode;
+    while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
+    p.removeChild(sp);
+    if (p.normalize) p.normalize();
+  });
+}
+
+function findComment(cid) {
+  const f = currentRef && currentRef.f;
+  return f && (f.comments || []).find(c => c.id === cid);
+}
+
+// Persist the active file's full comment array (add/edit/delete all replace it
+// wholesale). Same channel fan-out as persistSettings; over file:// (export)
+// there is no host, so the mutation is view-only.
+function persistComments() {
+  if (!currentRef) return;
+  const payload = { padDir: currentRef.pad.dir, filePath: currentRef.f.path, comments: currentRef.f.comments || [] };
+  const sent = postToHost('__scratch_comments', '/comments', payload, () => showToast('Saving comment failed'));
+  if (!sent) showToast('Comments cannot be saved from an exported page', 'info');
+}
+
+// --- popover (one at a time; view / edit / new / orphan-list modes) ---
+let cmtPopEl = null;
+function closeCmtPop() { if (cmtPopEl) { cmtPopEl.remove(); cmtPopEl = null; } }
+function openCmtPop(rect, build) {
+  closeCmtPop();
+  const el = document.createElement('div');
+  el.className = 'cmt-pop';
+  build(el);
+  document.body.appendChild(el);
+  const w = el.offsetWidth || 300, h = el.offsetHeight || 120;
+  const vw = window.innerWidth || 1280, vh = window.innerHeight || 800;
+  const left = Math.min(Math.max(8, rect.left), Math.max(8, vw - w - 8));
+  let top = rect.bottom + 6;
+  if (top + h > vh - 8) top = Math.max(8, rect.top - h - 6);
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+  cmtPopEl = el;
+}
+function cmtBtn(label, onClick) {
+  const b = document.createElement('button');
+  b.className = 'pbtn';
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+function cmtViewPop(c, rect) {
+  openCmtPop(rect, (el) => {
+    const body = document.createElement('div'); body.className = 'cmt-body'; body.textContent = c.body; el.appendChild(body);
+    const when = document.createElement('div'); when.className = 'cmt-when';
+    when.textContent = 'created ' + fmtWhen(c.created) + (c.updated && c.updated !== c.created ? ' · updated ' + fmtWhen(c.updated) : '');
+    when.title = 'created ' + fmtFull(c.created) + (c.updated && c.updated !== c.created ? ' · updated ' + fmtFull(c.updated) : '');
+    el.appendChild(when);
+    const act = document.createElement('div'); act.className = 'cmt-actions';
+    act.appendChild(cmtBtn('edit', () => cmtEditPop(c, rect)));
+    act.appendChild(cmtBtn('delete', () => deleteComment(c.id)));
+    el.appendChild(act);
+  });
+}
+// Ctrl/Cmd+Enter in a comment textarea submits, like every commenting UI.
+function cmtCtrlEnter(ta, submit) {
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+  });
+}
+function cmtEditPop(c, rect) {
+  openCmtPop(rect, (el) => {
+    const ta = document.createElement('textarea'); ta.value = c.body; el.appendChild(ta);
+    const act = document.createElement('div'); act.className = 'cmt-actions';
+    act.appendChild(cmtBtn('cancel', () => cmtViewPop(c, rect)));
+    const save = () => {
+      const body = ta.value.trim();
+      if (!body) return;
+      c.body = body;
+      c.updated = cmtNowIso();
+      persistComments();
+      document.querySelectorAll('.cmt-note').forEach(n => {
+        if (n.dataset.cid === c.id) { n.dataset.note = cmtNoteText(c.body); n.title = c.body; }
+      });
+      closeCmtPop();
+      showToast('Comment saved', 'success');
+    };
+    act.appendChild(cmtBtn('save', save));
+    el.appendChild(act);
+    cmtCtrlEnter(ta, save);
+    try { ta.focus(); } catch (_) {}
+  });
+}
+function cmtNewPop(anchor, rect) {
+  openCmtPop(rect, (el) => {
+    const ta = document.createElement('textarea'); ta.setAttribute('placeholder', 'Add a comment…'); el.appendChild(ta);
+    const act = document.createElement('div'); act.className = 'cmt-actions';
+    act.appendChild(cmtBtn('cancel', () => closeCmtPop()));
+    const add = () => {
+      const body = ta.value.trim();
+      if (!body || !currentRef) return;
+      const ts = cmtNowIso();
+      const c = { id: cmtId(), body, anchor, created: ts, updated: ts };
+      const f = currentRef.f;
+      f.comments = f.comments || [];
+      f.comments.push(c);
+      persistComments();
+      // Highlight in place — re-rendering the whole preview would lose scroll.
+      const md = previewEl.querySelector('.md');
+      const found = md && cmtFindAnchor(md, anchor);
+      if (found) cmtMark(found, c);
+      else { ORPHANS.push(c); refreshOrphanPill(); }
+      closeCmtPop();
+      hideCmtAdd();
+      try { const sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (_) {}
+      showToast('Comment added', 'success');
+    };
+    act.appendChild(cmtBtn('add', add));
+    el.appendChild(act);
+    cmtCtrlEnter(ta, add);
+    try { ta.focus(); } catch (_) {}
+  });
+}
+function openOrphansPop(pill) {
+  const rect = pill.getBoundingClientRect();
+  openCmtPop(rect, (el) => {
+    ORPHANS.forEach(c => {
+      const row = document.createElement('div'); row.className = 'cmt-orow';
+      const q = document.createElement('div'); q.className = 'cmt-quote';
+      const quote = c.anchor && c.anchor.quote || '';
+      q.textContent = '“' + (quote.length > 60 ? quote.slice(0, 60) + '…' : quote) + '”';
+      const body = document.createElement('div'); body.className = 'cmt-body'; body.textContent = c.body;
+      const act = document.createElement('div'); act.className = 'cmt-actions';
+      act.appendChild(cmtBtn('edit', () => cmtEditPop(c, rect)));
+      act.appendChild(cmtBtn('delete', () => deleteComment(c.id)));
+      row.appendChild(q); row.appendChild(body); row.appendChild(act);
+      el.appendChild(row);
+    });
+  });
+}
+
+function deleteComment(cid) {
+  const f = currentRef && currentRef.f;
+  if (!f) return;
+  f.comments = (f.comments || []).filter(c => c.id !== cid);
+  ORPHANS = ORPHANS.filter(c => c.id !== cid);
+  persistComments();
+  cmtUnwrap(cid);
+  refreshOrphanPill();
+  closeCmtPop();
+  showToast('Comment deleted', 'success');
+}
+
+function refreshOrphanPill() {
+  let pill = document.getElementById('cmtOrphans');
+  if (!ORPHANS.length) { if (pill) pill.remove(); return; }
+  const label = '⚠ ' + ORPHANS.length + ' orphaned comment' + (ORPHANS.length > 1 ? 's' : '');
+  if (pill) { pill.textContent = label; return; }
+  const md = previewEl.querySelector('.md');
+  if (!md) return;
+  pill = document.createElement('div');
+  pill.id = 'cmtOrphans';
+  pill.className = 'cmt-orphans';
+  pill.title = 'Comments whose quoted text was not found in the file';
+  pill.textContent = label;
+  pill.addEventListener('click', () => { if (commentsVisible) openOrphansPop(pill); });
+  md.parentNode.insertBefore(pill, md);
+}
+
+// (Re)apply all of the current file's comments to a fresh preview render.
+// Orphans (quote not found) are kept and surfaced via the pill — never dropped.
+function applyComments() {
+  closeCmtPop();
+  hideCmtAdd();
+  ORPHANS = [];
+  const old = document.getElementById('cmtOrphans');
+  if (old) old.remove();
+  const f = currentRef && currentRef.f;
+  const md = previewEl.querySelector('.md');
+  if (!md || !f || !f.comments || !f.comments.length) return;
+  f.comments.forEach(c => {
+    const found = cmtFindAnchor(md, c.anchor);
+    if (found) cmtMark(found, c);
+    else ORPHANS.push(c);
+  });
+  refreshOrphanPill();
+}
+
+// --- add affordance: floating button near a fresh selection ---
+let cmtAddEl = null, pendingSel = null;
+function hideCmtAdd() { if (cmtAddEl) cmtAddEl.style.display = 'none'; pendingSel = null; }
+function ensureCmtAdd() {
+  if (cmtAddEl) return cmtAddEl;
+  cmtAddEl = document.createElement('button');
+  cmtAddEl.id = 'cmtAdd';
+  cmtAddEl.className = 'cmt-add';
+  cmtAddEl.textContent = '✎ comment';
+  cmtAddEl.style.display = 'none';
+  document.body.appendChild(cmtAddEl);
+  // mousedown would collapse the selection before click fires — keep it alive.
+  cmtAddEl.addEventListener('mousedown', (e) => e.preventDefault());
+  cmtAddEl.addEventListener('click', () => {
+    if (!pendingSel) return;
+    const s = pendingSel;
+    cmtAddEl.style.display = 'none';
+    cmtNewPop(s.anchor, s.rect);
+  });
+  return cmtAddEl;
+}
+document.addEventListener('mouseup', (e) => {
+  if (!commentsVisible) return;
+  if (e.target && e.target.closest && e.target.closest('.cmt-pop, .cmt-add')) return;
+  const md = previewEl.querySelector('.md');
+  if (!md || !currentRef) { hideCmtAdd(); return; }
+  let sel = null;
+  try { sel = window.getSelection(); } catch (_) {}
+  if (!sel || sel.isCollapsed || !sel.rangeCount) { hideCmtAdd(); return; }
+  const range = sel.getRangeAt(0);
+  if (!md.contains(range.commonAncestorContainer)) { hideCmtAdd(); return; }
+  const quote = range.toString();
+  if (!quote || !quote.trim()) { hideCmtAdd(); return; }
+  // prefix/suffix from ranges spanning [start of preview, selection start] and
+  // [selection end, end of preview] — same text the matcher will search.
+  let prefix = '', suffix = '';
+  try {
+    const pre = document.createRange();
+    pre.selectNodeContents(md);
+    pre.setEnd(range.startContainer, range.startOffset);
+    prefix = pre.toString().slice(-32);
+    const post = document.createRange();
+    post.selectNodeContents(md);
+    post.setStart(range.endContainer, range.endOffset);
+    suffix = post.toString().slice(0, 32);
+  } catch (_) {}
+  let rect = { left: e.clientX || 0, top: e.clientY || 0, bottom: (e.clientY || 0) };
+  try { const r = range.getBoundingClientRect(); if (r && (r.width || r.height || r.left || r.top)) rect = r; } catch (_) {}
+  pendingSel = { anchor: { quote, prefix, suffix }, rect };
+  const btn = ensureCmtAdd();
+  btn.style.left = Math.max(8, rect.left) + 'px';
+  btn.style.top = (rect.bottom + 6) + 'px';
+  btn.style.display = '';
+});
+
+// Click a highlight or its note pill → view popover.
+previewEl.addEventListener('click', (e) => {
+  if (!commentsVisible) return;
+  const hl = e.target.closest && e.target.closest('.cmt-hl, .cmt-note');
+  if (!hl) return;
+  const c = findComment(hl.dataset.cid);
+  if (c) cmtViewPop(c, hl.getBoundingClientRect());
+});
+// Click elsewhere → dismiss the popover.
+document.addEventListener('mousedown', (e) => {
+  if (!cmtPopEl) return;
+  const t = e.target;
+  if (t && t.closest && t.closest('.cmt-pop, .cmt-hl, .cmt-note, .cmt-add, .cmt-orphans')) return;
+  closeCmtPop();
+});
+// Fixed-position popovers drift when the preview scrolls under them.
+previewEl.addEventListener('scroll', () => { closeCmtPop(); hideCmtAdd(); });
+
+// Global show/hide. Highlights stay in the DOM; CSS neutralizes them (and the
+// orphan pill) when off, and the handlers above guard on commentsVisible.
+// Persisted per-session in localStorage like scratch.raw.
+function applyCommentsVisibility() {
+  document.documentElement.toggleAttribute('data-comments-off', !commentsVisible);
+  const b = document.getElementById('commentsToggle');
+  if (b) b.classList.toggle('muted', !commentsVisible);
+}
+function setCommentsVisible(v) {
+  commentsVisible = v;
+  try { localStorage.setItem('scratch.comments', v ? '1' : '0'); } catch (_) {}
+  applyCommentsVisibility();
+  if (!v) { closeCmtPop(); hideCmtAdd(); }
+  showToast(v ? 'Comments shown' : 'Comments hidden', 'info');
+}
+document.getElementById('commentsToggle').addEventListener('click', () => setCommentsVisible(!commentsVisible));
+applyCommentsVisibility();
 
 buildTree();
 `;

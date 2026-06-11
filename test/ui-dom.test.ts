@@ -10,7 +10,7 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildView, renderHtml } from "../src/ui/render.ts";
-import { newManifest, writeManifest, readManifest } from "../src/manifest.ts";
+import { type Comment, newManifest, writeManifest, readManifest } from "../src/manifest.ts";
 import type { Pad } from "../src/discovery.ts";
 
 let root: string;
@@ -464,6 +464,273 @@ test("a saved collapsed sidebar is restored at boot", async () => {
   await boot(html, { "scratch.sidebarCollapsed": "1" });
   try {
     expect(document.getElementById("sidebar")!.classList.contains("collapsed")).toBe(true);
+  } finally {
+    teardown();
+  }
+});
+
+// --- inline comments ---
+
+async function renderPadWithComments(comments: Comment[], content?: string): Promise<string> {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "doc.md"),
+    content ?? "# Heading\n\nText **bold** here.\n\nMore prose.\n",
+    "utf8",
+  );
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note", comments });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  return renderHtml(await buildView([pad]), "P");
+}
+
+function cmt(over: Partial<Comment> = {}): Comment {
+  return {
+    id: "c-1",
+    body: "my note",
+    anchor: { quote: "bold", prefix: "Text ", suffix: " here." },
+    created: "2026-06-11T10:00:00Z",
+    updated: "2026-06-11T10:00:00Z",
+    ...over,
+  };
+}
+
+test("a stored comment renders a highlight; clicking it opens the popover", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  await boot(html);
+  try {
+    const hl = document.querySelector(".cmt-hl") as any;
+    expect(hl).not.toBeNull();
+    expect(hl.textContent).toBe("bold");
+    expect(hl.dataset.cid).toBe("c-1");
+    // The quote spans a <strong> — the highlight wraps inside it, and the
+    // paragraph's visible text is unchanged.
+    expect(document.querySelector("#preview .md")!.textContent).toContain("Text bold here.");
+    // Concise always-visible note pill right after the highlight (text rendered
+    // via CSS from data-note, so it adds no selectable DOM text).
+    const pill = document.querySelector(".cmt-note") as any;
+    expect(pill).not.toBeNull();
+    expect(pill.dataset.note).toBe("my note");
+    expect(pill.title).toBe("my note");
+    hl.click();
+    const pop = document.querySelector(".cmt-pop")!;
+    expect(pop).not.toBeNull();
+    expect(pop.querySelector(".cmt-body")!.textContent).toBe("my note");
+    expect(pop.querySelector(".cmt-when")!.textContent).toContain("created");
+    // The note pill is clickable too.
+    (document.querySelector(".cmt-pop") as any).remove?.();
+    pill.click();
+    expect(document.querySelector(".cmt-pop .cmt-body")!.textContent).toBe("my note");
+  } finally {
+    teardown();
+  }
+});
+
+test("duplicate quotes disambiguate via prefix/suffix context", async () => {
+  const html = await renderPadWithComments(
+    [cmt({ anchor: { quote: "alpha", prefix: "three ", suffix: " four" } })],
+    "# H\n\none alpha two\n\nthree alpha four\n",
+  );
+  await boot(html);
+  try {
+    const hls = document.querySelectorAll(".cmt-hl");
+    expect(hls.length).toBe(1);
+    // Anchored in the second paragraph, not the first occurrence.
+    expect((hls[0] as any).parentElement.textContent).toContain("three");
+  } finally {
+    teardown();
+  }
+});
+
+test("a quote that no longer exists is surfaced as orphaned, not dropped", async () => {
+  const html = await renderPadWithComments([
+    cmt({ anchor: { quote: "vanished zebra text", prefix: "", suffix: "" } }),
+  ]);
+  await boot(html);
+  try {
+    expect(document.querySelector(".cmt-hl")).toBeNull();
+    const pill = document.getElementById("cmtOrphans") as any;
+    expect(pill).not.toBeNull();
+    expect(pill.textContent).toContain("1 orphaned comment");
+    // The orphan is still editable/deletable from its popover.
+    pill.click();
+    const pop = document.querySelector(".cmt-pop")!;
+    expect(pop.querySelector(".cmt-quote")!.textContent).toContain("vanished zebra");
+    expect(pop.querySelector(".cmt-body")!.textContent).toBe("my note");
+  } finally {
+    teardown();
+  }
+});
+
+test("delete posts the shrunken comment array and removes the highlight", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    (document.querySelector(".cmt-hl") as any).click();
+    const del = Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find(
+      (b) => b.textContent === "delete",
+    ) as any;
+    del.click();
+    const msg = posted.find((m) => m && m.__scratch_comments);
+    expect(msg).toBeDefined();
+    expect(msg.__scratch_comments.filePath).toBe("doc.md");
+    expect(msg.__scratch_comments.comments).toEqual([]);
+    expect(document.querySelector(".cmt-hl")).toBeNull();
+    expect(document.querySelector(".cmt-note")).toBeNull();
+    expect(document.querySelector(".cmt-pop")).toBeNull();
+    // Unwrapping restored the original text.
+    expect(document.querySelector("#preview .md")!.textContent).toContain("Text bold here.");
+  } finally {
+    teardown();
+  }
+});
+
+test("edit updates the body and bumps updated, persisting the full array", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    (document.querySelector(".cmt-hl") as any).click();
+    (Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find((b) => b.textContent === "edit") as any).click();
+    const ta = document.querySelector(".cmt-pop textarea") as any;
+    ta.value = "revised note";
+    (Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find((b) => b.textContent === "save") as any).click();
+    const msg = posted.find((m) => m && m.__scratch_comments);
+    expect(msg).toBeDefined();
+    const c = msg.__scratch_comments.comments[0];
+    expect(c.body).toBe("revised note");
+    expect(c.updated).not.toBe(c.created);
+    expect(document.querySelector(".cmt-pop")).toBeNull();
+    // The always-visible note pill reflects the new body.
+    expect((document.querySelector(".cmt-note") as any).dataset.note).toBe("revised note");
+  } finally {
+    teardown();
+  }
+});
+
+test("Ctrl+Enter in the comment textarea submits like the button", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    (document.querySelector(".cmt-hl") as any).click();
+    (Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find((b) => b.textContent === "edit") as any).click();
+    const ta = document.querySelector(".cmt-pop textarea") as any;
+    ta.value = "via keyboard";
+    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }));
+    const msg = posted.find((m) => m && m.__scratch_comments);
+    expect(msg).toBeDefined();
+    expect(msg.__scratch_comments.comments[0].body).toBe("via keyboard");
+    expect(document.querySelector(".cmt-pop")).toBeNull();
+    // Plain Enter must NOT submit (it's a newline in the textarea).
+    (document.querySelector(".cmt-hl") as any).click();
+    (Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find((b) => b.textContent === "edit") as any).click();
+    posted.length = 0;
+    (document.querySelector(".cmt-pop textarea") as any).dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter" }),
+    );
+    expect(posted.find((m) => m && m.__scratch_comments)).toBeUndefined();
+    expect(document.querySelector(".cmt-pop")).not.toBeNull();
+  } finally {
+    teardown();
+  }
+});
+
+test("'c' toggles comment visibility and persists to localStorage", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  await boot(html);
+  try {
+    expect(document.documentElement.hasAttribute("data-comments-off")).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }));
+    expect(document.documentElement.hasAttribute("data-comments-off")).toBe(true);
+    expect(localStorage.getItem("scratch.comments")).toBe("0");
+    // Hidden → clicking a highlight must not open a popover.
+    (document.querySelector(".cmt-hl") as any).click();
+    expect(document.querySelector(".cmt-pop")).toBeNull();
+    (document.getElementById("commentsToggle") as any).click();
+    expect(document.documentElement.hasAttribute("data-comments-off")).toBe(false);
+    expect(localStorage.getItem("scratch.comments")).toBe("1");
+  } finally {
+    teardown();
+  }
+});
+
+test("a saved hidden-comments choice is restored at boot", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  await boot(html, { "scratch.comments": "0" });
+  try {
+    expect(document.documentElement.hasAttribute("data-comments-off")).toBe(true);
+    expect((document.getElementById("commentsToggle") as any).classList.contains("muted")).toBe(true);
+  } finally {
+    teardown();
+  }
+});
+
+test("selecting text shows the add affordance; submitting persists a new comment", async () => {
+  const html = await renderPadWithComments([]);
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    // Select the word "prose" in the last paragraph programmatically.
+    const md = document.querySelector("#preview .md")!;
+    const p = Array.from(md.querySelectorAll("p")).find((x) => x.textContent!.includes("More prose"))!;
+    const textNode = p.firstChild!;
+    const range = document.createRange();
+    const idx = textNode.textContent!.indexOf("prose");
+    range.setStart(textNode, idx);
+    range.setEnd(textNode, idx + "prose".length);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+
+    const add = document.getElementById("cmtAdd") as any;
+    expect(add).not.toBeNull();
+    expect(add.style.display).not.toBe("none");
+    add.click();
+    const ta = document.querySelector(".cmt-pop textarea") as any;
+    expect(ta).not.toBeNull();
+    ta.value = "fresh thought";
+    (Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find((b) => b.textContent === "add") as any).click();
+
+    const msg = posted.find((m) => m && m.__scratch_comments);
+    expect(msg).toBeDefined();
+    const c = msg.__scratch_comments.comments[0];
+    expect(c.body).toBe("fresh thought");
+    expect(c.anchor.quote).toBe("prose");
+    expect(c.anchor.prefix).toContain("More ");
+    expect(c.id).toBeTruthy();
+    // Highlighted in place with its note pill, no re-render needed.
+    const hl = document.querySelector(".cmt-hl") as any;
+    expect(hl).not.toBeNull();
+    expect(hl.textContent).toBe("prose");
+    expect((document.querySelector(".cmt-note") as any).dataset.note).toBe("fresh thought");
+  } finally {
+    teardown();
+  }
+});
+
+test("raw mode renders no comment highlights; rendered view restores them", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  await boot(html);
+  try {
+    expect(document.querySelector(".cmt-hl")).not.toBeNull();
+    (document.getElementById("vRaw") as any).click();
+    expect(document.querySelector(".cmt-hl")).toBeNull();
+    expect(document.querySelector(".cmt-pop")).toBeNull();
+    (document.getElementById("vRendered") as any).click();
+    expect(document.querySelector(".cmt-hl")).not.toBeNull();
   } finally {
     teardown();
   }
