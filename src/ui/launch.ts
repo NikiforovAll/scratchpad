@@ -28,12 +28,14 @@ async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
       themeMode?: unknown;
       colorTheme?: unknown;
       gridStyle?: unknown;
+      wideMode?: unknown;
       zoom?: unknown;
     };
     await saveConfig({
       themeMode: p.themeMode as any,
       colorTheme: p.colorTheme as any,
       gridStyle: p.gridStyle as any,
+      wideMode: p.wideMode as any,
       zoom: p.zoom as any,
     });
   } catch (e) {

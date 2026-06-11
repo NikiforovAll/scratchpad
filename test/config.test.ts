@@ -88,6 +88,17 @@ describe("loadConfig", () => {
     expect((await loadConfig()).ui.gridStyle).toBe("dots"); // unknown → default
   });
 
+  test("wideMode: defaults to false; reads valid value; rejects garbage", async () => {
+    process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
+    expect((await loadConfig()).ui.wideMode).toBe(false);
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { wideMode: true } }), "utf8");
+    expect((await loadConfig()).ui.wideMode).toBe(true);
+    await writeFile(f, JSON.stringify({ ui: { wideMode: "yes" } }), "utf8");
+    expect((await loadConfig()).ui.wideMode).toBe(false); // non-boolean → default
+  });
+
   test("zoom: defaults to 1; reads valid value; rejects out-of-range/garbage", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     expect((await loadConfig()).ui.zoom).toBe(1);
@@ -106,11 +117,12 @@ describe("saveConfig", () => {
   test("creates dir + file and round-trips through loadConfig", async () => {
     const f = join(dir, "nested", "config.json"); // parent doesn't exist yet
     process.env.SCRATCHPAD_CONFIG = f;
-    await saveConfig({ themeMode: "dark", colorTheme: "tokyo-night", gridStyle: "lines" });
+    await saveConfig({ themeMode: "dark", colorTheme: "tokyo-night", gridStyle: "lines", wideMode: true });
     const cfg = await loadConfig();
     expect(cfg.ui.themeMode).toBe("dark");
     expect(cfg.ui.colorTheme).toBe("tokyo-night");
     expect(cfg.ui.gridStyle).toBe("lines");
+    expect(cfg.ui.wideMode).toBe(true);
     expect(cfg.ui.frameless).toBe(true); // untouched → default
   });
 

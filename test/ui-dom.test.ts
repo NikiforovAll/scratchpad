@@ -319,18 +319,21 @@ test("after a native reload, __scratchSettings re-applies config saved since lau
     expect(posted.some((m) => m && m.__scratch_get_settings)).toBe(true);
     expect(document.documentElement.dataset.colorTheme).toBe("ember");
     expect(document.documentElement.dataset.grid).toBe("dots");
+    expect(document.documentElement.hasAttribute("data-wide")).toBe(false);
 
     // Host replies with what's actually on disk (changed since launch).
     (globalThis as any).__scratchSettings({
       themeMode: "light",
       colorTheme: "gruvbox",
       gridStyle: "lines",
+      wideMode: true,
       zoom: 1.2,
     });
 
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(document.documentElement.dataset.colorTheme).toBe("gruvbox");
     expect(document.documentElement.dataset.grid).toBe("lines");
+    expect(document.documentElement.hasAttribute("data-wide")).toBe(true);
     expect(document.documentElement.style.zoom).toBe("1.2");
   } finally {
     teardown();

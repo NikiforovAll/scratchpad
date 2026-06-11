@@ -150,6 +150,21 @@ describe("renderHtml", () => {
     expect(html).toContain(':root[data-color-theme="gruvbox"][data-theme="light"]');
   });
 
+  test("wideMode bakes data-wide; default leaves <html> clean", async () => {
+    const pad = await seedPad();
+    const view = await buildView([pad]);
+    const wide = await renderHtml(view, "Notes", {
+      themeMode: "system",
+      colorTheme: "ember",
+      wideMode: true,
+    });
+    expect(wide).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-wide>');
+    expect(wide).toContain('"wideMode":true');
+    const plain = await renderHtml(view, "Notes");
+    expect(plain).toContain('<html lang="en" data-color-theme="ember" data-grid="dots">'); // no data-wide by default
+    expect(plain).toContain('"wideMode":false');
+  });
+
   test("zoom ≠ 1 is baked as an inline style; default 1 leaves <html> clean", async () => {
     const pad = await seedPad();
     const view = await buildView([pad]);

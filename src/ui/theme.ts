@@ -177,7 +177,11 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-.app { display: flex; flex-direction: column; height: 100vh; }
+/* height:100% (not 100vh): CSS zoom on :root scales 100vh ABOVE the real window
+   height, pushing the app's bottom below the viewport where body's overflow:hidden
+   clips it (the scroll container's end becomes unreachable). The 100% chain
+   (html→body→app) tracks the zoomed viewport correctly. */
+.app { display: flex; flex-direction: column; height: 100%; }
 
 /* top bar — borrowed from claude-code-hub: left brand, right icon actions */
 .topbar {
@@ -258,7 +262,10 @@ body {
    engineering-notebook texture drawn from the ink ramp so it tracks every color
    theme + mode; it reads only in the margins around the raised .pbody card. The
    pattern is attribute-driven (data-grid on <html>) — default dots, see below. */
-.preview { flex: 1; min-width: 0; overflow-y: auto; padding: 28px;
+/* padding-bottom omitted on purpose: a scroll container's bottom padding is
+   dropped from the scroll range (Chromium/WebView2), clipping the last line.
+   The bottom gap lives on .pbody's margin instead, which the scroll range keeps. */
+.preview { flex: 1; min-width: 0; overflow-y: auto; padding: 28px 28px 0;
   --grid: color-mix(in srgb, var(--ink-muted) 30%, transparent);
   background-color: var(--field); background-size: 22px 22px; }
 /* off = no image (flat field). dots = intersections; lines = crosshatch (a touch
@@ -273,9 +280,12 @@ body {
 /* Single centered reading column, lifted onto a card surface one step up from
    the margin field so it pops in both dark & light. Everything inside shares one
    left edge and fills the column width (rendered markdown AND raw alike). */
-.pbody { max-width: 1200px; margin: 0 auto; padding: 34px 44px;
+.pbody { max-width: 1200px; margin: 0 auto 28px; padding: 34px 44px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.12); }
+/* Wide mode (settings > width): a roomier column that still leaves a margin so
+   the grid reads around the card. Off by default. */
+:root[data-wide] .pbody { max-width: 95%; }
 
 /* tree */
 .label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;

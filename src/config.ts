@@ -30,6 +30,8 @@ export interface ScratchConfig {
     colorTheme: string;
     /** Background grid drawn in the preview margins around the reading card. */
     gridStyle: GridStyle;
+    /** Wide reading column: roomier card that still leaves a margin (default false). */
+    wideMode: boolean;
     /** Viewer zoom factor (CSS zoom on the root), 0.5–2. Neither WebView2 nor a
      * random-port browser origin remembers zoom across launches, so we own it. */
     zoom: number;
@@ -42,6 +44,7 @@ const DEFAULTS: ScratchConfig = {
     themeMode: "system",
     colorTheme: DEFAULT_COLOR_THEME,
     gridStyle: "dots",
+    wideMode: false,
     zoom: 1,
   },
 };
@@ -83,6 +86,8 @@ export async function loadConfig(): Promise<ScratchConfig> {
         gridStyle: validGridStyle(raw?.ui?.gridStyle)
           ? raw.ui.gridStyle
           : DEFAULTS.ui.gridStyle,
+        wideMode:
+          typeof raw?.ui?.wideMode === "boolean" ? raw.ui.wideMode : DEFAULTS.ui.wideMode,
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
       },
     };
@@ -112,6 +117,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (validThemeMode(patch.themeMode)) ui.themeMode = patch.themeMode;
   if (validColorTheme(patch.colorTheme)) ui.colorTheme = patch.colorTheme;
   if (validGridStyle(patch.gridStyle)) ui.gridStyle = patch.gridStyle;
+  if (typeof patch.wideMode === "boolean") ui.wideMode = patch.wideMode;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;
   raw.ui = ui;
   await mkdir(dirname(file), { recursive: true });
