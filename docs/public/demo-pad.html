@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-color-theme="nord" data-grid="dots" data-theme="light" data-wide style="zoom: 1.2">
+<html lang="en" data-color-theme="nord" data-grid="dots" data-theme="light" data-wide data-export style="zoom: 1.1">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -82,6 +82,23 @@ body {
 }
 .icon-btn:hover { background: var(--hover); color: var(--ink-1); border-color: var(--ink-muted); }
 .icon-btn svg { width: 16px; height: 16px; }
+#commentsToggle { position: relative; }
+.cmt-count {
+  position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+  font-size: 10px; font-weight: 600; line-height: 1; border-radius: 8px;
+  background: var(--ember); color: #fff; pointer-events: none;
+}
+.cmt-count[hidden] { display: none; }
+#saveCopy { position: relative; }
+.save-dot {
+  position: absolute; top: -4px; right: -4px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--ember); pointer-events: none;
+}
+.save-dot[hidden] { display: none; }
+/* Exports have no host: hide the reload button and the help rows for
+   shortcuts that are dead there (.sc-live = live-viewer-only). */
+html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 #closeBtn:hover { background: var(--ember); color: #fff; border-color: var(--ember); }
 
 /* shortcuts modal */
@@ -107,14 +124,26 @@ body {
 .shortcuts .sc-plus { color: var(--ink-muted); font-size: 11px; }
 
 /* layout */
-.body { display: flex; flex: 1; min-height: 0; }
+.body { display: flex; flex: 1; min-height: 0; position: relative; }
 .sidebar {
   width: var(--tree-w, 340px); flex: 0 0 auto; min-height: 0;
   display: flex; flex-direction: column;
   background: var(--surface); border-right: 1px solid var(--border);
-  overflow: hidden;
+  overflow: hidden; position: relative;
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* Collapse control rides the pane's top-right corner, next to what it collapses.
+   It overlays the tree's first line — a short small-caps group header — so a
+   compact button with the pane's own background never collides with text. */
+#sidebarToggle { position: absolute; top: 8px; right: 8px; z-index: 2;
+  width: 28px; height: 28px; background: var(--surface); }
+#sidebarToggle svg { width: 14px; height: 14px; }
+/* The in-pane toggle disappears with the pane; this floater (hidden unless
+   collapsed) is the way back. */
+#sidebarOpen { display: none; position: absolute; top: 8px; left: 8px; z-index: 6;
+  width: 28px; height: 28px; background: var(--surface); }
+#sidebarOpen svg { width: 14px; height: 14px; }
+.sidebar.collapsed ~ #sidebarOpen { display: flex; }
 /* Collapse slides the pane shut instead of popping it away. Rows are
    nowrap+ellipsis, so the shrinking width clips cleanly. */
 .sidebar.collapsed { width: 0; border-right: none; }
@@ -142,6 +171,9 @@ body {
 .preview { flex: 1; min-width: 0; overflow-y: auto; padding: 28px 28px 0;
   --grid: color-mix(in srgb, var(--ink-muted) 30%, transparent);
   background-color: var(--field); background-size: 22px 22px; }
+/* Focusable so keyboard / Vimium scrolling targets it (the only scroll container);
+   the pane itself shouldn't show a focus ring. */
+.preview:focus, .preview:focus-visible { outline: none; }
 /* off = no image (flat field). dots = intersections; lines = crosshatch (a touch
    fainter since lines cover more area). */
 :root[data-grid="dots"] .preview {
@@ -331,6 +363,21 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .cmt-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
 .cmt-orow { padding: 6px 0; }
 .cmt-orow + .cmt-orow { border-top: 1px solid var(--border); }
+.cmt-pop.cmt-summary { width: 340px; max-height: 60vh; overflow-y: auto; padding: 12px; }
+.cmt-shead { font-family: var(--mono); font-size: 10px; color: var(--ink-muted);
+  text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.cmt-sfile { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+  color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.04em;
+  margin: 12px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmt-sfile::before { content: '📄'; font-size: 11px; filter: grayscale(0.3); }
+.cmt-srow { cursor: pointer; border-radius: 6px; padding: 8px; margin: 0 -4px;
+  transition: background 0.12s ease; }
+.cmt-srow:hover { background: var(--hover); }
+.cmt-srow .cmt-body { font-size: 13px; color: var(--ink-1); line-height: 1.4; }
+.cmt-srow .cmt-quote { margin: 5px 0 0; padding: 1px 0 1px 8px; border-left: 2px solid var(--ember-dim);
+  font-style: normal; color: var(--ink-muted); }
+.cmt-srow .cmt-when { margin-top: 5px; }
 .cmt-orphans { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 10px;
   font-family: var(--mono); font-size: 11px; color: var(--ink-muted);
   border: 1px dashed var(--border); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
@@ -449,8 +496,13 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
       <span class="padname" id="padname"></span>
     </div>
     <div class="view-actions">
-      <button class="icon-btn" id="sidebarToggle" title="Toggle sidebar ([)" aria-label="Toggle sidebar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+      <button class="icon-btn" id="saveCopy" title="Save a copy of this page — comments live in the saved file" aria-label="Save a copy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        <span class="save-dot" id="saveDot" hidden></span>
+      </button>
+      <button class="icon-btn" id="commentsToggle" title="Comments summary (toggle visibility with C)" aria-label="Comments summary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="cmt-count" id="cmtCount" aria-label="Comment count" hidden></span>
       </button>
       <button class="icon-btn" id="reloadBtn" title="Reload from disk (R)" aria-label="Reload">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -458,9 +510,6 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
       <button class="icon-btn" id="themeToggle" title="Toggle theme (T)" aria-label="Toggle theme">
         <svg class="i-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
         <svg class="i-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-      </button>
-      <button class="icon-btn" id="commentsToggle" title="Toggle comments (C)" aria-label="Toggle comments">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </button>
       <button class="icon-btn" id="settingsBtn" title="Settings (S)" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -478,11 +527,17 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
   </header>
   <div class="body">
     <div class="sidebar" id="sidebar">
+      <button class="icon-btn" id="sidebarToggle" title="Collapse sidebar ([)" aria-label="Collapse sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+      </button>
       <nav class="tree" id="tree"></nav>
-      <div class="appver" title="scratch version">v0.7.0</div>
+      <div class="appver" title="scratch version">v0.8.0</div>
     </div>
     <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
-    <main class="preview" id="preview"></main>
+    <main class="preview" id="preview" tabindex="0"></main>
+    <button class="icon-btn" id="sidebarOpen" title="Show sidebar ([)" aria-label="Show sidebar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+    </button>
   </div>
   <div class="modal-scrim" id="helpModal" style="display:none">
     <div class="modal">
@@ -497,14 +552,15 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
         <div class="sc-group">View</div>
         <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
         <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
+        <div class="sc-live"><dt><kbd>Shift</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy active file path</dd></div>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
         <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Zoom in / out / reset</dd></div>
         <div class="sc-group">General</div>
-        <div><dt><kbd>r</kbd></dt><dd>Reload from disk</dd></div>
+        <div class="sc-live"><dt><kbd>r</kbd></dt><dd>Reload from disk</dd></div>
         <div><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
         <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
-        <div><dt><kbd>q</kbd></dt><dd>Quit (close window)</dd></div>
+        <div class="sc-live"><dt><kbd>q</kbd></dt><dd>Quit (close window)</dd></div>
         <div><dt><kbd>Esc</kbd></dt><dd>Close dialogs / window</dd></div>
       </dl>
     </div>
@@ -562,13 +618,19 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script id="data" type="application/json">{"pads":[{"name":"2026-06-07-scratchpad-app","id":"scratchpad-app","dir":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app","files":[{"path":"plan.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\plan.md","registered":true,"external":false,"title":"Plan & status","description":"Goal, phases, status, v1 criteria evidence, code map","tags":["plan","index"],"type":"note","group":"Overview","kind":"markdown","content":"# Plan: Scratchpad App (`scratch`)\n\n## Goal\nShip a CLI-first tool `scratch` that lets agents initialize per-project scratchpads\n(folder + manifest), register files into them, and browse them in a native-window viewer —\nv1 = full CLI loop + a read-only UI rendering a pad + an agent skill + an installable binary.\n\n## Companion docs\n- [spec.md](spec.md) — full functional spec (concept, CLI surface, manifest, slug rules, v1 criteria)\n- [spec-visuals.md](spec-visuals.md) — UI/visual spec (transport, layout, styling)\n- [decisions.md](decisions.md) — key decisions + rationale\n- [references.md](references.md) — glimpse / plannotator / claude-code-hub\n\n## Phases\n- [x] **Phase 1 — Scaffold**: Bun/Node TS project, `scratch` bin entry, arg parser, manifest module.\n- [x] **Phase 2 — CLI core**: `new / add / ls / show / rm`, slug+collision rules, manifest I/O, tests.\n- [x] **Phase 3 — UI viewer**: glimpse transport + browser fallback, 2-pane tree+preview, type-aware\n  rendering, Lab-Notebook theme (dark+light, **auto-detected**), **syntax highlight + markdown\n  raw/rendered toggle + mermaid** (vendored offline, inlined on demand).\n- [x] **Phase 4 — Agent skill**: `skills/scratch/SKILL.md`; `new` onboarding prompt aligned to it.\n- [x] **Phase 5 — Distribution & verify**: `bun link` global + `bun run build` compiled `dist/scratch.exe`\n  (vendor bundles embedded); all four v1 criteria verified.\n\n## Status\n**Current:** v1 shipped 2026-06-07 (all four success criteria verified); actively evolving since\n— see [whats-new.md](whats-new.md) for post-v1 features. 121 tests pass (`bun test`): CLI loop,\nUI render, headless-DOM behavior, checkbox + comment writeback. Now split across two npm packages\n(CLI + pi-scratchpad) plus a Claude Code plugin.\n\n**v1 criteria evidence:**\n1. CLI loop tested — 26 pass + real-FS smoke + global-`scratch` clean loop.\n2. UI renders a pad — glimpse native window with browser fallback; served HTML verified\n   (md render, code highlight, mermaid, raw/rendered toggle, auto-detected theme) incl. from\n   the compiled binary. **Visually verified in a real browser via playwright**: 0 console\n   errors, mermaid → real SVG, code → `.hljs`, theme auto-detected light (#e8e6e3) + manual\n   toggle to dark (#101114), raw toggle shows source. Both themes screenshotted.\n3. Agent skill — `skills/scratch/SKILL.md`; `new` onboarding prompt aligned.\n4. Installable — `bun link` (global, ran from /tmp) + `dist/scratch.exe` (self-contained).\n\n**Code map:** `src/cli.ts` (entry + arg parse), `src/commands.ts`, `src/comments.ts`,\n`src/manifest.ts`, `src/discovery.ts`, `src/config.ts`; viewer `src/ui/{render,theme,launch,reload}.ts`.\nhljs/mermaid now load from a **pinned CDN** (URL + SRI), added conditionally — replaced the\ninlined offline bundles that caused a Windows WebView2 blink. Tests:\n`test/{cli,ui,ui-dom,checkbox,comment-section,…}.test.ts`. `README.md` documents install/usage.\n`ls` scans recursively (maxDepth 6), skips ignore-dirs + dotdirs, does not descend into a\nfound pad — resolves spec §9 `[?]`.\n\n## Build-time decisions (Phase 3–5)\n- **Self-contained HTML**: CLI does all file I/O and embeds pad data + file contents (text\n  inline, images as data URIs) into one HTML string — glimpse and browser render identically,\n  no bidirectional protocol needed.\n- **CDN-vendored libs** (revised post-v1): highlight.js + mermaid load from a pinned CDN\n  (URL + SRI), added conditionally (hljs only if code present, mermaid only if a `mermaid`\n  block exists). Replaced the originally-inlined offline bundles — inlining caused a Windows\n  WebView2 blink; vendoring (not inlining) fixed it.\n- **Theme auto-detect** via `prefers-color-scheme` (works in WebView + browser); manual toggle\n  overrides and stops following the OS.\n- **`rm \u003cpad>`** guarded behind `--force` (deletes dir); **`rm \u003cpad> \u003cfile>`** only unregisters.\n\n## Task outline (delivered)\n\n### Phase 1 — Scaffold\n- 1.1 Init Bun/Node TS project (`package.json`, `tsconfig`, `bin: scratch`, biome/lint).\n- 1.2 Manifest module: `scratchpad.json` types + read/write/validate (version 1 schema).\n- 1.3 Discovery/slug util: slugify; pad = dir w/ `scratchpad.json` (path = identity); scan a\n  root (default cwd, override `--dir`/`SCRATCH_DIR`); same-parent collision → refuse/`--force`.\n\n### Phase 2 — CLI core\n- 2.1 `scratch new \u003cname> --dir \u003cparent> [--id]` → create dir+manifest (--dir required), print onboarding prompt.\n- 2.2 `scratch add \u003cpad> \u003cfile> [--title --desc --tag --type]` → register existing file.\n- 2.3 `scratch ls [\u003cpad>]` → list pads / files.\n- 2.4 `scratch show \u003cpad> [\u003cfile>]` → print metadata / file content.\n- 2.5 `scratch rm \u003cpad> [\u003cfile>]` → manual cleanup (with confirm/guard).\n- 2.6 Tests covering the full CLI loop (v1 criterion #1).\n\n### Phase 3 — UI viewer\n- 3.1 `scratch ui [\u003cpad>]` wiring + glimpse (`glimpseui`) window open; JSON-lines file-fetch protocol.\n- 3.2 2-pane HTML/CSS shell: pad/file tree (left) + preview (right) + metadata strip.\n- 3.3 Type-aware preview: markdown render, code highlight, image, raw/binary fallback.\n- 3.4 Lab-Notebook theme tokens (dark + light toggle).\n- 3.5 Browser+local-server fallback when native toolchain missing (or document-only — see [?]).\n\n### Phase 4 — Agent skill\n- 4.1 Author skill: when/how to make a pad, naming, when to register files via `scratch add`.\n- 4.2 Wire `new` onboarding prompt output to align with skill instructions.\n\n### Phase 5 — Distribution & verify\n- 5.1 Installable binary (bun/npm bin or compiled standalone).\n- 5.2 End-to-end verify against all four v1 success criteria; record evidence.\n\n## Decisions\nSee [decisions.md](decisions.md). Headlines: CLI-first thin layer over FS · **pad = folder+\nmanifest, no central store, path-identity, `new` requires `--dir`** · flat stateless verbs ·\nglimpse transport + browser fallback (v1) · 2-pane, show-all-files, neutral chips, framed\nwindow · dark+light · pure viewer. All prior `[?]` open questions resolved 2026-06-07.\n\n## Errors Encountered\n- None — all phases landed without rework.\n\n","created":"2026-06-12T07:50:08.059Z","updated":"2026-06-12T07:50:08.059Z"},{"path":"whats-new.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\whats-new.md","registered":true,"external":false,"title":"What's new","description":"Post-v1 features (clickable checkboxes, comments, themes, CLI) as a live checklist","tags":["changelog","features"],"type":"note","group":"Overview","kind":"markdown","content":"# What's new\n\nPost-v1 evolution of `scratch`. The checkboxes below are **live** — click one in the\nviewer and it toggles (and, in the real native window, writes straight back to this file).\n\n## Viewer\n\n- [x] **Clickable task checkboxes** — toggle a rendered GFM `[ ]`/`[x]` and it persists to the source file (line-addressed, re-validated before write).\n- [x] **Inline comments** — leave a comment anchored to rendered text; read it back from the CLI with `scratch comments`.\n- [x] **Theme gallery** — 12 ported color themes with starred favorites, dark + light, auto-detected.\n- [x] **Wide reading-column mode** + zoom/scroll fixes.\n- [x] **Configurable background grid** (dots / lines / none), persisted across launches.\n- [x] **Settings panel** — every UI preference round-trips through `config.json`.\n- [x] **Vimium-style scrolling** + keycap-styled shortcuts help.\n- [x] **CDN-vendored libs** (hljs / mermaid) — replaced the inlined offline bundles that caused a Windows WebView2 blink.\n\n## CLI\n\n- [x] **`scratch comments \u003cpad>`** — read viewer feedback from the terminal, with the markdown block each comment anchors to.\n- [x] **`--json` output** across commands + file timestamps.\n- [x] **Colored terminal output.**\n- [x] **Quit the viewer with `q`** from the terminal (and quieter Chromium teardown).\n\n## Exploring\n\n- [ ] Per-pad export themes baked into the static HTML.\n- [ ] Comment replies / resolve state.\n- [ ] Full-text search across a pad in the viewer.\n","created":"2026-06-12T07:49:34.246Z","updated":"2026-06-12T07:49:34.246Z"},{"path":"spec.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\spec.md","registered":true,"external":false,"title":"Functional spec","description":"Concept, CLI surface, manifest schema, slug rules, v1 criteria","tags":["spec"],"type":"reference","group":"Specs","kind":"markdown","content":"# Scratchpad App — Specification\n\n> Status: v1 scope settled; UI/visual spec done (`spec-visuals.md`); open questions resolved.\n\n## 0. Guiding principle — thin layer over the filesystem\n\n**For the agent, a scratchpad is just a folder of files with a thin metadata layer on top.**\nThe CLI does NOT mediate file content. Its job:\n1. **Initialize** a scratchpad (create the folder + manifest at the right location).\n2. **Emit a prompt** telling the agent how to work with the pad (where it is, conventions).\n3. **Register** files the agent created into the manifest (with metadata).\n\nThe agent then works *directly* on the filesystem — creates/edits files with its normal\ntools inside the pad dir — and uses the CLI only to init and to register/annotate files.\nBinary name: **`scratch`**.\n\n## 1. Concept\n\nA **scratchpad** is a collection of files capturing *temporary knowledge* tied to an agent\nsession or activity. The app lets you create scratchpads (named, or keyed by session id) and\nbrowse/preview them visually. Goal: organize ephemeral agent-generated knowledge, and\n(eventually) integrate it with other systems.\n\nInspiration:\n- **glimpse** (hazat) — quick file preview feel.\n- **plannotator** (backnotprop) — borrow *layout*.\n- **~/dev/claude-code-hub** design system — borrow *styles* (DEFERRED until later).\n\n## 2. Core mental model (decided)\n\n- **Storage = directory + manifest.** Each scratchpad is a folder (named by session id or a\n  human label) containing arbitrary files (.md, code snippets, images, JSON dumps) **plus a\n  manifest** (e.g. `scratchpad.json`) holding metadata: title, session id, tags,\n  created/updated timestamps, file list.\n- **Producer = agents primarily.** Claude Code / agent sessions write scratchpad files\n  automatically (via hooks/tools). Humans mostly view; light curation later.\n- **Viewer = browse + preview.** List scratchpads → click one → preview its files: markdown\n  rendered, code highlighted, images shown. glimpse-style quick look. Annotation is NOT a\n  v1 requirement.\n\n## 3. Interface = CLI-first, optional UI (decided)\n\nThe primary interface is a **CLI**. It is the single surface both humans and agents use.\nA **skill** will later wrap the CLI so agents invoke it naturally during sessions.\n\nThe CLI launches an **optional web UI** (browse + preview) on demand.\n\n### CLI capabilities (initial)\n- Create a scratchpad.\n- Add a file to a scratchpad.\n- List what's in a scratchpad (and list scratchpads).\n- Attach optional **meta info** about a scratchpad file.\n- Open the UI.\n- `[?]` **Query** a scratchpad — flagged as a \"dig deeper\" idea (search/grep across files?\n  semantic query? filter by metadata?). Usefulness TBD.\n\n### Location & addressing (decided — no central store)\n\n**A scratchpad is just a folder containing `scratchpad.json`. The folder path is its\nidentity. The tool assumes NO central store** (`./_scratchpads` is not baked in).\n\n- **Creation requires an explicit location.** `scratch new \u003cname> --dir \u003cparent>` creates\n  `\u003cparent>/\u003cslug>/`. With no `--dir`, the command errors — placement is always deliberate.\n  The agent/skill *suggests* a location (e.g. `_plans/` or `_scratchpads/`) but the tool\n  never assumes one.\n- **Discovery = scan a root.** `ls` / `add` / `show` / `ui` operate on a **root dir**\n  (default = cwd; override with `--dir` or `SCRATCH_DIR`) and find pads by scanning for\n  `scratchpad.json`. A pad is referenced by name (resolved within the scanned root) or by path.\n- **Name collisions are fine across different dirs** — identity is the path, so two pads may\n  share a name in different locations. Within the *same* parent dir, an existing slug = an\n  existing pad → `new` refuses (use `--force` to adopt/overwrite-manifest).\n- Co-locating pads under `_plans/` is a first-class use (a scratchpad and a planning task\n  folder are the same kind of artifact).\n\n## 4. Tech & decisions (decided)\n\n- **Stack: Bun/Node + web UI.** Single TS codebase. CLI in Bun/Node; `scratch ui` renders an\n  HTML UI for browse+preview. **Transport = glimpse native WebView** (`glimpseui`), not a\n  browser tab (see spec-visuals §2; browser+local-server kept as a fallback). Web design refs\n  (glimpse/plannotator/claude-code-hub) drop straight in.\n- **Identity: the folder path.** Addressed by path, or by name resolved within a scanned\n  root (see §3). An optional `id` (e.g. session id) is stored in the manifest only.\n- **Query: deferred to v2.** v1 = create / add / list / open. Design query once real\n  scratchpads exist.\n- **Lifecycle: kept, manual cleanup.** Never auto-delete. Provide `rm`/`prune` commands.\n\n## 5. CLI command surface (decided)\n\n**Style: noun-less flat verbs. Stateless — pad always named explicitly (no \"active\" pad).**\n\n**Pad referenced by name (resolved within the root) or by path. Root = cwd, or `--dir` /\n`SCRATCH_DIR`.**\n\n```\nscratch new \u003cname> --dir \u003cparent> [--id \u003cid>]   # create \u003cparent>/\u003cslug>/ + manifest,\n                                     #   then PRINT a prompt: where the pad is + how to use it\n                                     #   (--dir REQUIRED — no assumed location)\nscratch add \u003cpad> \u003cfile> [--title .. --desc .. --tag t1,t2 --type note]\n                                     # register an ALREADY-PRESENT file into the manifest\nscratch ls [--dir \u003croot>]            # list pads found under root (scan for scratchpad.json)\nscratch ls \u003cpad>                     # list files in a pad\nscratch show \u003cpad> [\u003cfile>]          # print metadata / file content\nscratch rm \u003cpad> [\u003cfile>]            # manual cleanup\nscratch ui [\u003cpad>] [--dir \u003croot>]    # UI (glimpse window; browser fallback) over root/pad\n```\n\n**`add` = create-in-place + register.** The agent writes the file into the pad dir using its\nown tools, then calls `add` to record it in the manifest with metadata. The CLI does not copy,\nmove, or author content — it only registers and annotates. (Reasonable to also let `add` warn\nif the file isn't under the pad dir.)\n\n**`new` output is a prompt, not just a confirmation** — it tells the agent the absolute pad\npath, the manifest location, and the recommended workflow (write files here, then\n`scratch add` to register). This is the agent's onboarding into the pad.\n\n## 6. Manifest schema (decided fields)\n\nPer scratchpad (`\u003cparent>/\u003cslug>/scratchpad.json`):\n- `name`, `id` (optional), `created`, `updated`, `files[]`.\n\nPer file entry:\n- `path`, **`title`**, **`description`** (why it exists), **`tags[]`**, **`type/role`**\n  (note / snippet / output / artifact / reference).\n- Provenance (source tool/command/url) — **excluded from v1**, candidate for later.\n\n### Concrete `scratchpad.json` shape (decided)\n\n```json\n{\n  \"version\": 1,\n  \"name\": \"auth refactor\",\n  \"id\": \"abc123session\",\n  \"created\": \"2026-06-07T10:00:00Z\",\n  \"updated\": \"2026-06-07T11:30:00Z\",\n  \"files\": [\n    {\n      \"path\": \"notes.md\",\n      \"title\": \"Auth flow notes\",\n      \"description\": \"Why the token refresh races\",\n      \"tags\": [\"bug\", \"auth\"],\n      \"type\": \"note\"\n    }\n  ]\n}\n```\n- `version` — schema version, lets the format evolve.\n- `path` — **relative to the pad dir** (pad stays portable).\n- Timestamps — ISO-8601 UTC.\n- `type` — enum: `note | snippet | output | artifact | reference` (default `note`).\n- Unknown/extra keys tolerated on read (forward-compatible).\n\n### Slug & collision rules (decided)\n\n- Folder name = **slug of `name`** (lowercase, spaces/punct → `-`, trim repeats).\n  `\"Auth Refactor!\"` → `auth-refactor`.\n- `--id` is stored in the manifest only; it does **not** change the folder name.\n- **Collision is scoped to one parent dir.** Two pads may share a name in *different*\n  `--dir` parents (path = identity). Within the *same* parent: if `\u003cparent>/\u003cslug>` already\n  exists, `new` **refuses** with a clear error; `--force` adopts/overwrites the manifest.\n  No silent suffixing — predictable folder names.\n\n## 7. UI\n\nBrowse + preview. **Full visual spec → `spec-visuals.md`.** Summary:\n- Transport: **glimpse native WebView** (browser+server fallback).\n- Layout: **2-pane** — collapsible pad/file tree (left) + preview (right).\n- Style: **claude-code-hub \"Lab Notebook\"** tokens; **dark + light toggle** in v1.\n- **Pure viewer** — plannotator's annotation / Ask-AI / feedback model deliberately dropped.\nNot a v1 blocker for the CLI, but in scope for v1 success criterion #2.\n\n## 8. v1 success criteria (decided — all required)\n\n1. **Full CLI loop works** — `new --dir / add / ls / show / rm` operate over a folder+manifest\n   under an explicit/scanned root, with a valid manifest. Verified by tests.\n2. **UI renders a pad** — `scratch ui` opens (glimpse window or browser fallback), lists pads,\n   previews a pad's markdown / code / images.\n3. **Agent skill wired** — a skill lets Claude Code agents init + populate scratchpads via\n   the `scratch` CLI in a real session.\n4. **Installable binary** — `scratch` runs globally on the machine (bun/npm bin or compiled).\n\n## 9. Remaining design work (post-spec)\n\n- `query` command — v2 (search across files + metadata).\n- Provenance metadata — later.\n- `[?]` Whether `scratch ls` scans the root recursively or one level deep (lean: recursive,\n  but skip nested pads inside a pad). Decide in build.\n","created":"2026-06-07T14:59:39.742Z","updated":"2026-06-07T14:59:39.743Z"},{"path":"spec-visuals.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\spec-visuals.md","registered":true,"external":false,"title":"UI / visual spec","description":"Viewer transport, 2-pane layout, Lab-Notebook styling","tags":["spec","ui"],"type":"reference","group":"Specs","kind":"markdown","content":"# Scratchpad App — Visual / UI Specification\n\n> Companion to `spec.md`. Covers the `scratch ui` viewer only. v1 = **read-only browse + preview**.\n\n## 1. Reference synthesis\n\nThe three references play distinct, non-overlapping roles:\n\n| Reference | Role here | What we take |\n|-----------|-----------|--------------|\n| **glimpse** (HazAT) | **Transport** | Native WebView window driven from Node over JSON-lines stdin/stdout (`npm i glimpseui`, `open(html, opts)`). No Electron, no browser tab. |\n| **plannotator** (backnotprop) | **Layout feel** | Document-centric review surface: a rendered doc in a roomy main pane, lightweight nav. We take the *layout*, NOT the annotation / Ask-AI / send-to-agent model. |\n| **claude-code-hub** | **Styling** | \"Lab Notebook\" design system — full token set (colors, type, spacing, elevation, components). Dark-first + warm-paper light sibling. |\n\n## 2. Transport — glimpse native webview (decided)\n\n`scratch ui [\u003cpad>]` opens a **native WebView window** via `glimpseui`, not a browser tab.\n\n- Node/Bun CLI builds the HTML (UI + embedded pad data) and calls `open(html, opts)`.\n- Window ↔ CLI talk over glimpse's bidirectional JSON-lines protocol (e.g. UI requests a\n  file's content, CLI reads from disk and sends it back). Keeps file I/O on the CLI side.\n- Window opts: **framed native window** (standard OS titlebar — simplest, no per-OS drag/\n  control quirks; theme lives inside the content area), default size ~`1100x720`, title\n  `scratch · \u003cpad name>`.\n- **Browser+server fallback is built in v1 (decided).** glimpse compiles a per-OS native\n  backend (Windows = .NET 8 + WebView2); when that backend is unavailable, `scratch ui`\n  serves the **same HTML** via a local server and opens the browser. Guarantees `scratch ui`\n  always works; one codebase either way.\n\n## 3. Layout — 2-pane: tree + preview (decided)\n\n```\n┌────────────┬───────────────────────────────┐\n│  ▾ auth    │  # Auth flow                   │   ← Playfair serif title (display)\n│    notes.md│                                │\n│    diff.txt│  rendered markdown / code /    │   ← IBM Plex Mono body\n│  ▸ refactor│  image preview, 65–75ch measure│\n│  ▸ logs    │                                │\n│            │                                │\n│ [SCRATCH]  │  notes.md · note · #bug #auth  │   ← file metadata strip (label type)\n└────────────┴───────────────────────────────┘\n```\n\n- **Left pane — pad/file tree.** Collapsible: each scratchpad is a top-level node, its files\n  nested under it. **Shows ALL files in the pad dir, not just manifest-registered ones**\n  (decided) — registered files show title/type/tags; unregistered files render dimmed/plain\n  (no metadata). Matches the \"it's a filesystem\" principle; nothing is hidden. Active file\n  highlighted with the ember mark. Pads sorted by `updated` desc. Width ~280px, resizable;\n  surface tone (`bg-surface`).\n- **Right pane — preview.** Renders the selected file by type:\n  - `.md` → rendered markdown (GitHub-ish), prose capped 65–75ch.\n  - code (by extension) → syntax-highlighted, mono.\n  - images (`.png/.jpg/.svg/...`) → shown inline, contained.\n  - other/unknown → raw text in mono, or a \"no preview\" note for binaries.\n- **File metadata strip** (bottom of preview or under the title): file `title`, `type`\n  chip, `tags` as chips, `description` as muted body. Read from the manifest. Read-only.\n- **Top bar:** app wordmark (serif), current pad name, theme toggle, nothing else. This is a\n  tool, not a funnel — no CTAs.\n- **Empty states:** no pads under the root → quiet centered note + the `scratch new --dir`\n  hint; empty pad dir → quiet \"no files yet\" note.\n\n## 4. Styling — claude-code-hub \"Lab Notebook\" (decided)\n\nAdopt the design-system tokens verbatim. **Dark + light toggle in v1.**\n\n### Type (the two-voice rule)\n- **Serif — Playfair Display:** app wordmark, pad title (display ~22px), section heads.\n- **Mono — IBM Plex Mono:** everything else — file rows, preview body/code, metadata, labels.\n- Labels: mono 11px, UPPERCASE, +0.08em (\"PADS\", \"FILES\", \"TAGS\").\n- No third typeface. A heading in mono or data in serif is a bug.\n\n### Color (dark canonical / paper light)\n- Field `#101114` / `#e8e6e3` — body canvas, tree well.\n- Surface `#16181c` / `#efede9` — panes, rows.\n- Elevated `#1e2025` / `#fbfaf9` — chips, popovers (small nested only; never pure white).\n- Border `#363840` / `#cfcbc4` — hairline pane divider.\n- Ink ramp primary→muted for content→metadata.\n- **Ember `#e86f33`** (glow `#f0a070` dark / ink `#b85a20` light): active file mark, focus\n  ring tint, theme-toggle active. Under 10% of any screen — the One Ember Rule.\n- **Chips are neutral (decided).** Tag and `type` chips stay neutral (`field` bg, secondary\n  ink) — type isn't a \"status,\" so it doesn't earn a signal hue. Ember stays reserved for the\n  active selection. Upholds the One-Ember Rule.\n\n### Depth (tonal-first, flat at rest)\n- Panes separate by tone step + hairline border, **no resting shadows**.\n- Shadows only for: focus ring (`0 0 0 2px accent-dim`), and if a future overlay/modal\n  appears. The 2-pane viewer is essentially flat.\n\n### Components\n- **Tree rows:** transparent at rest, `bg-hover` on hover, ember mark + faint tint when\n  active. Disclosure triangles for pad nodes.\n- **Chips** (tags / type): `field` bg, `ink-secondary`, hairline, `rounded.sm`, 2–8px pad.\n- **Theme toggle:** icon button (`field` bg, muted glyph → `ink-primary` + hairline on hover).\n- Transitions `all 0.15s ease`.\n\n## 5. Explicitly OUT for v1 (from references, deliberately not taken)\n- plannotator's **inline annotations**, **Ask AI** side chat, **send-feedback-to-agent**,\n  **plan diff**, **encrypted sharing** — scratchpads are not plans to review. Pure viewer.\n- Editing manifest/metadata from the UI (read-only; CLI owns writes).\n- `query`/search UI (spec §9, v2).\n\n## 6. Resolved (2026-06-07)\n- Fallback → **build browser+server in v1**.\n- Chips → **neutral**.\n- Unregistered files → **show all, mark unregistered**.\n- Window chrome → **framed native**.\n\nNo open visual questions remain for v1.\n","created":"2026-06-07T15:00:16.623Z","updated":"2026-06-07T15:00:16.623Z"},{"path":"decisions.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\decisions.md","registered":true,"external":false,"title":"Design decisions","description":"ADRs + rationale: CLI-first, pad=folder+manifest, transport","tags":["decisions"],"type":"note","group":"Decisions & references","kind":"markdown","content":"# Decisions: Scratchpad App\n\n## Storage model — directory + manifest\n**Status:** Decided\n**Choice:** Each scratchpad = a folder containing arbitrary files **+** a `scratchpad.json`\nmanifest (name, id?, created, updated, files[] with title/description/tags/type).\n**Rationale:** Self-contained, portable, inspectable; manifest enables listing/metadata/future query.\n\n## Producer — agents primarily\n**Status:** Decided\n**Choice:** Agents create+fill pads; humans mostly view (light curation later).\n**Rationale:** Goal is organizing temporary agent-generated knowledge.\n\n## Interface — CLI-first, thin layer over the filesystem\n**Status:** Decided\n**Choice:** `scratch` CLI initializes pads, emits an onboarding prompt, and registers files.\nThe agent works *directly* on files with its own tools; the CLI never authors content.\n**Rationale:** For the agent a pad should feel like a filesystem with a thin metadata layer —\nnot a mediated store. Minimal new infra.\n\n## Storage model & addressing — folder+manifest, no central store\n**Status:** Decided (revised 2026-06-07)\n**Choice:**\n- A scratchpad is **just a folder containing `scratchpad.json`**; the **folder path is its\n  identity**. The tool assumes **no central store** — `./_scratchpads` is not baked in.\n- **`new` requires an explicit `--dir \u003cparent>`** → creates `\u003cparent>/\u003cslug>/`. No `--dir` =\n  error. Placement is always deliberate; the agent/skill *suggests* a location but the tool\n  never assumes one.\n- **Discovery = scan a root.** `ls/add/show/ui` operate on a root (default cwd; override\n  `--dir` / `SCRATCH_DIR`) and find pads by scanning for `scratchpad.json`. Pad referenced by\n  name (within root) or by path.\n- **Name collisions OK across different dirs** (path = identity). Same parent + existing slug\n  → `new` refuses, `--force` to adopt.\n**Rationale:** User wants a pad to be literally \"a folder with a manifest,\" location chosen\nper session — not a magic global store. Path-as-identity makes pads portable and lets them\nco-locate under `_plans/` (same kind of artifact as planning folders) without a parallel\nstore. Requiring `--dir` prevents accidental clutter and keeps intent explicit.\n\n## CLI grammar — flat verbs, stateless\n**Status:** Decided\n**Choice:** `scratch new/add/ls/show/rm/ui`. No \"active\" pad — pad named explicitly each call.\n**Rationale:** Predictable, no hidden state surprises for agents.\n\n## `add` semantics — create-in-place + register\n**Status:** Decided\n**Choice:** Agent writes the file into the pad dir, then `scratch add` records it in the\nmanifest with metadata. CLI does not copy/move/author.\n**Rationale:** Matches the thin-layer principle; the agent already produced the file.\n\n## Identity & slug — folder = slug of name; collision scoped per parent dir\n**Status:** Decided\n**Choice:** Within a `--dir` parent, folder = slug of `name`; `--id` in manifest only.\nSame-parent slug collision → refuse (`--force` to adopt). Different parents may reuse a name.\n**Rationale:** Predictable names; path is the real identity (see Storage model).\n\n## Lifecycle — kept, manual cleanup\n**Status:** Decided\n**Choice:** Never auto-delete; `rm`/`prune` commands. Track timestamps.\n**Rationale:** Avoid losing useful notes; \"temporary\" ≠ auto-destroyed.\n\n## Query — deferred to v2\n**Status:** Decided\n**Choice:** v1 = create/add/ls/show/rm/ui. Design query (text/metadata) once real pads exist.\n\n## UI transport — glimpse native WebView, browser+server fallback built in v1\n**Status:** Decided\n**Choice:** `scratch ui` opens a native WebView via `glimpseui`; if the native backend is\nunavailable, serve the **same HTML** via a local server + browser. **Fallback is built in\nv1** (not just documented). Window is **framed native** (standard titlebar).\n**Rationale:** App-like default; guaranteed-working fallback since the glimpse backend needs\na per-OS toolchain (Windows = .NET 8 SDK + WebView2). One HTML codebase either way.\n\n## UI layout — 2-pane tree + preview\n**Status:** Decided\n**Choice:** Collapsible pad/file tree (left) + type-aware preview (right) + metadata strip.\n**Rationale:** Document-centric (plannotator feel) with full nav visible; roomy preview.\n\n## UI styling — \"Lab Notebook\" base, dark + light (revised post-v1: theme gallery)\n**Status:** Decided; **revised 2026-06-12**\n**Choice:** Lab Notebook ships as the default; post-v1 added a theme gallery of 12 ported\ncolor themes (dark + light, auto-detected) with starred favorites, all persisted via\n`config.json`.\n**Rationale:** Tokens already specified; two-voice serif/mono + one ember fits a \"kept record\".\nThe gallery lets a reader pick a palette without losing that typographic system.\n\n## UI — show all files; neutral chips\n**Status:** Decided (2026-06-07)\n**Choice:** Tree shows **all files in the pad dir**, not just manifest-registered (registered\nshow metadata, unregistered render dimmed/plain). Tag/type chips are **neutral** (no hue).\n**Rationale:** \"It's a filesystem\" — don't hide real content the agent wrote but didn't\nregister. Type isn't a status, so it doesn't earn a signal color; keeps the One-Ember Rule.\n\n## UI scope — pure viewer (revised post-v1: two narrow writebacks)\n**Status:** Decided; **revised 2026-06-12**\n**Choice:** Drop plannotator's annotation / Ask-AI / send-to-agent / sharing. The viewer is\nread-only **except two deliberate, line-addressed writebacks added post-v1**: toggling a GFM\ntask checkbox flips that single `[ ]`/`[x]` in the source file, and inline comments persist to\nthe manifest. Both re-validate before writing; everything else, the CLI owns.\n**Rationale:** Scratchpads are notes to browse, not plans to review — but checking off a task\nand leaving a comment are low-risk, high-value edits that earn the narrow exception.\n\n## Stack — Bun/Node + TS\n**Status:** Decided\n**Choice:** Single TS codebase; CLI in Bun/Node; `glimpseui` for the window.\n**Rationale:** Web design refs drop in; one language end-to-end.\n","created":"2026-06-12T07:54:41.095Z","updated":"2026-06-12T07:54:41.095Z"},{"path":"references.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\references.md","registered":true,"external":false,"title":"External references","description":"glimpse / plannotator / claude-code-hub source links","tags":["links"],"type":"reference","group":"Decisions & references","kind":"markdown","content":"# References: Scratchpad App\n\n## Design / prior art\n\n- **glimpse** (HazAT) — https://github.com/HazAT/glimpse\n  Native micro-UI for scripts/agents. Opens a native WebView, bidirectional JSON-lines\n  protocol over stdin/stdout. `npm i glimpseui`; `open(html, opts)`. Windows backend = .NET 8\n  + WebView2. **Role: UI transport.**\n\n- **plannotator** (backnotprop) — https://github.com/backnotprop/plannotator\n  Browser tool to review agent plans / code diffs: inline annotations, Ask-AI side chat,\n  send feedback to agents, encrypted sharing. Delivered as a CLI binary + plugin/hook.\n  **Role: layout feel only** (document-centric); annotation/feedback model deliberately NOT taken.\n\n- **claude-code-hub design system** — `~/dev/claude-code-hub/DESIGN.md`\n  \"Lab Notebook\": Playfair Display serif headings over IBM Plex Mono data; dark-first\n  (`#101114`) + warm-paper light sibling (`#e8e6e3`); one terracotta ember (`#e86f33`) accent;\n  tonal-first depth, flat at rest; full token set (colors/type/spacing/elevation/components).\n  **Role: styling.**\n\n## Internal context\n- planning-with-files convention: `_plans/YYYY-MM-DD-task/` — relevant because scratchpads may\n  be configured to live under `_plans/` (see decisions.md → Storage location).\n- User design preference: ruthless concision; evidence-driven (verify via tests/runs).\n","created":"2026-06-07T14:38:04.720Z","updated":"2026-06-07T14:38:04.734Z"},{"path":"README.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\README.md","registered":true,"external":true,"description":"Project README (repo root) — linked for reference in the pad","type":"reference","group":"Decisions & references","kind":"markdown","content":"# scratch\n\n[![npm version](https://img.shields.io/npm/v/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)\n[![npm downloads](https://img.shields.io/npm/dm/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)\n[![license](https://img.shields.io/github/license/nikiforovall/scratchpad.svg)](LICENSE)\n[![docs](https://img.shields.io/badge/docs-nikiforovall.blog%2Fscratchpad-e86f33.svg)](https://nikiforovall.blog/scratchpad/)\n\nCLI-first tool to organize **agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).\n\n📖 **[Documentation & live demo →](https://nikiforovall.blog/scratchpad/)**\n\nA scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.\n\n![scratch viewer](https://raw.githubusercontent.com/nikiforovall/scratchpad/main/assets/demo.png)\n\n## Why\n\nAgents generate a lot of knowledge per session — notes, snippets, command output, intermediate artifacts — and it has no home. It ends up scattered across the repo, buried in chat history, or lost when the context window rolls over.\n\nA scratchpad gives that working memory a deliberate place: a folder + `scratchpad.json` manifest, kept out of your source tree, that captures **what** each file is and **why** it exists.\n\n- **Durable, inspectable agent memory.** The agent writes files and registers them with a `--desc`/`--type`; the knowledge survives the session and stays reviewable.\n- **A human can browse it.** `scratch ui` opens a read-only viewer (markdown, code highlighting, mermaid) so you can see what the agent gathered — no digging through transcripts.\n- **No lock-in.** It's just files on disk. The CLI never authors or moves content; delete the folder and it's gone.\n\n## Install\n\nRequires [Bun](https://bun.sh) — `scratch` runs on the Bun runtime.\n\n```bash\nbun add -g @nikiforovall/scratchpad   # global install from npm (exposes `scratch`)\n```\n\nFrom source:\n\n```bash\nbun install\nbun link             # exposes `scratch` globally (needs bun on PATH)\n# — or — build a standalone binary (no bun needed to run it):\nbun run build        # → dist/scratch(.exe), bundles + compiles\n```\n\n### Claude Code plugin\n\nThis repo doubles as a Claude Code plugin marketplace. It ships the `scratch` skill so the agent knows when and how to drive the CLI (the CLI itself still comes from the install above):\n\n```\n/plugin marketplace add NikiforovAll/scratchpad\n/plugin install scratchpad@scratchpad\n```\n\n### pi package\n\nFor the [pi coding agent](https://pi.dev), the [`@nikiforovall/pi-scratchpad`](pi/) package ships the same skills plus `/scratch ui | export | stop` commands for the viewer (the `scratch` CLI still comes from the install above):\n\n```\npi install npm:@nikiforovall/pi-scratchpad\n```\n\n## Usage\n\n```bash\nscratch new \"\u003cname>\" --dir \u003cparent> [--id \u003cid>] [--force]\n    # create \u003cparent>/\u003cslug>/ + manifest, print an onboarding prompt.\n    # --dir is REQUIRED — placement is always deliberate (no assumed location).\n\nscratch add \u003cpad> \u003cfile> [--title ..] [--desc ..] [--tag a,b] [--type note] [--group ..]\n    # register an already-present file into the manifest with metadata.\n    # --group \u003cname>: list files sharing a group together under a viewer header.\n    # --link [--as \u003clabel>]: link an EXTERNAL file (outside the pad) by reference;\n    #   content stays put, --as sets its in-pad label (default: basename).\n\nscratch ls [\u003cpad>] [--dir \u003croot>]\n    # no \u003cpad>: list pads under root.  with \u003cpad>: list its registered files.\n\nscratch show \u003cpad> [\u003cfile>] [--dir \u003croot>]\n    # no \u003cfile>: print the manifest.  with \u003cfile>: print metadata + content.\n\nscratch rm \u003cpad> [\u003cfile>] [--dir \u003croot>] [--force]\n    # with \u003cfile>: unregister (file left on disk).  without: delete pad (--force).\n\nscratch ui [\u003cpad>] [--dir \u003croot>] [--browser] [--install-native]\n    # read-only viewer: glimpse native window by default, browser fallback.\n    # --install-native builds the native host on demand (needs .NET 8 SDK).\n\nscratch export [\u003cpad>] [--dir \u003croot>] [-o \u003cfile>]\n    # write the viewer to a single HTML file (file contents embedded; highlight.js\n    # / mermaid load from a pinned CDN), openable in any browser. Default out: \u003cpad-name>.html.\n```\n\n**Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.\n\n## Viewer\n\nRead-only, 2-pane (pad/file tree + preview) in a \"Lab Notebook\" theme that **auto-detects** OS light/dark. Shows **all** files in the pad dir (unregistered ones dimmed). Per-file preview:\n\n- Markdown rendered, with a **raw/rendered toggle**.\n- Code **syntax-highlighted** (highlight.js).\n- **Mermaid** diagrams (` ```mermaid ` fenced blocks).\n- Images inline; binaries / oversized files get a notice.\n\nTransport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser.\n\n## Config\n\nUser-level viewer preferences live in a single JSON file (machine-wide, not per-pad):\n\n```jsonc\n// ~/.config/scratchpad/config.json\n{\n  \"ui\": {\n    \"frameless\": true   // native window without OS title bar/border (page draws\n                        // its own close button + drag strip). Set false for native chrome.\n  }\n}\n```\n","created":"2026-06-10T19:58:26.752Z","updated":"2026-06-10T19:58:26.752Z"}]}],"rootLabel":"2026-06-07-scratchpad-app"}</script>
-<script id="settings" type="application/json">{"frameless":false,"themeMode":"light","colorTheme":"nord","starredThemes":["ayu","nord","vitesse"],"gridStyle":"dots","wideMode":true,"zoom":1.2}</script>
+<script id="data" type="application/json">{"pads":[{"name":"2026-06-07-scratchpad-app","id":"scratchpad-app","dir":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app","files":[{"path":"plan.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\plan.md","registered":true,"external":false,"title":"Plan & status","description":"Goal, phases, status, v1 criteria evidence, code map","tags":["plan","index"],"type":"note","group":"Overview","kind":"markdown","content":"# Plan: Scratchpad App (`scratch`)\n\n## Goal\nShip a CLI-first tool `scratch` that lets agents initialize per-project scratchpads\n(folder + manifest), register files into them, and browse them in a native-window viewer —\nv1 = full CLI loop + a read-only UI rendering a pad + an agent skill + an installable binary.\n\n## Companion docs\n- [spec.md](spec.md) — full functional spec (concept, CLI surface, manifest, slug rules, v1 criteria)\n- [spec-visuals.md](spec-visuals.md) — UI/visual spec (transport, layout, styling)\n- [decisions.md](decisions.md) — key decisions + rationale\n- [references.md](references.md) — glimpse / plannotator / claude-code-hub\n\n## Phases\n- [x] **Phase 1 — Scaffold**: Bun/Node TS project, `scratch` bin entry, arg parser, manifest module.\n- [x] **Phase 2 — CLI core**: `new / add / ls / show / rm`, slug+collision rules, manifest I/O, tests.\n- [x] **Phase 3 — UI viewer**: glimpse transport + browser fallback, 2-pane tree+preview, type-aware\n  rendering, Lab-Notebook theme (dark+light, **auto-detected**), **syntax highlight + markdown\n  raw/rendered toggle + mermaid** (vendored offline, inlined on demand).\n- [x] **Phase 4 — Agent skill**: `skills/scratch/SKILL.md`; `new` onboarding prompt aligned to it.\n- [x] **Phase 5 — Distribution & verify**: `bun link` global + `bun run build` compiled `dist/scratch.exe`\n  (vendor bundles embedded); all four v1 criteria verified.\n\n## Status\n**Current:** v1 shipped 2026-06-07 (all four success criteria verified); actively evolving since\n— see [whats-new.md](whats-new.md) for post-v1 features. 121 tests pass (`bun test`): CLI loop,\nUI render, headless-DOM behavior, checkbox + comment writeback. Now split across two npm packages\n(CLI + pi-scratchpad) plus a Claude Code plugin.\n\n**v1 criteria evidence:**\n1. CLI loop tested — 26 pass + real-FS smoke + global-`scratch` clean loop.\n2. UI renders a pad — glimpse native window with browser fallback; served HTML verified\n   (md render, code highlight, mermaid, raw/rendered toggle, auto-detected theme) incl. from\n   the compiled binary. **Visually verified in a real browser via playwright**: 0 console\n   errors, mermaid → real SVG, code → `.hljs`, theme auto-detected light (#e8e6e3) + manual\n   toggle to dark (#101114), raw toggle shows source. Both themes screenshotted.\n3. Agent skill — `skills/scratch/SKILL.md`; `new` onboarding prompt aligned.\n4. Installable — `bun link` (global, ran from /tmp) + `dist/scratch.exe` (self-contained).\n\n**Code map:** `src/cli.ts` (entry + arg parse), `src/commands.ts`, `src/comments.ts`,\n`src/manifest.ts`, `src/discovery.ts`, `src/config.ts`; viewer `src/ui/{render,theme,launch,reload}.ts`.\nhljs/mermaid now load from a **pinned CDN** (URL + SRI), added conditionally — replaced the\ninlined offline bundles that caused a Windows WebView2 blink. Tests:\n`test/{cli,ui,ui-dom,checkbox,comment-section,…}.test.ts`. `README.md` documents install/usage.\n`ls` scans recursively (maxDepth 6), skips ignore-dirs + dotdirs, does not descend into a\nfound pad — resolves spec §9 `[?]`.\n\n## Build-time decisions (Phase 3–5)\n- **Self-contained HTML**: CLI does all file I/O and embeds pad data + file contents (text\n  inline, images as data URIs) into one HTML string — glimpse and browser render identically,\n  no bidirectional protocol needed.\n- **CDN-vendored libs** (revised post-v1): highlight.js + mermaid load from a pinned CDN\n  (URL + SRI), added conditionally (hljs only if code present, mermaid only if a `mermaid`\n  block exists). Replaced the originally-inlined offline bundles — inlining caused a Windows\n  WebView2 blink; vendoring (not inlining) fixed it.\n- **Theme auto-detect** via `prefers-color-scheme` (works in WebView + browser); manual toggle\n  overrides and stops following the OS.\n- **`rm \u003cpad>`** guarded behind `--force` (deletes dir); **`rm \u003cpad> \u003cfile>`** only unregisters.\n\n## Task outline (delivered)\n\n### Phase 1 — Scaffold\n- 1.1 Init Bun/Node TS project (`package.json`, `tsconfig`, `bin: scratch`, biome/lint).\n- 1.2 Manifest module: `scratchpad.json` types + read/write/validate (version 1 schema).\n- 1.3 Discovery/slug util: slugify; pad = dir w/ `scratchpad.json` (path = identity); scan a\n  root (default cwd, override `--dir`/`SCRATCH_DIR`); same-parent collision → refuse/`--force`.\n\n### Phase 2 — CLI core\n- 2.1 `scratch new \u003cname> --dir \u003cparent> [--id]` → create dir+manifest (--dir required), print onboarding prompt.\n- 2.2 `scratch add \u003cpad> \u003cfile> [--title --desc --tag --type]` → register existing file.\n- 2.3 `scratch ls [\u003cpad>]` → list pads / files.\n- 2.4 `scratch show \u003cpad> [\u003cfile>]` → print metadata / file content.\n- 2.5 `scratch rm \u003cpad> [\u003cfile>]` → manual cleanup (with confirm/guard).\n- 2.6 Tests covering the full CLI loop (v1 criterion #1).\n\n### Phase 3 — UI viewer\n- 3.1 `scratch ui [\u003cpad>]` wiring + glimpse (`glimpseui`) window open; JSON-lines file-fetch protocol.\n- 3.2 2-pane HTML/CSS shell: pad/file tree (left) + preview (right) + metadata strip.\n- 3.3 Type-aware preview: markdown render, code highlight, image, raw/binary fallback.\n- 3.4 Lab-Notebook theme tokens (dark + light toggle).\n- 3.5 Browser+local-server fallback when native toolchain missing (or document-only — see [?]).\n\n### Phase 4 — Agent skill\n- 4.1 Author skill: when/how to make a pad, naming, when to register files via `scratch add`.\n- 4.2 Wire `new` onboarding prompt output to align with skill instructions.\n\n### Phase 5 — Distribution & verify\n- 5.1 Installable binary (bun/npm bin or compiled standalone).\n- 5.2 End-to-end verify against all four v1 success criteria; record evidence.\n\n## Decisions\nSee [decisions.md](decisions.md). Headlines: CLI-first thin layer over FS · **pad = folder+\nmanifest, no central store, path-identity, `new` requires `--dir`** · flat stateless verbs ·\nglimpse transport + browser fallback (v1) · 2-pane, show-all-files, neutral chips, framed\nwindow · dark+light · pure viewer. All prior `[?]` open questions resolved 2026-06-07.\n\n## Errors Encountered\n- None — all phases landed without rework.\n\n","created":"2026-06-12T07:50:08.059Z","updated":"2026-06-12T07:50:08.059Z"},{"path":"whats-new.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\whats-new.md","registered":true,"external":false,"title":"What's new","description":"Post-v1 features (clickable checkboxes, comments, themes, CLI) as a live checklist","tags":["changelog","features"],"type":"note","group":"Overview","kind":"markdown","content":"# What's new\n\nPost-v1 evolution of `scratch`. The checkboxes below are **live** — click one in the\nviewer and it toggles (and, in the real native window, writes straight back to this file).\n\n## Viewer\n\n- [x] **Clickable task checkboxes** — toggle a rendered GFM `[ ]`/`[x]` and it persists to the source file (line-addressed, re-validated before write).\n- [x] **Inline comments** — leave a comment anchored to rendered text; read it back from the CLI with `scratch comments`.\n- [x] **Theme gallery** — 12 ported color themes with starred favorites, dark + light, auto-detected.\n- [x] **Wide reading-column mode** + zoom/scroll fixes.\n- [x] **Configurable background grid** (dots / lines / none), persisted across launches.\n- [x] **Settings panel** — every UI preference round-trips through `config.json`.\n- [x] **Vimium-style scrolling** + keycap-styled shortcuts help.\n- [x] **CDN-vendored libs** (hljs / mermaid) — replaced the inlined offline bundles that caused a Windows WebView2 blink.\n- [x] **Self-saving exports** — comment on a static export and *Save a copy*: your feedback travels inside the HTML file itself, ready to send back.\n\n## CLI\n\n- [x] **`scratch comments \u003cpad>`** — read viewer feedback from the terminal, with the markdown block each comment anchors to.\n- [x] **`--json` output** across commands + file timestamps.\n- [x] **Colored terminal output.**\n- [x] **Quit the viewer with `q`** from the terminal (and quieter Chromium teardown).\n\n## Exploring\n\n- [ ] Per-pad export themes baked into the static HTML.\n- [ ] Comment replies / resolve state.\n- [ ] Full-text search across a pad in the viewer.\n","created":"2026-06-12T11:05:38.729Z","updated":"2026-06-12T11:05:38.735Z"},{"path":"spec.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\spec.md","registered":true,"external":false,"title":"Functional spec","description":"Concept, CLI surface, manifest schema, slug rules, v1 criteria","tags":["spec"],"type":"reference","group":"Specs","kind":"markdown","content":"# Scratchpad App — Specification\n\n> Status: v1 scope settled; UI/visual spec done (`spec-visuals.md`); open questions resolved.\n\n## 0. Guiding principle — thin layer over the filesystem\n\n**For the agent, a scratchpad is just a folder of files with a thin metadata layer on top.**\nThe CLI does NOT mediate file content. Its job:\n1. **Initialize** a scratchpad (create the folder + manifest at the right location).\n2. **Emit a prompt** telling the agent how to work with the pad (where it is, conventions).\n3. **Register** files the agent created into the manifest (with metadata).\n\nThe agent then works *directly* on the filesystem — creates/edits files with its normal\ntools inside the pad dir — and uses the CLI only to init and to register/annotate files.\nBinary name: **`scratch`**.\n\n## 1. Concept\n\nA **scratchpad** is a collection of files capturing *temporary knowledge* tied to an agent\nsession or activity. The app lets you create scratchpads (named, or keyed by session id) and\nbrowse/preview them visually. Goal: organize ephemeral agent-generated knowledge, and\n(eventually) integrate it with other systems.\n\nInspiration:\n- **glimpse** (hazat) — quick file preview feel.\n- **plannotator** (backnotprop) — borrow *layout*.\n- **~/dev/claude-code-hub** design system — borrow *styles* (DEFERRED until later).\n\n## 2. Core mental model (decided)\n\n- **Storage = directory + manifest.** Each scratchpad is a folder (named by session id or a\n  human label) containing arbitrary files (.md, code snippets, images, JSON dumps) **plus a\n  manifest** (e.g. `scratchpad.json`) holding metadata: title, session id, tags,\n  created/updated timestamps, file list.\n- **Producer = agents primarily.** Claude Code / agent sessions write scratchpad files\n  automatically (via hooks/tools). Humans mostly view; light curation later.\n- **Viewer = browse + preview.** List scratchpads → click one → preview its files: markdown\n  rendered, code highlighted, images shown. glimpse-style quick look. Annotation is NOT a\n  v1 requirement.\n\n## 3. Interface = CLI-first, optional UI (decided)\n\nThe primary interface is a **CLI**. It is the single surface both humans and agents use.\nA **skill** will later wrap the CLI so agents invoke it naturally during sessions.\n\nThe CLI launches an **optional web UI** (browse + preview) on demand.\n\n### CLI capabilities (initial)\n- Create a scratchpad.\n- Add a file to a scratchpad.\n- List what's in a scratchpad (and list scratchpads).\n- Attach optional **meta info** about a scratchpad file.\n- Open the UI.\n- `[?]` **Query** a scratchpad — flagged as a \"dig deeper\" idea (search/grep across files?\n  semantic query? filter by metadata?). Usefulness TBD.\n\n### Location & addressing (decided — no central store)\n\n**A scratchpad is just a folder containing `scratchpad.json`. The folder path is its\nidentity. The tool assumes NO central store** (`./_scratchpads` is not baked in).\n\n- **Creation requires an explicit location.** `scratch new \u003cname> --dir \u003cparent>` creates\n  `\u003cparent>/\u003cslug>/`. With no `--dir`, the command errors — placement is always deliberate.\n  The agent/skill *suggests* a location (e.g. `_plans/` or `_scratchpads/`) but the tool\n  never assumes one.\n- **Discovery = scan a root.** `ls` / `add` / `show` / `ui` operate on a **root dir**\n  (default = cwd; override with `--dir` or `SCRATCH_DIR`) and find pads by scanning for\n  `scratchpad.json`. A pad is referenced by name (resolved within the scanned root) or by path.\n- **Name collisions are fine across different dirs** — identity is the path, so two pads may\n  share a name in different locations. Within the *same* parent dir, an existing slug = an\n  existing pad → `new` refuses (use `--force` to adopt/overwrite-manifest).\n- Co-locating pads under `_plans/` is a first-class use (a scratchpad and a planning task\n  folder are the same kind of artifact).\n\n## 4. Tech & decisions (decided)\n\n- **Stack: Bun/Node + web UI.** Single TS codebase. CLI in Bun/Node; `scratch ui` renders an\n  HTML UI for browse+preview. **Transport = glimpse native WebView** (`glimpseui`), not a\n  browser tab (see spec-visuals §2; browser+local-server kept as a fallback). Web design refs\n  (glimpse/plannotator/claude-code-hub) drop straight in.\n- **Identity: the folder path.** Addressed by path, or by name resolved within a scanned\n  root (see §3). An optional `id` (e.g. session id) is stored in the manifest only.\n- **Query: deferred to v2.** v1 = create / add / list / open. Design query once real\n  scratchpads exist.\n- **Lifecycle: kept, manual cleanup.** Never auto-delete. Provide `rm`/`prune` commands.\n\n## 5. CLI command surface (decided)\n\n**Style: noun-less flat verbs. Stateless — pad always named explicitly (no \"active\" pad).**\n\n**Pad referenced by name (resolved within the root) or by path. Root = cwd, or `--dir` /\n`SCRATCH_DIR`.**\n\n```\nscratch new \u003cname> --dir \u003cparent> [--id \u003cid>]   # create \u003cparent>/\u003cslug>/ + manifest,\n                                     #   then PRINT a prompt: where the pad is + how to use it\n                                     #   (--dir REQUIRED — no assumed location)\nscratch add \u003cpad> \u003cfile> [--title .. --desc .. --tag t1,t2 --type note]\n                                     # register an ALREADY-PRESENT file into the manifest\nscratch ls [--dir \u003croot>]            # list pads found under root (scan for scratchpad.json)\nscratch ls \u003cpad>                     # list files in a pad\nscratch show \u003cpad> [\u003cfile>]          # print metadata / file content\nscratch rm \u003cpad> [\u003cfile>]            # manual cleanup\nscratch ui [\u003cpad>] [--dir \u003croot>]    # UI (glimpse window; browser fallback) over root/pad\n```\n\n**`add` = create-in-place + register.** The agent writes the file into the pad dir using its\nown tools, then calls `add` to record it in the manifest with metadata. The CLI does not copy,\nmove, or author content — it only registers and annotates. (Reasonable to also let `add` warn\nif the file isn't under the pad dir.)\n\n**`new` output is a prompt, not just a confirmation** — it tells the agent the absolute pad\npath, the manifest location, and the recommended workflow (write files here, then\n`scratch add` to register). This is the agent's onboarding into the pad.\n\n## 6. Manifest schema (decided fields)\n\nPer scratchpad (`\u003cparent>/\u003cslug>/scratchpad.json`):\n- `name`, `id` (optional), `created`, `updated`, `files[]`.\n\nPer file entry:\n- `path`, **`title`**, **`description`** (why it exists), **`tags[]`**, **`type/role`**\n  (note / snippet / output / artifact / reference).\n- Provenance (source tool/command/url) — **excluded from v1**, candidate for later.\n\n### Concrete `scratchpad.json` shape (decided)\n\n```json\n{\n  \"version\": 1,\n  \"name\": \"auth refactor\",\n  \"id\": \"abc123session\",\n  \"created\": \"2026-06-07T10:00:00Z\",\n  \"updated\": \"2026-06-07T11:30:00Z\",\n  \"files\": [\n    {\n      \"path\": \"notes.md\",\n      \"title\": \"Auth flow notes\",\n      \"description\": \"Why the token refresh races\",\n      \"tags\": [\"bug\", \"auth\"],\n      \"type\": \"note\"\n    }\n  ]\n}\n```\n- `version` — schema version, lets the format evolve.\n- `path` — **relative to the pad dir** (pad stays portable).\n- Timestamps — ISO-8601 UTC.\n- `type` — enum: `note | snippet | output | artifact | reference` (default `note`).\n- Unknown/extra keys tolerated on read (forward-compatible).\n\n### Slug & collision rules (decided)\n\n- Folder name = **slug of `name`** (lowercase, spaces/punct → `-`, trim repeats).\n  `\"Auth Refactor!\"` → `auth-refactor`.\n- `--id` is stored in the manifest only; it does **not** change the folder name.\n- **Collision is scoped to one parent dir.** Two pads may share a name in *different*\n  `--dir` parents (path = identity). Within the *same* parent: if `\u003cparent>/\u003cslug>` already\n  exists, `new` **refuses** with a clear error; `--force` adopts/overwrites the manifest.\n  No silent suffixing — predictable folder names.\n\n## 7. UI\n\nBrowse + preview. **Full visual spec → `spec-visuals.md`.** Summary:\n- Transport: **glimpse native WebView** (browser+server fallback).\n- Layout: **2-pane** — collapsible pad/file tree (left) + preview (right).\n- Style: **claude-code-hub \"Lab Notebook\"** tokens; **dark + light toggle** in v1.\n- **Pure viewer** — plannotator's annotation / Ask-AI / feedback model deliberately dropped.\nNot a v1 blocker for the CLI, but in scope for v1 success criterion #2.\n\n## 8. v1 success criteria (decided — all required)\n\n1. **Full CLI loop works** — `new --dir / add / ls / show / rm` operate over a folder+manifest\n   under an explicit/scanned root, with a valid manifest. Verified by tests.\n2. **UI renders a pad** — `scratch ui` opens (glimpse window or browser fallback), lists pads,\n   previews a pad's markdown / code / images.\n3. **Agent skill wired** — a skill lets Claude Code agents init + populate scratchpads via\n   the `scratch` CLI in a real session.\n4. **Installable binary** — `scratch` runs globally on the machine (bun/npm bin or compiled).\n\n## 9. Remaining design work (post-spec)\n\n- `query` command — v2 (search across files + metadata).\n- Provenance metadata — later.\n- `[?]` Whether `scratch ls` scans the root recursively or one level deep (lean: recursive,\n  but skip nested pads inside a pad). Decide in build.\n","created":"2026-06-07T14:59:39.742Z","updated":"2026-06-07T14:59:39.743Z"},{"path":"spec-visuals.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\spec-visuals.md","registered":true,"external":false,"title":"UI / visual spec","description":"Viewer transport, 2-pane layout, Lab-Notebook styling","tags":["spec","ui"],"type":"reference","group":"Specs","kind":"markdown","content":"# Scratchpad App — Visual / UI Specification\n\n> Companion to `spec.md`. Covers the `scratch ui` viewer only. v1 = **read-only browse + preview**.\n\n## 1. Reference synthesis\n\nThe three references play distinct, non-overlapping roles:\n\n| Reference | Role here | What we take |\n|-----------|-----------|--------------|\n| **glimpse** (HazAT) | **Transport** | Native WebView window driven from Node over JSON-lines stdin/stdout (`npm i glimpseui`, `open(html, opts)`). No Electron, no browser tab. |\n| **plannotator** (backnotprop) | **Layout feel** | Document-centric review surface: a rendered doc in a roomy main pane, lightweight nav. We take the *layout*, NOT the annotation / Ask-AI / send-to-agent model. |\n| **claude-code-hub** | **Styling** | \"Lab Notebook\" design system — full token set (colors, type, spacing, elevation, components). Dark-first + warm-paper light sibling. |\n\n## 2. Transport — glimpse native webview (decided)\n\n`scratch ui [\u003cpad>]` opens a **native WebView window** via `glimpseui`, not a browser tab.\n\n- Node/Bun CLI builds the HTML (UI + embedded pad data) and calls `open(html, opts)`.\n- Window ↔ CLI talk over glimpse's bidirectional JSON-lines protocol (e.g. UI requests a\n  file's content, CLI reads from disk and sends it back). Keeps file I/O on the CLI side.\n- Window opts: **framed native window** (standard OS titlebar — simplest, no per-OS drag/\n  control quirks; theme lives inside the content area), default size ~`1100x720`, title\n  `scratch · \u003cpad name>`.\n- **Browser+server fallback is built in v1 (decided).** glimpse compiles a per-OS native\n  backend (Windows = .NET 8 + WebView2); when that backend is unavailable, `scratch ui`\n  serves the **same HTML** via a local server and opens the browser. Guarantees `scratch ui`\n  always works; one codebase either way.\n\n## 3. Layout — 2-pane: tree + preview (decided)\n\n```\n┌────────────┬───────────────────────────────┐\n│  ▾ auth    │  # Auth flow                   │   ← Playfair serif title (display)\n│    notes.md│                                │\n│    diff.txt│  rendered markdown / code /    │   ← IBM Plex Mono body\n│  ▸ refactor│  image preview, 65–75ch measure│\n│  ▸ logs    │                                │\n│            │                                │\n│ [SCRATCH]  │  notes.md · note · #bug #auth  │   ← file metadata strip (label type)\n└────────────┴───────────────────────────────┘\n```\n\n- **Left pane — pad/file tree.** Collapsible: each scratchpad is a top-level node, its files\n  nested under it. **Shows ALL files in the pad dir, not just manifest-registered ones**\n  (decided) — registered files show title/type/tags; unregistered files render dimmed/plain\n  (no metadata). Matches the \"it's a filesystem\" principle; nothing is hidden. Active file\n  highlighted with the ember mark. Pads sorted by `updated` desc. Width ~280px, resizable;\n  surface tone (`bg-surface`).\n- **Right pane — preview.** Renders the selected file by type:\n  - `.md` → rendered markdown (GitHub-ish), prose capped 65–75ch.\n  - code (by extension) → syntax-highlighted, mono.\n  - images (`.png/.jpg/.svg/...`) → shown inline, contained.\n  - other/unknown → raw text in mono, or a \"no preview\" note for binaries.\n- **File metadata strip** (bottom of preview or under the title): file `title`, `type`\n  chip, `tags` as chips, `description` as muted body. Read from the manifest. Read-only.\n- **Top bar:** app wordmark (serif), current pad name, theme toggle, nothing else. This is a\n  tool, not a funnel — no CTAs.\n- **Empty states:** no pads under the root → quiet centered note + the `scratch new --dir`\n  hint; empty pad dir → quiet \"no files yet\" note.\n\n## 4. Styling — claude-code-hub \"Lab Notebook\" (decided)\n\nAdopt the design-system tokens verbatim. **Dark + light toggle in v1.**\n\n### Type (the two-voice rule)\n- **Serif — Playfair Display:** app wordmark, pad title (display ~22px), section heads.\n- **Mono — IBM Plex Mono:** everything else — file rows, preview body/code, metadata, labels.\n- Labels: mono 11px, UPPERCASE, +0.08em (\"PADS\", \"FILES\", \"TAGS\").\n- No third typeface. A heading in mono or data in serif is a bug.\n\n### Color (dark canonical / paper light)\n- Field `#101114` / `#e8e6e3` — body canvas, tree well.\n- Surface `#16181c` / `#efede9` — panes, rows.\n- Elevated `#1e2025` / `#fbfaf9` — chips, popovers (small nested only; never pure white).\n- Border `#363840` / `#cfcbc4` — hairline pane divider.\n- Ink ramp primary→muted for content→metadata.\n- **Ember `#e86f33`** (glow `#f0a070` dark / ink `#b85a20` light): active file mark, focus\n  ring tint, theme-toggle active. Under 10% of any screen — the One Ember Rule.\n- **Chips are neutral (decided).** Tag and `type` chips stay neutral (`field` bg, secondary\n  ink) — type isn't a \"status,\" so it doesn't earn a signal hue. Ember stays reserved for the\n  active selection. Upholds the One-Ember Rule.\n\n### Depth (tonal-first, flat at rest)\n- Panes separate by tone step + hairline border, **no resting shadows**.\n- Shadows only for: focus ring (`0 0 0 2px accent-dim`), and if a future overlay/modal\n  appears. The 2-pane viewer is essentially flat.\n\n### Components\n- **Tree rows:** transparent at rest, `bg-hover` on hover, ember mark + faint tint when\n  active. Disclosure triangles for pad nodes.\n- **Chips** (tags / type): `field` bg, `ink-secondary`, hairline, `rounded.sm`, 2–8px pad.\n- **Theme toggle:** icon button (`field` bg, muted glyph → `ink-primary` + hairline on hover).\n- Transitions `all 0.15s ease`.\n\n## 5. Explicitly OUT for v1 (from references, deliberately not taken)\n- plannotator's **inline annotations**, **Ask AI** side chat, **send-feedback-to-agent**,\n  **plan diff**, **encrypted sharing** — scratchpads are not plans to review. Pure viewer.\n- Editing manifest/metadata from the UI (read-only; CLI owns writes).\n- `query`/search UI (spec §9, v2).\n\n## 6. Resolved (2026-06-07)\n- Fallback → **build browser+server in v1**.\n- Chips → **neutral**.\n- Unregistered files → **show all, mark unregistered**.\n- Window chrome → **framed native**.\n\nNo open visual questions remain for v1.\n","created":"2026-06-07T15:00:16.623Z","updated":"2026-06-07T15:00:16.623Z"},{"path":"decisions.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\decisions.md","registered":true,"external":false,"title":"Design decisions","description":"ADRs + rationale: CLI-first, pad=folder+manifest, transport","tags":["decisions"],"type":"note","group":"Decisions & references","kind":"markdown","content":"# Decisions: Scratchpad App\n\n## Storage model — directory + manifest\n**Status:** Decided\n**Choice:** Each scratchpad = a folder containing arbitrary files **+** a `scratchpad.json`\nmanifest (name, id?, created, updated, files[] with title/description/tags/type).\n**Rationale:** Self-contained, portable, inspectable; manifest enables listing/metadata/future query.\n\n## Producer — agents primarily\n**Status:** Decided\n**Choice:** Agents create+fill pads; humans mostly view (light curation later).\n**Rationale:** Goal is organizing temporary agent-generated knowledge.\n\n## Interface — CLI-first, thin layer over the filesystem\n**Status:** Decided\n**Choice:** `scratch` CLI initializes pads, emits an onboarding prompt, and registers files.\nThe agent works *directly* on files with its own tools; the CLI never authors content.\n**Rationale:** For the agent a pad should feel like a filesystem with a thin metadata layer —\nnot a mediated store. Minimal new infra.\n\n## Storage model & addressing — folder+manifest, no central store\n**Status:** Decided (revised 2026-06-07)\n**Choice:**\n- A scratchpad is **just a folder containing `scratchpad.json`**; the **folder path is its\n  identity**. The tool assumes **no central store** — `./_scratchpads` is not baked in.\n- **`new` requires an explicit `--dir \u003cparent>`** → creates `\u003cparent>/\u003cslug>/`. No `--dir` =\n  error. Placement is always deliberate; the agent/skill *suggests* a location but the tool\n  never assumes one.\n- **Discovery = scan a root.** `ls/add/show/ui` operate on a root (default cwd; override\n  `--dir` / `SCRATCH_DIR`) and find pads by scanning for `scratchpad.json`. Pad referenced by\n  name (within root) or by path.\n- **Name collisions OK across different dirs** (path = identity). Same parent + existing slug\n  → `new` refuses, `--force` to adopt.\n**Rationale:** User wants a pad to be literally \"a folder with a manifest,\" location chosen\nper session — not a magic global store. Path-as-identity makes pads portable and lets them\nco-locate under `_plans/` (same kind of artifact as planning folders) without a parallel\nstore. Requiring `--dir` prevents accidental clutter and keeps intent explicit.\n\n## CLI grammar — flat verbs, stateless\n**Status:** Decided\n**Choice:** `scratch new/add/ls/show/rm/ui`. No \"active\" pad — pad named explicitly each call.\n**Rationale:** Predictable, no hidden state surprises for agents.\n\n## `add` semantics — create-in-place + register\n**Status:** Decided\n**Choice:** Agent writes the file into the pad dir, then `scratch add` records it in the\nmanifest with metadata. CLI does not copy/move/author.\n**Rationale:** Matches the thin-layer principle; the agent already produced the file.\n\n## Identity & slug — folder = slug of name; collision scoped per parent dir\n**Status:** Decided\n**Choice:** Within a `--dir` parent, folder = slug of `name`; `--id` in manifest only.\nSame-parent slug collision → refuse (`--force` to adopt). Different parents may reuse a name.\n**Rationale:** Predictable names; path is the real identity (see Storage model).\n\n## Lifecycle — kept, manual cleanup\n**Status:** Decided\n**Choice:** Never auto-delete; `rm`/`prune` commands. Track timestamps.\n**Rationale:** Avoid losing useful notes; \"temporary\" ≠ auto-destroyed.\n\n## Query — deferred to v2\n**Status:** Decided\n**Choice:** v1 = create/add/ls/show/rm/ui. Design query (text/metadata) once real pads exist.\n\n## UI transport — glimpse native WebView, browser+server fallback built in v1\n**Status:** Decided\n**Choice:** `scratch ui` opens a native WebView via `glimpseui`; if the native backend is\nunavailable, serve the **same HTML** via a local server + browser. **Fallback is built in\nv1** (not just documented). Window is **framed native** (standard titlebar).\n**Rationale:** App-like default; guaranteed-working fallback since the glimpse backend needs\na per-OS toolchain (Windows = .NET 8 SDK + WebView2). One HTML codebase either way.\n\n## UI layout — 2-pane tree + preview\n**Status:** Decided\n**Choice:** Collapsible pad/file tree (left) + type-aware preview (right) + metadata strip.\n**Rationale:** Document-centric (plannotator feel) with full nav visible; roomy preview.\n\n## UI styling — \"Lab Notebook\" base, dark + light (revised post-v1: theme gallery)\n**Status:** Decided; **revised 2026-06-12**\n**Choice:** Lab Notebook ships as the default; post-v1 added a theme gallery of 12 ported\ncolor themes (dark + light, auto-detected) with starred favorites, all persisted via\n`config.json`.\n**Rationale:** Tokens already specified; two-voice serif/mono + one ember fits a \"kept record\".\nThe gallery lets a reader pick a palette without losing that typographic system.\n\n## UI — show all files; neutral chips\n**Status:** Decided (2026-06-07)\n**Choice:** Tree shows **all files in the pad dir**, not just manifest-registered (registered\nshow metadata, unregistered render dimmed/plain). Tag/type chips are **neutral** (no hue).\n**Rationale:** \"It's a filesystem\" — don't hide real content the agent wrote but didn't\nregister. Type isn't a status, so it doesn't earn a signal color; keeps the One-Ember Rule.\n\n## UI scope — pure viewer (revised post-v1: two narrow writebacks)\n**Status:** Decided; **revised 2026-06-12**\n**Choice:** Drop plannotator's annotation / Ask-AI / send-to-agent / sharing. The viewer is\nread-only **except two deliberate, line-addressed writebacks added post-v1**: toggling a GFM\ntask checkbox flips that single `[ ]`/`[x]` in the source file, and inline comments persist to\nthe manifest. Both re-validate before writing; everything else, the CLI owns.\n**Rationale:** Scratchpads are notes to browse, not plans to review — but checking off a task\nand leaving a comment are low-risk, high-value edits that earn the narrow exception.\n\n## Stack — Bun/Node + TS\n**Status:** Decided\n**Choice:** Single TS codebase; CLI in Bun/Node; `glimpseui` for the window.\n**Rationale:** Web design refs drop in; one language end-to-end.\n","created":"2026-06-12T07:54:41.095Z","updated":"2026-06-12T07:54:41.095Z"},{"path":"references.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\_plans\\2026-06-07-scratchpad-app\\references.md","registered":true,"external":false,"title":"External references","description":"glimpse / plannotator / claude-code-hub source links","tags":["links"],"type":"reference","group":"Decisions & references","kind":"markdown","content":"# References: Scratchpad App\n\n## Design / prior art\n\n- **glimpse** (HazAT) — https://github.com/HazAT/glimpse\n  Native micro-UI for scripts/agents. Opens a native WebView, bidirectional JSON-lines\n  protocol over stdin/stdout. `npm i glimpseui`; `open(html, opts)`. Windows backend = .NET 8\n  + WebView2. **Role: UI transport.**\n\n- **plannotator** (backnotprop) — https://github.com/backnotprop/plannotator\n  Browser tool to review agent plans / code diffs: inline annotations, Ask-AI side chat,\n  send feedback to agents, encrypted sharing. Delivered as a CLI binary + plugin/hook.\n  **Role: layout feel only** (document-centric); annotation/feedback model deliberately NOT taken.\n\n- **claude-code-hub design system** — `~/dev/claude-code-hub/DESIGN.md`\n  \"Lab Notebook\": Playfair Display serif headings over IBM Plex Mono data; dark-first\n  (`#101114`) + warm-paper light sibling (`#e8e6e3`); one terracotta ember (`#e86f33`) accent;\n  tonal-first depth, flat at rest; full token set (colors/type/spacing/elevation/components).\n  **Role: styling.**\n\n## Internal context\n- planning-with-files convention: `_plans/YYYY-MM-DD-task/` — relevant because scratchpads may\n  be configured to live under `_plans/` (see decisions.md → Storage location).\n- User design preference: ruthless concision; evidence-driven (verify via tests/runs).\n","created":"2026-06-07T14:38:04.720Z","updated":"2026-06-07T14:38:04.734Z"},{"path":"README.md","abs":"C:\\Users\\nikiforovall\\dev\\scratchpad\\README.md","registered":true,"external":true,"description":"Project README (repo root) — linked for reference in the pad","type":"reference","group":"Decisions & references","kind":"markdown","content":"# scratch\n\n[![npm version](https://img.shields.io/npm/v/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)\n[![npm downloads](https://img.shields.io/npm/dm/@nikiforovall/scratchpad.svg)](https://www.npmjs.com/package/@nikiforovall/scratchpad)\n[![license](https://img.shields.io/github/license/nikiforovall/scratchpad.svg)](LICENSE)\n[![docs](https://img.shields.io/badge/docs-nikiforovall.blog%2Fscratchpad-e86f33.svg)](https://nikiforovall.blog/scratchpad/)\n\nCLI-first tool to organize **agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).\n\n📖 **[Documentation & live demo →](https://nikiforovall.blog/scratchpad/)**\n\nA scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.\n\n![scratch viewer](https://raw.githubusercontent.com/nikiforovall/scratchpad/main/assets/demo.png)\n\n## Why\n\nAgents generate a lot of knowledge per session — notes, snippets, command output, intermediate artifacts — and it has no home. It ends up scattered across the repo, buried in chat history, or lost when the context window rolls over.\n\nA scratchpad gives that working memory a deliberate place: a folder + `scratchpad.json` manifest, kept out of your source tree, that captures **what** each file is and **why** it exists.\n\n- **Durable, inspectable agent memory.** The agent writes files and registers them with a `--desc`/`--type`; the knowledge survives the session and stays reviewable.\n- **A human can browse it.** `scratch ui` opens a read-only viewer (markdown, code highlighting, mermaid) so you can see what the agent gathered — no digging through transcripts.\n- **No lock-in.** It's just files on disk. The CLI never authors or moves content; delete the folder and it's gone.\n\n## Install\n\nRequires [Bun](https://bun.sh) — `scratch` runs on the Bun runtime.\n\n```bash\nbun add -g @nikiforovall/scratchpad   # global install from npm (exposes `scratch`)\n```\n\nFrom source:\n\n```bash\nbun install\nbun link             # exposes `scratch` globally (needs bun on PATH)\n# — or — build a standalone binary (no bun needed to run it):\nbun run build        # → dist/scratch(.exe), bundles + compiles\n```\n\n### Claude Code plugin\n\nThis repo doubles as a Claude Code plugin marketplace. It ships the `scratch` skill so the agent knows when and how to drive the CLI (the CLI itself still comes from the install above):\n\n```\n/plugin marketplace add NikiforovAll/scratchpad\n/plugin install scratchpad@scratchpad\n```\n\n### pi package\n\nFor the [pi coding agent](https://pi.dev), the [`@nikiforovall/pi-scratchpad`](pi/) package ships the same skills plus `/scratch ui | export | stop` commands for the viewer (the `scratch` CLI still comes from the install above):\n\n```\npi install npm:@nikiforovall/pi-scratchpad\n```\n\n## Usage\n\n```bash\nscratch new \"\u003cname>\" --dir \u003cparent> [--id \u003cid>] [--force]\n    # create \u003cparent>/\u003cslug>/ + manifest, print an onboarding prompt.\n    # --dir is REQUIRED — placement is always deliberate (no assumed location).\n\nscratch add \u003cpad> \u003cfile> [--title ..] [--desc ..] [--tag a,b] [--type note] [--group ..]\n    # register an already-present file into the manifest with metadata.\n    # --group \u003cname>: list files sharing a group together under a viewer header.\n    # --link [--as \u003clabel>]: link an EXTERNAL file (outside the pad) by reference;\n    #   content stays put, --as sets its in-pad label (default: basename).\n\nscratch ls [\u003cpad>] [--dir \u003croot>]\n    # no \u003cpad>: list pads under root.  with \u003cpad>: list its registered files.\n\nscratch show \u003cpad> [\u003cfile>] [--dir \u003croot>]\n    # no \u003cfile>: print the manifest.  with \u003cfile>: print metadata + content.\n\nscratch rm \u003cpad> [\u003cfile>] [--dir \u003croot>] [--force]\n    # with \u003cfile>: unregister (file left on disk).  without: delete pad (--force).\n\nscratch ui [\u003cpad>] [--dir \u003croot>] [--browser] [--install-native]\n    # read-only viewer: glimpse native window by default, browser fallback.\n    # --install-native builds the native host on demand (needs .NET 8 SDK).\n\nscratch export [\u003cpad>] [--dir \u003croot>] [-o \u003cfile>]\n    # write the viewer to a single HTML file (file contents embedded; highlight.js\n    # / mermaid load from a pinned CDN), openable in any browser. Default out: \u003cpad-name>.html.\n```\n\n**Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.\n\n## Viewer\n\nRead-only, 2-pane (pad/file tree + preview) in a \"Lab Notebook\" theme that **auto-detects** OS light/dark. Shows **all** files in the pad dir (unregistered ones dimmed). Per-file preview:\n\n- Markdown rendered, with a **raw/rendered toggle**.\n- Code **syntax-highlighted** (highlight.js).\n- **Mermaid** diagrams (` ```mermaid ` fenced blocks).\n- Images inline; binaries / oversized files get a notice.\n\nTransport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser.\n\n## Config\n\nUser-level viewer preferences live in a single JSON file (machine-wide, not per-pad):\n\n```jsonc\n// ~/.config/scratchpad/config.json\n{\n  \"ui\": {\n    \"frameless\": true   // native window without OS title bar/border (page draws\n                        // its own close button + drag strip). Set false for native chrome.\n  }\n}\n```\n","created":"2026-06-10T19:58:26.752Z","updated":"2026-06-10T19:58:26.752Z"}]}],"rootLabel":"2026-06-07-scratchpad-app"}</script>
+<script id="settings" type="application/json">{"frameless":false,"themeMode":"light","colorTheme":"nord","starredThemes":["ayu","nord","vitesse"],"gridStyle":"dots","wideMode":true,"zoom":1.1}</script>
 <script id="themes" type="application/json">[{"id":"ember","label":"Ember","dark":["#101114","#16181c","#e86f33","#f0f1f3"],"light":["#e8e6e3","#efede9","#e86f33","#0a0a0a"]},{"id":"gruvbox","label":"Gruvbox","dark":["#1d2021","#282828","#fe8019","#ebdbb2"],"light":["#ede7d5","#f3eee0","#d65d0e","#3c3836"]},{"id":"catppuccin","label":"Catppuccin","dark":["#11111b","#181825","#cba6f7","#cdd6f4"],"light":["#e6e9ef","#eff1f5","#8839ef","#4c4f69"]},{"id":"tokyo-night","label":"Tokyo Night","dark":["#16161e","#1a1b26","#7aa2f7","#c0caf5"],"light":["#e1e2e7","#e9eaf0","#2e7de9","#343b58"]},{"id":"solarized","label":"Solarized","dark":["#002b36","#073642","#cb4b16","#93a1a1"],"light":["#eee8d5","#f5efdc","#cb4b16","#073642"]},{"id":"dracula","label":"Dracula","dark":["#21222c","#282a36","#bd93f9","#f8f8f2"],"light":["#e8e8ee","#f0f0f5","#7c3aed","#16161e"]},{"id":"nord","label":"Nord","dark":["#272c36","#2e3440","#88c0d0","#eceff4"],"light":["#e5e9f0","#eceff4","#5e81ac","#2e3440"]},{"id":"rose-pine","label":"Rosé Pine","dark":["#191724","#1f1d2e","#c4a7e7","#e0def4"],"light":["#f2e9e1","#faf4ed","#907aa9","#575279"]},{"id":"everforest","label":"Everforest","dark":["#232a2e","#2d353b","#a7c080","#d3c6aa"],"light":["#f4f0d9","#fdf6e3","#6f8352","#4d5960"]},{"id":"kanagawa","label":"Kanagawa","dark":["#16161d","#1f1f28","#7e9cd8","#dcd7ba"],"light":["#e5ddb0","#f2ecbc","#4d699b","#545464"]},{"id":"one-dark","label":"One Dark","dark":["#21252b","#282c34","#61afef","#d7dae0"],"light":["#eaeaeb","#fafafa","#4078f2","#383a42"]},{"id":"night-owl","label":"Night Owl","dark":["#011627","#0b2942","#82aaff","#d6deeb"],"light":["#ededed","#f6f6f6","#0c969b","#403f53"]},{"id":"monokai","label":"Monokai Pro","dark":["#221f22","#2d2a2e","#ffd866","#fcfcfa"],"light":["#e9e6e4","#f1efed","#c08a00","#2c292d"]},{"id":"github","label":"GitHub","dark":["#1f2428","#24292e","#58a6ff","#e1e4e8"],"light":["#f0f2f4","#f6f8fa","#0366d6","#24292e"]},{"id":"ayu","label":"Ayu","dark":["#0d1017","#10141c","#e6b450","#bfbdb6"],"light":["#eff1f3","#f8f9fa","#f2ae49","#3d4149"]},{"id":"vitesse","label":"Vitesse","dark":["#121212","#181818","#4d9375","#dbd7ca"],"light":["#f0f0f0","#f7f7f7","#1c6b48","#393a34"]},{"id":"synthwave","label":"Synthwave '84","dark":["#241b2f","#262335","#ff7edb","#ffffff"],"light":["#e6e2f0","#efecf6","#c936a6","#241b2f"]}]</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js" integrity="sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
 let DATA = JSON.parse(document.getElementById('data').textContent);
+// Static export (scratch export bakes data-export onto <html>): no host listens,
+// so the page file itself is where comments persist. Capture the pristine source
+// now, before any rendering mutates the DOM \u2014 saveCopy() splices the live DATA
+// back into this string instead of re-serializing the mutated document.
+const EXPORT_MODE = document.documentElement.hasAttribute('data-export');
+const PRISTINE = EXPORT_MODE ? '<!doctype html>\n' + document.documentElement.outerHTML : '';
 const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function mdInline(s) {
@@ -761,6 +823,42 @@ function fmtFull(iso) {
   return isNaN(d) ? '' : d.toLocaleString();
 }
 
+// Clipboard: navigator.clipboard needs a secure context, but glimpse delivers
+// the page via NavigateToString / file:// \u2014 an opaque origin where it's absent
+// or rejects (the copy silently no-ops). Fall back to a hidden-textarea
+// execCommand('copy'), which works in that context (and in the browser).
+function execCopy(text) {
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('execCommand copy failed'));
+    } catch (e) { reject(e); }
+  });
+}
+function copyText(text) {
+  return navigator.clipboard && navigator.clipboard.writeText
+    ? navigator.clipboard.writeText(text).catch(() => execCopy(text))
+    : execCopy(text);
+}
+// Copy the active file's path (Shift+C). Mirrors the \u{1f517} path button, including
+// its absence in exports (the path only means something on the exporter's machine).
+function copyActivePath() {
+  const f = currentRef && currentRef.f;
+  if (!f || EXPORT_MODE) return;
+  copyText(f.abs || f.path)
+    .then(() => showToast('Path copied', 'success'))
+    .catch(() => showToast('Copy failed'));
+}
+
 function renderPreview(pad, f) {
   current = pad.dir + '::' + f.path; currentRef = { pad, f };
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
@@ -771,9 +869,13 @@ function renderPreview(pad, f) {
   const metaLine = metaBits.join(' \u00B7 ');
   const canRaw = (f.kind === 'markdown' || f.kind === 'html') && f.content != null;
   const canCopyContent = f.content != null && (f.kind === 'markdown' || f.kind === 'html' || f.kind === 'code' || f.kind === 'text');
+  const hasComments = !!(f.comments && f.comments.length);
   const ctrls = '<span class="pctrls">' +
-    '<button class="pbtn" id="copyPath">\u{1f517} path</button>' +
+    // The path is the exporter's local filesystem path \u2014 meaningless to whoever
+    // receives an exported copy, so exports don't offer it.
+    (EXPORT_MODE ? '' : '<button class="pbtn" id="copyPath">\u{1f517} path</button>') +
     (canCopyContent ? '<button class="pbtn" id="copyContent">\u29C9 copy</button>' : '') +
+    (hasComments ? '<button class="pbtn" id="clearComments" title="Delete all comments on this file">\u{1f5d1} ' + nComments(f.comments.length) + '</button>' : '') +
     (canRaw
       ? '<button class="pbtn ' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
         '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button>'
@@ -821,34 +923,17 @@ function renderPreview(pad, f) {
     '<hr class="divider"/>' + bodyHtml +
     '</div>';
 
+  // The preview pane is the only scrollable element (html/body are overflow:hidden),
+  // so keyboard scrolling and a browser Vimium need it focused to act on it \u2014 they
+  // target the focused/document element, not an arbitrary inner overflow box.
+  // preventScroll so this never fights the reload scroll-position restore.
+  preview.focus({ preventScroll: true });
+
   if (canRaw) {
     const rd = document.getElementById('vRendered'), rw = document.getElementById('vRaw');
     rd.addEventListener('click', () => { if (rawMode) { setRaw(false); renderPreview(pad, f); } });
     rw.addEventListener('click', () => { if (!rawMode) { setRaw(true); renderPreview(pad, f); } });
   }
-  // Clipboard: navigator.clipboard needs a secure context, but glimpse delivers
-  // the page via NavigateToString / file:// \u2014 an opaque origin where it's absent
-  // or rejects (the copy silently no-ops). Fall back to a hidden-textarea
-  // execCommand('copy'), which works in that context (and in the browser).
-  const execCopy = (text) => new Promise((resolve, reject) => {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      ok ? resolve() : reject(new Error('execCommand copy failed'));
-    } catch (e) { reject(e); }
-  });
-  const copyText = (text) =>
-    navigator.clipboard && navigator.clipboard.writeText
-      ? navigator.clipboard.writeText(text).catch(() => execCopy(text))
-      : execCopy(text);
   // Flash the button label (\u2713 copied) and pop a toast so the action registers
   // whether the user is looking at the button or the corner.
   const flash = (btn, label, toast) => {
@@ -868,6 +953,25 @@ function renderPreview(pad, f) {
     copyText(f.content)
       .then(() => flash(cc, '\u29C9 copy', 'Content copied'))
       .catch(() => showToast('Copy failed')));
+  // Bulk-clear is irreversible, so it arms on the first click and only deletes on
+  // the second (within 3s) \u2014 unlike the per-comment delete, which fires straight away.
+  const clr = document.getElementById('clearComments');
+  if (clr) {
+    const label = clr.textContent;
+    let armed = false;
+    clr.addEventListener('click', () => {
+      if (!armed) {
+        armed = true;
+        clr.textContent = '\u26A0 clear all?';
+        clr.classList.add('on');
+        clearTimeout(clr._t);
+        clr._t = setTimeout(() => { armed = false; clr.textContent = label; clr.classList.remove('on'); }, 3000);
+        return;
+      }
+      deleteAllComments();
+      clr.remove();
+    });
+  }
   enhance(preview);
   // After hljs rewrote the code blocks' text nodes \u2014 comment quote-matching
   // walks the final DOM. (Comments are a rendered-markdown concept: applyComments
@@ -929,6 +1033,8 @@ function buildTree(preferKey, prevSelJson) {
       const pad = DATA.pads[+row.dataset.pi]; renderPreview(pad, pad.files[+row.dataset.fi]);
     }));
   }
+
+  updateCommentsCount();
 
   // On a hot-reload we re-select the file the user was on (by pad::path) so the
   // view doesn't jump back to the top. If it's gone (deleted/renamed), fall back
@@ -1287,6 +1393,9 @@ const closeWindow = webview ? () => webview.postMessage({ __glimpse_close: true 
 // __scratchReload, which only re-renders the preview if the open file changed);
 // in the browser we just reload the page (the server rebuilds per request).
 function requestReload() {
+  // An export has no disk to reload from \u2014 location.reload() would just re-read
+  // the file and silently drop unsaved comments.
+  if (EXPORT_MODE) return;
   if (webview) { try { webview.postMessage({ __scratch_reload: true }); } catch (_) {} }
   // Browser: full reload (the server rebuilds per request). Stash a flag so the
   // freshly-loaded page can surface the toast the native path shows inline.
@@ -1353,7 +1462,7 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
   });
 })();
 
-// Collapsible sidebar (topbar panel button / '['). Like the resizable width
+// Collapsible sidebar (in-pane panel button / '['). Like the resizable width
 // (scratch.treeW above), this is per-machine window geometry \u2014 localStorage,
 // not the config file.
 const sidebarEl = document.getElementById('sidebar');
@@ -1362,6 +1471,9 @@ function toggleSidebar() {
   try { localStorage.setItem('scratch.sidebarCollapsed', c ? '1' : '0'); } catch (_) {}
 }
 document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
+// The in-pane toggle collapses away with the pane; this floater (top-left of
+// the body, shown by CSS only while collapsed) is the way back.
+document.getElementById('sidebarOpen').addEventListener('click', toggleSidebar);
 try {
   if (localStorage.getItem('scratch.sidebarCollapsed') === '1') {
     // Restore closed without the slide-shut animation playing at boot.
@@ -1400,6 +1512,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
   }
+  if (e.key === 'C') { copyActivePath(); return; }
   if (e.key === 'c') { setCommentsVisible(!commentsVisible); return; }
   // vimium-style scrolling: j/k line steps, d/u half page. Instant (no smooth) \u2014
   // smooth scrollBy queues badly under key auto-repeat. File nav stays on arrows.
@@ -1491,6 +1604,7 @@ try { commentsVisible = localStorage.getItem('scratch.comments') !== '0'; } catc
 let ORPHANS = []; // comments whose quote wasn't found in the current render
 
 function cmtNowIso() { return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+function nComments(n) { return n + ' comment' + (n > 1 ? 's' : ''); }
 function cmtId() {
   if (window.crypto && window.crypto.randomUUID) { try { return window.crypto.randomUUID(); } catch (_) {} }
   return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
@@ -1597,14 +1711,88 @@ function findComment(cid) {
 }
 
 // Persist the active file's full comment array (add/edit/delete all replace it
-// wholesale). Same channel fan-out as persistSettings; over file:// (export)
-// there is no host, so the mutation is view-only.
+// wholesale). Same channel fan-out as persistSettings; in an export there is no
+// host \u2014 the mutation already lives in DATA, so arm Save-a-copy instead: saving
+// the page file is what persists comments there.
 function persistComments() {
   if (!currentRef) return;
+  if (EXPORT_MODE) {
+    setExportDirty(true);
+    showToast('Comment kept in this page \u2014 Save a copy to keep it in the file', 'info');
+    updateCommentsCount();
+    return;
+  }
   const payload = { padDir: currentRef.pad.dir, filePath: currentRef.f.path, comments: currentRef.f.comments || [] };
   const sent = postToHost('__scratch_comments', '/comments', payload, () => showToast('Saving comment failed'));
-  if (!sent) showToast('Comments cannot be saved from an exported page', 'info');
+  if (!sent) showToast('Comments cannot be saved from this page', 'info');
+  updateCommentsCount();
 }
+
+// --- Save a copy (static export only) ---
+// New/edited comments in an export live only in DATA until the user saves the
+// page itself. Saving = splice the current DATA into the boot-time PRISTINE
+// source (never the live DOM \u2014 hljs and comment marks have rewritten it) and
+// hand the result over as a real file (showSaveFilePicker) or a download.
+let exportDirty = false;
+function setExportDirty(v) {
+  exportDirty = v;
+  const d = document.getElementById('saveDot');
+  if (d) d.hidden = !v;
+  const b = document.getElementById('saveCopy');
+  if (b) b.title = v
+    ? 'Unsaved comments \u2014 save a copy of this file to keep them'
+    : 'Save a copy of this page \u2014 comments live in the saved file';
+}
+function builtExportHtml() {
+  const open = '<script id="data" type="application/json">';
+  const close = '</' + 'script>';
+  const i = PRISTINE.indexOf(open);
+  const j = i === -1 ? -1 : PRISTINE.indexOf(close, i);
+  if (j === -1) return null;
+  // payloadJson's escaping, so the island can never contain a closing script tag.
+  return PRISTINE.slice(0, i + open.length) + JSON.stringify(DATA).replace(/</g, '\\u003c') + PRISTINE.slice(j);
+}
+function saveCopyName() {
+  try {
+    const n = decodeURIComponent(location.pathname.split('/').pop() || '');
+    if (/\.html?$/i.test(n)) return n;
+  } catch (_) {}
+  return 'scratchpad.html';
+}
+function saveCopy() {
+  const html = builtExportHtml();
+  if (html == null) { showToast('Save failed'); return; }
+  const name = saveCopyName();
+  const blob = new Blob([html], { type: 'text/html' });
+  const done = () => { setExportDirty(false); showToast('Saved \u2014 that file carries the comments', 'success'); };
+  if (window.showSaveFilePicker) {
+    // file:// counts as a secure context in Chromium, so exports get a real
+    // save dialog; everywhere else falls back to a plain download.
+    window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'HTML page', accept: { 'text/html': ['.html'] } }] })
+      .then((h) => h.createWritable())
+      .then((w) => w.write(blob).then(() => w.close()))
+      .then(done)
+      .catch((e) => { if (!e || e.name !== 'AbortError') downloadCopy(blob, name, done); });
+    return;
+  }
+  downloadCopy(blob, name, done);
+}
+function downloadCopy(blob, name, done) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch (_) {} }, 10000);
+  done();
+}
+const saveCopyBtn = document.getElementById('saveCopy');
+if (saveCopyBtn) saveCopyBtn.addEventListener('click', saveCopy);
+// Don't let unsaved comments vanish with a casual tab close.
+if (EXPORT_MODE) window.addEventListener('beforeunload', (e) => {
+  if (exportDirty) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // --- popover (one at a time; view / edit / new / orphan-list modes) ---
 let cmtPopEl = null;
@@ -1726,6 +1914,63 @@ function openOrphansPop(pill) {
   });
 }
 
+// Pad-wide comments summary, anchored to the header toggle. Read-only list grouped
+// by file; clicking a row jumps to that comment. Visibility is toggled via 'c'.
+function openCommentsSummary(btn) {
+  const rect = btn.getBoundingClientRect();
+  const items = [];
+  (DATA.pads || []).forEach(pad => (pad.files || []).forEach(f =>
+    (f.comments || []).forEach(c => items.push({ pad, f, c }))));
+  openCmtPop(rect, (el) => {
+    el.classList.add('cmt-summary');
+    const head = document.createElement('div'); head.className = 'cmt-shead';
+    head.textContent = items.length ? nComments(items.length) : 'No comments';
+    el.appendChild(head);
+    if (!items.length) {
+      const hint = document.createElement('div'); hint.className = 'cmt-when';
+      hint.textContent = 'Select text in a file to add one.';
+      el.appendChild(hint);
+      return;
+    }
+    let lastFile = null;
+    items.forEach(({ pad, f, c }) => {
+      if (f !== lastFile) {
+        lastFile = f;
+        const fh = document.createElement('div'); fh.className = 'cmt-sfile';
+        fh.textContent = f.title || f.path;
+        el.appendChild(fh);
+      }
+      const row = document.createElement('div'); row.className = 'cmt-srow';
+      const body = document.createElement('div'); body.className = 'cmt-body'; body.textContent = c.body;
+      row.appendChild(body);
+      const quote = ((c.anchor && c.anchor.quote) || '').trim();
+      if (quote) {
+        const q = document.createElement('div'); q.className = 'cmt-quote';
+        q.textContent = quote.length > 80 ? quote.slice(0, 80) + '\u2026' : quote;
+        row.appendChild(q);
+      }
+      const when = document.createElement('div'); when.className = 'cmt-when';
+      when.textContent = fmtWhen(c.created);
+      when.title = fmtFull(c.created);
+      row.appendChild(when);
+      row.addEventListener('click', () => gotoComment(pad, f, c));
+      el.appendChild(row);
+    });
+  });
+}
+
+// Open a comment's file from the summary and surface it (scroll + popover when
+// the quote still resolves in the render; orphans just navigate).
+function gotoComment(pad, f, c) {
+  closeCmtPop();
+  if (!currentRef || currentRef.f !== f) renderPreview(pad, f);
+  const hl = document.querySelector('.cmt-hl[data-cid="' + c.id + '"]');
+  if (hl) {
+    try { hl.scrollIntoView({ block: 'center' }); } catch (_) {}
+    if (commentsVisible) cmtViewPop(c, hl.getBoundingClientRect());
+  }
+}
+
 function deleteComment(cid) {
   const f = currentRef && currentRef.f;
   if (!f) return;
@@ -1736,6 +1981,23 @@ function deleteComment(cid) {
   refreshOrphanPill();
   closeCmtPop();
   showToast('Comment deleted', 'success');
+}
+
+// Clear every comment on the active file in one shot (current-file scope only \u2014
+// persistComments writes just this file's array). Unwraps all highlights/notes
+// and orphans, then persists the now-empty array through the same channel.
+function deleteAllComments() {
+  const f = currentRef && currentRef.f;
+  if (!f || !f.comments || !f.comments.length) return;
+  const n = f.comments.length;
+  const ids = f.comments.map(c => c.id);
+  f.comments = [];
+  ORPHANS = [];
+  persistComments();
+  ids.forEach(cmtUnwrap);
+  refreshOrphanPill();
+  closeCmtPop();
+  showToast(nComments(n) + ' deleted', 'success');
 }
 
 function refreshOrphanPill() {
@@ -1843,7 +2105,7 @@ previewEl.addEventListener('click', (e) => {
 document.addEventListener('mousedown', (e) => {
   if (!cmtPopEl) return;
   const t = e.target;
-  if (t && t.closest && t.closest('.cmt-pop, .cmt-hl, .cmt-note, .cmt-add, .cmt-orphans')) return;
+  if (t && t.closest && t.closest('.cmt-pop, .cmt-hl, .cmt-note, .cmt-add, .cmt-orphans, #commentsToggle')) return;
   closeCmtPop();
 });
 // Fixed-position popovers drift when the preview scrolls under them.
@@ -1852,6 +2114,16 @@ previewEl.addEventListener('scroll', () => { closeCmtPop(); hideCmtAdd(); });
 // Global show/hide. Highlights stay in the DOM; CSS neutralizes them (and the
 // orphan pill) when off, and the handlers above guard on commentsVisible.
 // Persisted per-session in localStorage like scratch.raw.
+// Pad-wide comment tally on the header toggle. Recomputed from DATA on every
+// render (buildTree) and every live mutation (persistComments). Hidden at zero.
+function updateCommentsCount() {
+  let n = 0;
+  (DATA.pads || []).forEach(p => (p.files || []).forEach(f => { n += (f.comments && f.comments.length) || 0; }));
+  const el = document.getElementById('cmtCount');
+  if (!el) return;
+  el.textContent = n > 99 ? '99+' : String(n);
+  el.hidden = n === 0;
+}
 function applyCommentsVisibility() {
   document.documentElement.toggleAttribute('data-comments-off', !commentsVisible);
   const b = document.getElementById('commentsToggle');
@@ -1864,7 +2136,12 @@ function setCommentsVisible(v) {
   if (!v) { closeCmtPop(); hideCmtAdd(); }
   showToast(v ? 'Comments shown' : 'Comments hidden', 'info');
 }
-document.getElementById('commentsToggle').addEventListener('click', () => setCommentsVisible(!commentsVisible));
+// Click shows the pad-wide summary; visibility toggle moved to the 'c' shortcut.
+document.getElementById('commentsToggle').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  if (cmtPopEl && cmtPopEl.classList.contains('cmt-summary')) { closeCmtPop(); return; }
+  openCommentsSummary(btn);
+});
 applyCommentsVisibility();
 
 buildTree();
