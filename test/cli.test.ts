@@ -313,6 +313,72 @@ describe("export", () => {
   });
 });
 
+describe("comments", () => {
+  // Seed a pad with two commented files so the filter has something to narrow.
+  async function seed() {
+    await run(["new", "Notes", "--dir", root], io);
+    const padDir = join(root, "notes");
+    const cmt = (quote: string, body: string) => ({
+      id: quote, body, anchor: { quote, prefix: "", suffix: "" },
+      created: "2026-06-12T00:00:00Z", updated: "2026-06-12T00:00:00Z",
+    });
+    await writeFile(join(padDir, "a.md"), "# A\n\nalpha line here\n", "utf8");
+    await writeFile(join(padDir, "b.md"), "# B\n\nbeta line here\n", "utf8");
+    const mPath = join(padDir, MANIFEST_NAME);
+    const m = JSON.parse(await readFile(mPath, "utf8"));
+    m.files = [
+      { path: "a.md", comments: [cmt("alpha line here", "on A")] },
+      { path: "b.md", comments: [cmt("beta line here", "on B")] },
+    ];
+    await writeFile(mPath, JSON.stringify(m), "utf8");
+    return padDir;
+  }
+
+  test("no filter lists every commented file with its block context", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--dir", root, "--json"], io)).toBe(0);
+    const out = JSON.parse(all());
+    expect(out.comments.map((c: any) => c.file)).toEqual(["a.md", "b.md"]);
+    const a = out.comments.find((c: any) => c.file === "a.md");
+    expect(a).toMatchObject({ comment: "on A", quote: "alpha line here", matched: true, line: 3 });
+    expect(a.context).toContain("alpha line here");
+  });
+
+  test("--file exact path narrows to one file", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--file", "b.md", "--dir", root, "--json"], io)).toBe(0);
+    expect(JSON.parse(all()).comments.map((c: any) => c.file)).toEqual(["b.md"]);
+  });
+
+  test("--file glob matches by pattern", async () => {
+    await seed();
+    await writeFile(join(root, "notes", "c.txt"), "gamma\n", "utf8");
+    const mPath = join(root, "notes", MANIFEST_NAME);
+    const m = JSON.parse(await readFile(mPath, "utf8"));
+    m.files.push({ path: "c.txt", comments: [{ id: "g", body: "on C", anchor: { quote: "gamma", prefix: "", suffix: "" }, created: "2026-06-12T00:00:00Z", updated: "2026-06-12T00:00:00Z" }] });
+    await writeFile(mPath, JSON.stringify(m), "utf8");
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--file", "*.md", "--dir", root, "--json"], io)).toBe(0);
+    expect(JSON.parse(all()).comments.map((c: any) => c.file)).toEqual(["a.md", "b.md"]);
+  });
+
+  test("--file substring is case-insensitive", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--file", "B.MD", "--dir", root, "--json"], io)).toBe(0);
+    expect(JSON.parse(all()).comments.map((c: any) => c.file)).toEqual(["b.md"]);
+  });
+
+  test("--file matching nothing reports it", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--file", "nope", "--dir", root], io)).toBe(0);
+    expect(all()).toContain('no comments matching "nope"');
+  });
+});
+
 describe("errors", () => {
   test("unknown command exits 2", async () => {
     expect(await run(["frobnicate"], io)).toBe(2);

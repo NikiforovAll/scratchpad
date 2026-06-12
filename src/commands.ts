@@ -287,6 +287,102 @@ export async function cmdShow(
   return 0;
 }
 
+/** scratch comments <pad> [<file>] [--dir <root>] [--json] — read inline comments
+ * with the markdown section each one anchors to, so an agent can act on them. */
+export async function cmdComments(
+  args: { pad?: string; file?: string; dir?: string; json?: boolean },
+  io: IO,
+): Promise<number> {
+  if (!args.pad) {
+    fail(io, "usage: scratch comments <pad> [<file>] [--json]");
+    return 2;
+  }
+  const { buildIndex, locateComment } = await import("./comments.ts");
+  const root = resolveRoot(args.dir);
+  const pad = await resolvePad(args.pad, root);
+  if (!pad) {
+    fail(io, `no scratchpad "${args.pad}" found under ${root}`);
+    return 1;
+  }
+  const m = pad.manifest;
+  // Optional file filter: exact path, glob (`*.md`, `**/x`), or case-insensitive
+  // substring — whichever the arg looks like. Absent = every commented file.
+  const filter = args.file ? toPosix(args.file) : null;
+  const matches = (path: string) => {
+    if (!filter) return true;
+    if (path === filter) return true;
+    if (/[*?[\]{}]/.test(filter)) return new Bun.Glob(filter).match(path);
+    return path.toLowerCase().includes(filter.toLowerCase());
+  };
+  // Files carrying comments (optionally narrowed by the filter), in manifest order.
+  const entries = m.files.filter((f) => f.comments?.length && matches(f.path));
+
+  // Resolve content the same way `show` does (linked files live at `src`), locate
+  // each comment's quote in the source, and flatten into one agent-friendly list:
+  // each item is self-contained (file + what the human said + the editable block).
+  type Item = {
+    id: string;
+    file: string;
+    comment: string;
+    quote: string;
+    matched: boolean;
+    line: number | null;
+    section_heading: string | null;
+    context: string | null;
+    context_lines: string | null;
+  };
+  const items: Item[] = [];
+  for (const f of entries) {
+    const abs = f.src ? (isAbsolute(f.src) ? f.src : resolve(pad.dir, f.src)) : join(pad.dir, f.path);
+    const source = existsSync(abs) ? await Bun.file(abs).text() : "";
+    const index = buildIndex(source); // parse the file once, reuse for all its comments
+    for (const c of f.comments ?? []) {
+      const r = locateComment(index, c);
+      items.push({
+        id: c.id,
+        file: f.path,
+        comment: c.body,
+        quote: c.anchor.quote.replace(/\s+/g, " ").trim(),
+        matched: r.matched,
+        line: r.line,
+        section_heading: r.heading,
+        context: r.context,
+        context_lines: r.contextLines ? `${r.contextLines[0]}-${r.contextLines[1]}` : null,
+      });
+    }
+  }
+
+  if (args.json) {
+    emitJson(io, { pad: m.name, comments: items });
+    return 0;
+  }
+
+  if (items.length === 0) {
+    io.out(filter ? `no comments matching "${filter}" in ${m.name}` : `no comments in ${m.name}`);
+    return 0;
+  }
+  io.out(`${bold("COMMENTS")} in ${bold(m.name)} ${dim(`(${items.length})`)}`);
+  let lastFile = "";
+  for (const it of items) {
+    if (it.file !== lastFile) {
+      io.out("");
+      io.out(bold(it.file));
+      lastFile = it.file;
+    }
+    const where = it.matched
+      ? `${it.file}:${it.line}${it.section_heading ? " · § " + it.section_heading : ""}`
+      : "orphaned — quote not found in source";
+    io.out("");
+    io.out(`  ${cyan("▸")} ${it.comment}`);
+    io.out(`    ${dim(`@ "${it.quote.length > 70 ? it.quote.slice(0, 70) + "…" : it.quote}"  [${where}]`)}`);
+    if (it.context) {
+      io.out(dim(`    ─ context L${it.context_lines} ─`));
+      for (const ln of it.context.split("\n")) io.out(dim(`    │ ${ln}`));
+    }
+  }
+  return 0;
+}
+
 /** scratch rm <pad> [<file>] [--dir <root>] [--force] */
 export async function cmdRm(
   args: { pad?: string; file?: string; dir?: string; force?: boolean },

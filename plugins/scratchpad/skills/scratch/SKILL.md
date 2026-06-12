@@ -30,11 +30,25 @@ the CLI lives; don't look there for an entrypoint to invoke.
 4. INSPECT:  scratch ls           # pads under root
              scratch ls "<name>"  # files in a pad
              scratch show "<name>" <file>
+             scratch comments "<name>"   # inline comments left in the viewer
+             # add --json to `ls`/`show <file>`/`comments` for machine-readable output (agents)
 
 5. BROWSE:   scratch ui "<name>"  # see viewer note — launch backgrounded
 ```
 
 To extend an existing pad later, skip step 1 — `ls` to find it, write, `add`.
+
+## Scripting (`--json`)
+
+`ls` and `show <pad> <file>` accept `--json` for parseable output (paths are relative,
+forward-slashed — never absolute, safe across shells/platforms):
+
+- `scratch ls --json` → `{ root, pads: [{ name, rel, files }] }`
+- `scratch ls "<name>" --json` → `{ name, id, rel, files: [<entry>] }`
+- `scratch show "<name>" <file> --json` → `{ metadata, content }` (`metadata` null if unregistered)
+- `scratch comments "<name>" [<file>] --json` → `{ pad, comments: [...] }` (see below)
+
+Errors stay as text on stderr; stdout carries only the JSON, so pipe to `jq` freely.
 
 ## Choosing a location (`--dir`)
 
@@ -70,6 +84,15 @@ launch it **backgrounded** (don't await it) so the session keeps moving, then
 report the URL. Native glimpse window with automatic browser+server fallback
 (`--browser` forces it); shows all files in the pad (unregistered ones dimmed),
 renders markdown/code/`mermaid`, raw↔rendered toggle, auto light/dark.
+
+## Reading viewer feedback (`scratch comments`)
+
+Reviewers attach inline comments to rendered text in the viewer.
+`scratch comments "<name>"` reads them back (`--file <path|glob|substring>` to
+narrow files; `--json` for agents)
+so you can act without opening the UI: each item gives the note, the quoted text,
+and the enclosing markdown `context` block to edit. `matched: false` = the quoted
+text was edited away (orphaned); reconcile manually.
 
 ## Cleanup
 

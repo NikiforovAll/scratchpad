@@ -5,7 +5,7 @@
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import { bold, cyan, dim, red } from "./colors.ts";
-import { cmdAdd, cmdExport, cmdLs, cmdNew, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
+import { cmdAdd, cmdComments, cmdExport, cmdLs, cmdNew, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
 
 // A function, not a const: styling is decided per call (TTY/NO_COLOR), so it
 // must not be baked in at import time.
@@ -32,6 +32,13 @@ ${bold("USAGE")}
   ${cyan("scratch show")} <pad> [<file>] ${dim("[--dir <root>] [--json]")}
       No <file>: print the manifest.  With <file>: print metadata + file content.
       --json  with <file>: emit {metadata, content} (metadata null if unregistered).
+
+  ${cyan("scratch comments")} <pad> ${dim("[--file <filter>] [--dir <root>] [--json]")}
+      List inline comments with the markdown block each one anchors to, so an
+      agent can read and act on viewer feedback. --file narrows to files by
+      exact path, glob (*.md), or substring; omit it for all commented files.
+      --json  emit {pad, comments:[{id, file, comment, quote, line, section_heading,
+              context, context_lines, matched}]} — one flat, self-contained list.
 
   ${cyan("scratch rm")} <pad> [<file>] ${dim("[--dir <root>] [--force]")}
       With <file>: unregister it (file on disk untouched).
@@ -65,6 +72,7 @@ const FLAG_SPEC = {
   tag: { type: "string" as const },
   type: { type: "string" as const },
   group: { type: "string" as const },
+  file: { type: "string" as const },
   link: { type: "boolean" as const },
   as: { type: "string" as const },
   force: { type: "boolean" as const },
@@ -109,6 +117,8 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
       return cmdLs({ pad: rest[0], dir: v.dir, json: v.json }, io);
     case "show":
       return cmdShow({ pad: rest[0], file: rest[1], dir: v.dir, json: v.json }, io);
+    case "comments":
+      return cmdComments({ pad: rest[0], file: v.file, dir: v.dir, json: v.json }, io);
     case "rm":
       return cmdRm({ pad: rest[0], file: rest[1], dir: v.dir, force: v.force }, io);
     case "ui":
