@@ -501,10 +501,11 @@ export async function cmdExport(
   // panel falls back to localStorage (no host listening to write config).
   const view = await buildView(sel.pads);
   const cfg = await loadConfig();
-  const html = await renderHtml(view, sel.label, cfg.ui);
+  const html = await renderHtml(view, sel.label, cfg.ui, { exportMode: true });
   const outPath = resolve(args.out ?? `${sel.defaultName}.html`);
   await Bun.write(outPath, html);
   ok(io, `exported ${bold(sel.label)} → ${cyan(outPath)}`);
   io.out(dim(`  ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB; open it in any browser (hljs/mermaid via CDN).`));
+  io.out(dim(`  comments added in the page persist via its Save-a-copy button.`));
   return 0;
 }

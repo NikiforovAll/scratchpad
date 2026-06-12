@@ -400,6 +400,23 @@ body {
 }
 .icon-btn:hover { background: var(--hover); color: var(--ink-1); border-color: var(--ink-muted); }
 .icon-btn svg { width: 16px; height: 16px; }
+#commentsToggle { position: relative; }
+.cmt-count {
+  position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+  font-size: 10px; font-weight: 600; line-height: 1; border-radius: 8px;
+  background: var(--ember); color: #fff; pointer-events: none;
+}
+.cmt-count[hidden] { display: none; }
+#saveCopy { position: relative; }
+.save-dot {
+  position: absolute; top: -4px; right: -4px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--ember); pointer-events: none;
+}
+.save-dot[hidden] { display: none; }
+/* Exports have no host: hide the reload button and the help rows for
+   shortcuts that are dead there (.sc-live = live-viewer-only). */
+html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 #closeBtn:hover { background: var(--ember); color: #fff; border-color: var(--ember); }
 
 /* shortcuts modal */
@@ -425,14 +442,26 @@ body {
 .shortcuts .sc-plus { color: var(--ink-muted); font-size: 11px; }
 
 /* layout */
-.body { display: flex; flex: 1; min-height: 0; }
+.body { display: flex; flex: 1; min-height: 0; position: relative; }
 .sidebar {
   width: var(--tree-w, 340px); flex: 0 0 auto; min-height: 0;
   display: flex; flex-direction: column;
   background: var(--surface); border-right: 1px solid var(--border);
-  overflow: hidden;
+  overflow: hidden; position: relative;
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* Collapse control rides the pane's top-right corner, next to what it collapses.
+   It overlays the tree's first line — a short small-caps group header — so a
+   compact button with the pane's own background never collides with text. */
+#sidebarToggle { position: absolute; top: 8px; right: 8px; z-index: 2;
+  width: 28px; height: 28px; background: var(--surface); }
+#sidebarToggle svg { width: 14px; height: 14px; }
+/* The in-pane toggle disappears with the pane; this floater (hidden unless
+   collapsed) is the way back. */
+#sidebarOpen { display: none; position: absolute; top: 8px; left: 8px; z-index: 6;
+  width: 28px; height: 28px; background: var(--surface); }
+#sidebarOpen svg { width: 14px; height: 14px; }
+.sidebar.collapsed ~ #sidebarOpen { display: flex; }
 /* Collapse slides the pane shut instead of popping it away. Rows are
    nowrap+ellipsis, so the shrinking width clips cleanly. */
 .sidebar.collapsed { width: 0; border-right: none; }
@@ -652,6 +681,21 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .cmt-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
 .cmt-orow { padding: 6px 0; }
 .cmt-orow + .cmt-orow { border-top: 1px solid var(--border); }
+.cmt-pop.cmt-summary { width: 340px; max-height: 60vh; overflow-y: auto; padding: 12px; }
+.cmt-shead { font-family: var(--mono); font-size: 10px; color: var(--ink-muted);
+  text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.cmt-sfile { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+  color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.04em;
+  margin: 12px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmt-sfile::before { content: '📄'; font-size: 11px; filter: grayscale(0.3); }
+.cmt-srow { cursor: pointer; border-radius: 6px; padding: 8px; margin: 0 -4px;
+  transition: background 0.12s ease; }
+.cmt-srow:hover { background: var(--hover); }
+.cmt-srow .cmt-body { font-size: 13px; color: var(--ink-1); line-height: 1.4; }
+.cmt-srow .cmt-quote { margin: 5px 0 0; padding: 1px 0 1px 8px; border-left: 2px solid var(--ember-dim);
+  font-style: normal; color: var(--ink-muted); }
+.cmt-srow .cmt-when { margin-top: 5px; }
 .cmt-orphans { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 10px;
   font-family: var(--mono); font-size: 11px; color: var(--ink-muted);
   border: 1px dashed var(--border); border-radius: 5px; padding: 4px 10px; cursor: pointer; }

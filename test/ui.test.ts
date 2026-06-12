@@ -124,6 +124,18 @@ describe("renderHtml", () => {
     expect(html.length).toBeLessThan(150_000); // mermaid bundle NOT inlined
   });
 
+  test("export mode tags <html> and ships the Save-a-copy button; live mode has neither", async () => {
+    const pad = await seedPad();
+    const view = await buildView([pad]);
+    const exported = await renderHtml(view, "Notes", undefined, { exportMode: true });
+    expect(exported).toMatch(/<html[^>]* data-export/);
+    expect(exported).toContain('id="saveCopy"');
+    expect(exported).toContain('id="saveDot"');
+    const live = await renderHtml(view, "Notes");
+    expect(live).not.toMatch(/<html[^>]* data-export/);
+    expect(live).not.toContain('id="saveCopy"');
+  });
+
   test("defaults to system mode + ember and ships the settings UI", async () => {
     const pad = await seedPad();
     const html = await renderHtml(await buildView([pad]), "Notes");

@@ -223,6 +223,7 @@ export async function renderHtml(
   view: PadView[],
   rootLabel: string,
   ui: UiSettings = DEFAULT_UI,
+  opts: { exportMode?: boolean } = {},
 ): Promise<string> {
   const data = payloadJson(view, rootLabel);
   const titleName = view.length === 1 ? view[0]!.name : rootLabel;
@@ -237,6 +238,10 @@ export async function renderHtml(
     ` data-grid="${escapeHtml(gridStyle)}"` +
     (ui.themeMode === "system" ? "" : ` data-theme="${ui.themeMode}"`) +
     (wideMode ? " data-wide" : "") +
+    // Static export: no host listens, so the page file is the comment store.
+    // The client keys "save a copy" behavior off this attribute, and it rides
+    // along when the page re-saves itself, so saved copies stay exports.
+    (opts.exportMode ? " data-export" : "") +
     (zoom === 1 ? "" : ` style="zoom: ${zoom}"`);
   // NOT part of payloadJson: __scratchReload diff-compares the data island to
   // detect "no changes", and settings must not break that.
@@ -269,6 +274,17 @@ export async function renderHtml(
     vendorCss += cssLink("hljs-light", HLJS_THEME_LIGHT);
   }
 
+  // Only exports get the Save-a-copy button: comments made there have no
+  // write-back channel, so saving the page itself is what persists them
+  // (saveCopy in the client script). Live viewers persist through the host.
+  const saveBtn = opts.exportMode
+    ? `<button class="icon-btn" id="saveCopy" title="Save a copy of this page — comments live in the saved file" aria-label="Save a copy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        <span class="save-dot" id="saveDot" hidden></span>
+      </button>
+      `
+    : "";
+
   return `<!doctype html>
 <html lang="en"${htmlAttrs}>
 <head>
@@ -285,8 +301,9 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <span class="padname" id="padname"></span>
     </div>
     <div class="view-actions">
-      <button class="icon-btn" id="sidebarToggle" title="Toggle sidebar ([)" aria-label="Toggle sidebar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+      ${saveBtn}<button class="icon-btn" id="commentsToggle" title="Comments summary (toggle visibility with C)" aria-label="Comments summary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="cmt-count" id="cmtCount" aria-label="Comment count" hidden></span>
       </button>
       <button class="icon-btn" id="reloadBtn" title="Reload from disk (R)" aria-label="Reload">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -294,9 +311,6 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <button class="icon-btn" id="themeToggle" title="Toggle theme (T)" aria-label="Toggle theme">
         <svg class="i-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
         <svg class="i-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-      </button>
-      <button class="icon-btn" id="commentsToggle" title="Toggle comments (C)" aria-label="Toggle comments">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </button>
       <button class="icon-btn" id="settingsBtn" title="Settings (S)" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -314,11 +328,17 @@ ${vendorCss}<style>${THEME_CSS}</style>
   </header>
   <div class="body">
     <div class="sidebar" id="sidebar">
+      <button class="icon-btn" id="sidebarToggle" title="Collapse sidebar ([)" aria-label="Collapse sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+      </button>
       <nav class="tree" id="tree"></nav>
       <div class="appver" title="scratch version">v${escapeHtml(pkg.version)}</div>
     </div>
     <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
     <main class="preview" id="preview" tabindex="0"></main>
+    <button class="icon-btn" id="sidebarOpen" title="Show sidebar ([)" aria-label="Show sidebar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+    </button>
   </div>
   <div class="modal-scrim" id="helpModal" style="display:none">
     <div class="modal">
@@ -333,14 +353,15 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div class="sc-group">View</div>
         <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
         <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
+        <div class="sc-live"><dt><kbd>Shift</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy active file path</dd></div>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
         <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Zoom in / out / reset</dd></div>
         <div class="sc-group">General</div>
-        <div><dt><kbd>r</kbd></dt><dd>Reload from disk</dd></div>
+        <div class="sc-live"><dt><kbd>r</kbd></dt><dd>Reload from disk</dd></div>
         <div><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
         <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
-        <div><dt><kbd>q</kbd></dt><dd>Quit (close window)</dd></div>
+        <div class="sc-live"><dt><kbd>q</kbd></dt><dd>Quit (close window)</dd></div>
         <div><dt><kbd>Esc</kbd></dt><dd>Close dialogs / window</dd></div>
       </dl>
     </div>
@@ -443,6 +464,12 @@ const GALLERY_MODAL_HTML = `<div class="modal-scrim gallery-scrim" id="galleryMo
 // and auto-detected theme. Kept dependency-free; vendored libs are optional.
 const CLIENT_JS = String.raw`
 let DATA = JSON.parse(document.getElementById('data').textContent);
+// Static export (scratch export bakes data-export onto <html>): no host listens,
+// so the page file itself is where comments persist. Capture the pristine source
+// now, before any rendering mutates the DOM — saveCopy() splices the live DATA
+// back into this string instead of re-serializing the mutated document.
+const EXPORT_MODE = document.documentElement.hasAttribute('data-export');
+const PRISTINE = EXPORT_MODE ? '<!doctype html>\n' + document.documentElement.outerHTML : '';
 const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function mdInline(s) {
@@ -635,6 +662,42 @@ function fmtFull(iso) {
   return isNaN(d) ? '' : d.toLocaleString();
 }
 
+// Clipboard: navigator.clipboard needs a secure context, but glimpse delivers
+// the page via NavigateToString / file:// — an opaque origin where it's absent
+// or rejects (the copy silently no-ops). Fall back to a hidden-textarea
+// execCommand('copy'), which works in that context (and in the browser).
+function execCopy(text) {
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('execCommand copy failed'));
+    } catch (e) { reject(e); }
+  });
+}
+function copyText(text) {
+  return navigator.clipboard && navigator.clipboard.writeText
+    ? navigator.clipboard.writeText(text).catch(() => execCopy(text))
+    : execCopy(text);
+}
+// Copy the active file's path (Shift+C). Mirrors the 🔗 path button, including
+// its absence in exports (the path only means something on the exporter's machine).
+function copyActivePath() {
+  const f = currentRef && currentRef.f;
+  if (!f || EXPORT_MODE) return;
+  copyText(f.abs || f.path)
+    .then(() => showToast('Path copied', 'success'))
+    .catch(() => showToast('Copy failed'));
+}
+
 function renderPreview(pad, f) {
   current = pad.dir + '::' + f.path; currentRef = { pad, f };
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
@@ -645,9 +708,13 @@ function renderPreview(pad, f) {
   const metaLine = metaBits.join(' · ');
   const canRaw = (f.kind === 'markdown' || f.kind === 'html') && f.content != null;
   const canCopyContent = f.content != null && (f.kind === 'markdown' || f.kind === 'html' || f.kind === 'code' || f.kind === 'text');
+  const hasComments = !!(f.comments && f.comments.length);
   const ctrls = '<span class="pctrls">' +
-    '<button class="pbtn" id="copyPath">🔗 path</button>' +
+    // The path is the exporter's local filesystem path — meaningless to whoever
+    // receives an exported copy, so exports don't offer it.
+    (EXPORT_MODE ? '' : '<button class="pbtn" id="copyPath">🔗 path</button>') +
     (canCopyContent ? '<button class="pbtn" id="copyContent">⧉ copy</button>' : '') +
+    (hasComments ? '<button class="pbtn" id="clearComments" title="Delete all comments on this file">🗑 ' + nComments(f.comments.length) + '</button>' : '') +
     (canRaw
       ? '<button class="pbtn ' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
         '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button>'
@@ -706,29 +773,6 @@ function renderPreview(pad, f) {
     rd.addEventListener('click', () => { if (rawMode) { setRaw(false); renderPreview(pad, f); } });
     rw.addEventListener('click', () => { if (!rawMode) { setRaw(true); renderPreview(pad, f); } });
   }
-  // Clipboard: navigator.clipboard needs a secure context, but glimpse delivers
-  // the page via NavigateToString / file:// — an opaque origin where it's absent
-  // or rejects (the copy silently no-ops). Fall back to a hidden-textarea
-  // execCommand('copy'), which works in that context (and in the browser).
-  const execCopy = (text) => new Promise((resolve, reject) => {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      ok ? resolve() : reject(new Error('execCommand copy failed'));
-    } catch (e) { reject(e); }
-  });
-  const copyText = (text) =>
-    navigator.clipboard && navigator.clipboard.writeText
-      ? navigator.clipboard.writeText(text).catch(() => execCopy(text))
-      : execCopy(text);
   // Flash the button label (✓ copied) and pop a toast so the action registers
   // whether the user is looking at the button or the corner.
   const flash = (btn, label, toast) => {
@@ -748,6 +792,25 @@ function renderPreview(pad, f) {
     copyText(f.content)
       .then(() => flash(cc, '⧉ copy', 'Content copied'))
       .catch(() => showToast('Copy failed')));
+  // Bulk-clear is irreversible, so it arms on the first click and only deletes on
+  // the second (within 3s) — unlike the per-comment delete, which fires straight away.
+  const clr = document.getElementById('clearComments');
+  if (clr) {
+    const label = clr.textContent;
+    let armed = false;
+    clr.addEventListener('click', () => {
+      if (!armed) {
+        armed = true;
+        clr.textContent = '⚠ clear all?';
+        clr.classList.add('on');
+        clearTimeout(clr._t);
+        clr._t = setTimeout(() => { armed = false; clr.textContent = label; clr.classList.remove('on'); }, 3000);
+        return;
+      }
+      deleteAllComments();
+      clr.remove();
+    });
+  }
   enhance(preview);
   // After hljs rewrote the code blocks' text nodes — comment quote-matching
   // walks the final DOM. (Comments are a rendered-markdown concept: applyComments
@@ -809,6 +872,8 @@ function buildTree(preferKey, prevSelJson) {
       const pad = DATA.pads[+row.dataset.pi]; renderPreview(pad, pad.files[+row.dataset.fi]);
     }));
   }
+
+  updateCommentsCount();
 
   // On a hot-reload we re-select the file the user was on (by pad::path) so the
   // view doesn't jump back to the top. If it's gone (deleted/renamed), fall back
@@ -1167,6 +1232,9 @@ const closeWindow = webview ? () => webview.postMessage({ __glimpse_close: true 
 // __scratchReload, which only re-renders the preview if the open file changed);
 // in the browser we just reload the page (the server rebuilds per request).
 function requestReload() {
+  // An export has no disk to reload from — location.reload() would just re-read
+  // the file and silently drop unsaved comments.
+  if (EXPORT_MODE) return;
   if (webview) { try { webview.postMessage({ __scratch_reload: true }); } catch (_) {} }
   // Browser: full reload (the server rebuilds per request). Stash a flag so the
   // freshly-loaded page can surface the toast the native path shows inline.
@@ -1233,7 +1301,7 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
   });
 })();
 
-// Collapsible sidebar (topbar panel button / '['). Like the resizable width
+// Collapsible sidebar (in-pane panel button / '['). Like the resizable width
 // (scratch.treeW above), this is per-machine window geometry — localStorage,
 // not the config file.
 const sidebarEl = document.getElementById('sidebar');
@@ -1242,6 +1310,9 @@ function toggleSidebar() {
   try { localStorage.setItem('scratch.sidebarCollapsed', c ? '1' : '0'); } catch (_) {}
 }
 document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
+// The in-pane toggle collapses away with the pane; this floater (top-left of
+// the body, shown by CSS only while collapsed) is the way back.
+document.getElementById('sidebarOpen').addEventListener('click', toggleSidebar);
 try {
   if (localStorage.getItem('scratch.sidebarCollapsed') === '1') {
     // Restore closed without the slide-shut animation playing at boot.
@@ -1280,6 +1351,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
   }
+  if (e.key === 'C') { copyActivePath(); return; }
   if (e.key === 'c') { setCommentsVisible(!commentsVisible); return; }
   // vimium-style scrolling: j/k line steps, d/u half page. Instant (no smooth) —
   // smooth scrollBy queues badly under key auto-repeat. File nav stays on arrows.
@@ -1371,6 +1443,7 @@ try { commentsVisible = localStorage.getItem('scratch.comments') !== '0'; } catc
 let ORPHANS = []; // comments whose quote wasn't found in the current render
 
 function cmtNowIso() { return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+function nComments(n) { return n + ' comment' + (n > 1 ? 's' : ''); }
 function cmtId() {
   if (window.crypto && window.crypto.randomUUID) { try { return window.crypto.randomUUID(); } catch (_) {} }
   return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
@@ -1477,14 +1550,88 @@ function findComment(cid) {
 }
 
 // Persist the active file's full comment array (add/edit/delete all replace it
-// wholesale). Same channel fan-out as persistSettings; over file:// (export)
-// there is no host, so the mutation is view-only.
+// wholesale). Same channel fan-out as persistSettings; in an export there is no
+// host — the mutation already lives in DATA, so arm Save-a-copy instead: saving
+// the page file is what persists comments there.
 function persistComments() {
   if (!currentRef) return;
+  if (EXPORT_MODE) {
+    setExportDirty(true);
+    showToast('Comment kept in this page — Save a copy to keep it in the file', 'info');
+    updateCommentsCount();
+    return;
+  }
   const payload = { padDir: currentRef.pad.dir, filePath: currentRef.f.path, comments: currentRef.f.comments || [] };
   const sent = postToHost('__scratch_comments', '/comments', payload, () => showToast('Saving comment failed'));
-  if (!sent) showToast('Comments cannot be saved from an exported page', 'info');
+  if (!sent) showToast('Comments cannot be saved from this page', 'info');
+  updateCommentsCount();
 }
+
+// --- Save a copy (static export only) ---
+// New/edited comments in an export live only in DATA until the user saves the
+// page itself. Saving = splice the current DATA into the boot-time PRISTINE
+// source (never the live DOM — hljs and comment marks have rewritten it) and
+// hand the result over as a real file (showSaveFilePicker) or a download.
+let exportDirty = false;
+function setExportDirty(v) {
+  exportDirty = v;
+  const d = document.getElementById('saveDot');
+  if (d) d.hidden = !v;
+  const b = document.getElementById('saveCopy');
+  if (b) b.title = v
+    ? 'Unsaved comments — save a copy of this file to keep them'
+    : 'Save a copy of this page — comments live in the saved file';
+}
+function builtExportHtml() {
+  const open = '<script id="data" type="application/json">';
+  const close = '</' + 'script>';
+  const i = PRISTINE.indexOf(open);
+  const j = i === -1 ? -1 : PRISTINE.indexOf(close, i);
+  if (j === -1) return null;
+  // payloadJson's escaping, so the island can never contain a closing script tag.
+  return PRISTINE.slice(0, i + open.length) + JSON.stringify(DATA).replace(/</g, '\\u003c') + PRISTINE.slice(j);
+}
+function saveCopyName() {
+  try {
+    const n = decodeURIComponent(location.pathname.split('/').pop() || '');
+    if (/\.html?$/i.test(n)) return n;
+  } catch (_) {}
+  return 'scratchpad.html';
+}
+function saveCopy() {
+  const html = builtExportHtml();
+  if (html == null) { showToast('Save failed'); return; }
+  const name = saveCopyName();
+  const blob = new Blob([html], { type: 'text/html' });
+  const done = () => { setExportDirty(false); showToast('Saved — that file carries the comments', 'success'); };
+  if (window.showSaveFilePicker) {
+    // file:// counts as a secure context in Chromium, so exports get a real
+    // save dialog; everywhere else falls back to a plain download.
+    window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'HTML page', accept: { 'text/html': ['.html'] } }] })
+      .then((h) => h.createWritable())
+      .then((w) => w.write(blob).then(() => w.close()))
+      .then(done)
+      .catch((e) => { if (!e || e.name !== 'AbortError') downloadCopy(blob, name, done); });
+    return;
+  }
+  downloadCopy(blob, name, done);
+}
+function downloadCopy(blob, name, done) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch (_) {} }, 10000);
+  done();
+}
+const saveCopyBtn = document.getElementById('saveCopy');
+if (saveCopyBtn) saveCopyBtn.addEventListener('click', saveCopy);
+// Don't let unsaved comments vanish with a casual tab close.
+if (EXPORT_MODE) window.addEventListener('beforeunload', (e) => {
+  if (exportDirty) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // --- popover (one at a time; view / edit / new / orphan-list modes) ---
 let cmtPopEl = null;
@@ -1606,6 +1753,63 @@ function openOrphansPop(pill) {
   });
 }
 
+// Pad-wide comments summary, anchored to the header toggle. Read-only list grouped
+// by file; clicking a row jumps to that comment. Visibility is toggled via 'c'.
+function openCommentsSummary(btn) {
+  const rect = btn.getBoundingClientRect();
+  const items = [];
+  (DATA.pads || []).forEach(pad => (pad.files || []).forEach(f =>
+    (f.comments || []).forEach(c => items.push({ pad, f, c }))));
+  openCmtPop(rect, (el) => {
+    el.classList.add('cmt-summary');
+    const head = document.createElement('div'); head.className = 'cmt-shead';
+    head.textContent = items.length ? nComments(items.length) : 'No comments';
+    el.appendChild(head);
+    if (!items.length) {
+      const hint = document.createElement('div'); hint.className = 'cmt-when';
+      hint.textContent = 'Select text in a file to add one.';
+      el.appendChild(hint);
+      return;
+    }
+    let lastFile = null;
+    items.forEach(({ pad, f, c }) => {
+      if (f !== lastFile) {
+        lastFile = f;
+        const fh = document.createElement('div'); fh.className = 'cmt-sfile';
+        fh.textContent = f.title || f.path;
+        el.appendChild(fh);
+      }
+      const row = document.createElement('div'); row.className = 'cmt-srow';
+      const body = document.createElement('div'); body.className = 'cmt-body'; body.textContent = c.body;
+      row.appendChild(body);
+      const quote = ((c.anchor && c.anchor.quote) || '').trim();
+      if (quote) {
+        const q = document.createElement('div'); q.className = 'cmt-quote';
+        q.textContent = quote.length > 80 ? quote.slice(0, 80) + '…' : quote;
+        row.appendChild(q);
+      }
+      const when = document.createElement('div'); when.className = 'cmt-when';
+      when.textContent = fmtWhen(c.created);
+      when.title = fmtFull(c.created);
+      row.appendChild(when);
+      row.addEventListener('click', () => gotoComment(pad, f, c));
+      el.appendChild(row);
+    });
+  });
+}
+
+// Open a comment's file from the summary and surface it (scroll + popover when
+// the quote still resolves in the render; orphans just navigate).
+function gotoComment(pad, f, c) {
+  closeCmtPop();
+  if (!currentRef || currentRef.f !== f) renderPreview(pad, f);
+  const hl = document.querySelector('.cmt-hl[data-cid="' + c.id + '"]');
+  if (hl) {
+    try { hl.scrollIntoView({ block: 'center' }); } catch (_) {}
+    if (commentsVisible) cmtViewPop(c, hl.getBoundingClientRect());
+  }
+}
+
 function deleteComment(cid) {
   const f = currentRef && currentRef.f;
   if (!f) return;
@@ -1616,6 +1820,23 @@ function deleteComment(cid) {
   refreshOrphanPill();
   closeCmtPop();
   showToast('Comment deleted', 'success');
+}
+
+// Clear every comment on the active file in one shot (current-file scope only —
+// persistComments writes just this file's array). Unwraps all highlights/notes
+// and orphans, then persists the now-empty array through the same channel.
+function deleteAllComments() {
+  const f = currentRef && currentRef.f;
+  if (!f || !f.comments || !f.comments.length) return;
+  const n = f.comments.length;
+  const ids = f.comments.map(c => c.id);
+  f.comments = [];
+  ORPHANS = [];
+  persistComments();
+  ids.forEach(cmtUnwrap);
+  refreshOrphanPill();
+  closeCmtPop();
+  showToast(nComments(n) + ' deleted', 'success');
 }
 
 function refreshOrphanPill() {
@@ -1723,7 +1944,7 @@ previewEl.addEventListener('click', (e) => {
 document.addEventListener('mousedown', (e) => {
   if (!cmtPopEl) return;
   const t = e.target;
-  if (t && t.closest && t.closest('.cmt-pop, .cmt-hl, .cmt-note, .cmt-add, .cmt-orphans')) return;
+  if (t && t.closest && t.closest('.cmt-pop, .cmt-hl, .cmt-note, .cmt-add, .cmt-orphans, #commentsToggle')) return;
   closeCmtPop();
 });
 // Fixed-position popovers drift when the preview scrolls under them.
@@ -1732,6 +1953,16 @@ previewEl.addEventListener('scroll', () => { closeCmtPop(); hideCmtAdd(); });
 // Global show/hide. Highlights stay in the DOM; CSS neutralizes them (and the
 // orphan pill) when off, and the handlers above guard on commentsVisible.
 // Persisted per-session in localStorage like scratch.raw.
+// Pad-wide comment tally on the header toggle. Recomputed from DATA on every
+// render (buildTree) and every live mutation (persistComments). Hidden at zero.
+function updateCommentsCount() {
+  let n = 0;
+  (DATA.pads || []).forEach(p => (p.files || []).forEach(f => { n += (f.comments && f.comments.length) || 0; }));
+  const el = document.getElementById('cmtCount');
+  if (!el) return;
+  el.textContent = n > 99 ? '99+' : String(n);
+  el.hidden = n === 0;
+}
 function applyCommentsVisibility() {
   document.documentElement.toggleAttribute('data-comments-off', !commentsVisible);
   const b = document.getElementById('commentsToggle');
@@ -1744,7 +1975,12 @@ function setCommentsVisible(v) {
   if (!v) { closeCmtPop(); hideCmtAdd(); }
   showToast(v ? 'Comments shown' : 'Comments hidden', 'info');
 }
-document.getElementById('commentsToggle').addEventListener('click', () => setCommentsVisible(!commentsVisible));
+// Click shows the pad-wide summary; visibility toggle moved to the 'c' shortcut.
+document.getElementById('commentsToggle').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  if (cmtPopEl && cmtPopEl.classList.contains('cmt-summary')) { closeCmtPop(); return; }
+  openCommentsSummary(btn);
+});
 applyCommentsVisibility();
 
 buildTree();

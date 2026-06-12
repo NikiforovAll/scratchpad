@@ -479,15 +479,22 @@ test("saved zoom is restored at boot in the localStorage fallback path", async (
   }
 });
 
-test("sidebar collapses via the topbar button and '[', persisting to localStorage", async () => {
+test("sidebar collapses via the in-pane button and '[', persisting to localStorage", async () => {
   const html = await renderPad();
   await boot(html);
   try {
     const sidebar = document.getElementById("sidebar")!;
+    // The collapse control lives inside the pane it collapses.
+    expect(document.getElementById("sidebarToggle")!.parentElement).toBe(sidebar);
     expect(sidebar.classList.contains("collapsed")).toBe(false);
     (document.getElementById("sidebarToggle") as any).click();
     expect(sidebar.classList.contains("collapsed")).toBe(true);
     expect(localStorage.getItem("scratch.sidebarCollapsed")).toBe("1");
+    // The floater (CSS-shown only while collapsed) reopens the pane.
+    (document.getElementById("sidebarOpen") as any).click();
+    expect(sidebar.classList.contains("collapsed")).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "[" }));
+    expect(sidebar.classList.contains("collapsed")).toBe(true);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "[" }));
     expect(sidebar.classList.contains("collapsed")).toBe(false);
     expect(localStorage.getItem("scratch.sidebarCollapsed")).toBe("0");
@@ -565,7 +572,11 @@ test("a saved collapsed sidebar is restored at boot", async () => {
 
 // --- inline comments ---
 
-async function renderPadWithComments(comments: Comment[], content?: string): Promise<string> {
+async function renderPadWithComments(
+  comments: Comment[],
+  content?: string,
+  exportMode = false,
+): Promise<string> {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });
   await writeFile(
@@ -577,7 +588,7 @@ async function renderPadWithComments(comments: Comment[], content?: string): Pro
   m.files.push({ path: "doc.md", title: "Doc", type: "note", comments });
   await writeManifest(dir, m);
   const pad: Pad = { dir, manifest: await readManifest(dir) };
-  return renderHtml(await buildView([pad]), "P");
+  return renderHtml(await buildView([pad]), "P", undefined, { exportMode });
 }
 
 function cmt(over: Partial<Comment> = {}): Comment {
@@ -684,6 +695,58 @@ test("delete posts the shrunken comment array and removes the highlight", async 
   }
 });
 
+test("export mode: a comment edit arms Save-a-copy; saving splices DATA into the file", async () => {
+  const html = await renderPadWithComments([cmt()], undefined, true);
+  const saved: Blob[] = [];
+  await boot(html, undefined, (w) => {
+    // boot() replaces documentElement.innerHTML, so the <html data-export>
+    // attribute from renderHtml is lost — re-apply it to mirror the real page.
+    document.documentElement.setAttribute("data-export", "");
+    w.showSaveFilePicker = () =>
+      Promise.resolve({
+        createWritable: () =>
+          Promise.resolve({
+            write: (b: Blob) => {
+              saved.push(b);
+              return Promise.resolve();
+            },
+            close: () => Promise.resolve(),
+          }),
+      });
+  });
+  try {
+    const dot = document.getElementById("saveDot") as any;
+    expect(dot.hidden).toBe(true);
+    // The exporter's local path means nothing to a recipient — no copy-path button.
+    expect(document.getElementById("copyPath")).toBeNull();
+    // 'r' must not reach the browser-fallback reload path (location.reload would
+    // drop unsaved comments); the guarded handler sets no reload flag.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "r", bubbles: true }));
+    expect(sessionStorage.getItem("scratch_reloaded")).toBeNull();
+    // Delete the only comment — no host to post to; DATA mutates in place.
+    (document.querySelector(".cmt-hl") as any).click();
+    (
+      Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find(
+        (b) => b.textContent === "delete",
+      ) as any
+    ).click();
+    expect(dot.hidden).toBe(false); // dirty → save armed
+    (document.getElementById("saveCopy") as any).click();
+    await new Promise((r) => setTimeout(r, 10)); // let the picker promise chain settle
+    expect(saved.length).toBe(1);
+    const out = await saved[0]!.text();
+    // The island in the saved copy reflects the deletion…
+    const island = out.match(/<script id="data" type="application\/json">([\s\S]*?)<\/script>/)![1]!;
+    expect(JSON.parse(island).pads[0].files[0].comments).toEqual([]);
+    // …and the copy is itself still a savable export.
+    expect(out).toMatch(/<html[^>]* data-export/);
+    expect(out).toContain('id="saveCopy"');
+    expect(dot.hidden).toBe(true); // saved → clean
+  } finally {
+    teardown();
+  }
+});
+
 test("edit updates the body and bumps updated, persisting the full array", async () => {
   const html = await renderPadWithComments([cmt()]);
   const posted: any[] = [];
@@ -750,9 +813,29 @@ test("'c' toggles comment visibility and persists to localStorage", async () => 
     // Hidden → clicking a highlight must not open a popover.
     (document.querySelector(".cmt-hl") as any).click();
     expect(document.querySelector(".cmt-pop")).toBeNull();
-    (document.getElementById("commentsToggle") as any).click();
+    // Toggle is keyboard-only now; the header button opens the summary instead.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }));
     expect(document.documentElement.hasAttribute("data-comments-off")).toBe(false);
     expect(localStorage.getItem("scratch.comments")).toBe("1");
+  } finally {
+    teardown();
+  }
+});
+
+test("clicking the comments button opens a pad-wide summary, click again closes it", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  await boot(html);
+  try {
+    const btn = document.getElementById("commentsToggle") as any;
+    btn.click();
+    const pop = document.querySelector(".cmt-pop.cmt-summary");
+    expect(pop).not.toBeNull();
+    expect(pop!.querySelector(".cmt-shead")!.textContent).toBe("1 comment");
+    expect(pop!.querySelectorAll(".cmt-srow").length).toBe(1);
+    // Visibility unchanged — the button no longer toggles.
+    expect(document.documentElement.hasAttribute("data-comments-off")).toBe(false);
+    btn.click();
+    expect(document.querySelector(".cmt-pop.cmt-summary")).toBeNull();
   } finally {
     teardown();
   }
