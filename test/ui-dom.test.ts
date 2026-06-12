@@ -857,3 +857,53 @@ test("in-place reload shows a toast (success on change, info when unchanged)", a
     teardown();
   }
 });
+
+// --- clickable task checkboxes ---
+
+async function renderPadWithTasks(content: string): Promise<string> {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "doc.md"), content, "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  return renderHtml(await buildView([pad]), "P");
+}
+
+test("clicking a task checkbox toggles it and posts __scratch_checkbox with the source line", async () => {
+  // Line indices (0-based): 0 "# Todos", 1 "", 2 "- [ ] one", 3 "- [x] two".
+  const html = await renderPadWithTasks("# Todos\n\n- [ ] one\n- [x] two\n");
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    const tasks = Array.from(document.querySelectorAll("#preview .md li.task"));
+    expect(tasks.length).toBe(2);
+    const t0 = tasks[0] as HTMLElement;
+    const t1 = tasks[1] as HTMLElement;
+    // Source line carried for the writeback.
+    expect(t0.dataset.line).toBe("2");
+    expect(t1.dataset.line).toBe("3");
+    expect(t0.classList.contains("done")).toBe(false);
+    expect(t1.classList.contains("done")).toBe(true);
+
+    // Check the first box → DOM flips + posts {line:2, checked:true}.
+    (t0.querySelector(".chk") as any).click();
+    expect(t0.classList.contains("done")).toBe(true);
+    expect(t0.querySelector(".chk")!.textContent).toBe("✓");
+    expect(t0.querySelector(".chk")!.getAttribute("aria-checked")).toBe("true");
+    let msg = posted.find((m) => m && m.__scratch_checkbox);
+    expect(msg.__scratch_checkbox).toMatchObject({ filePath: "doc.md", line: 2, checked: true });
+
+    // Uncheck the second → posts {line:3, checked:false}.
+    posted.length = 0;
+    (t1.querySelector(".chk") as any).click();
+    expect(t1.classList.contains("done")).toBe(false);
+    msg = posted.find((m) => m && m.__scratch_checkbox);
+    expect(msg.__scratch_checkbox).toMatchObject({ line: 3, checked: false });
+  } finally {
+    teardown();
+  }
+});

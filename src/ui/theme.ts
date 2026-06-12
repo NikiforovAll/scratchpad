@@ -543,8 +543,11 @@ body {
 .md li.task .chk { position: absolute; left: 0; top: 0.28em;
   display: inline-flex; align-items: center; justify-content: center;
   width: 1.05em; height: 1.05em;
-  border: 1.5px solid var(--ink-muted); border-radius: 3px; font-size: 0.8em; color: transparent; }
+  border: 1.5px solid var(--ink-muted); border-radius: 3px; font-size: 0.8em; color: transparent;
+  cursor: pointer; transition: border-color 0.12s, background 0.12s; }
+.md li.task .chk:hover { border-color: #2ea043; }
 .md li.task.done .chk { background: #2ea043; border-color: #2ea043; color: #fff; }
+.md li.task.done .chk:hover { background: #3fb950; border-color: #3fb950; }
 .md li.task.done { color: var(--ink-3); }
 .md blockquote { border-left: 2px solid var(--border); margin: 0.8em 0; padding: 0 0 0 14px; color: var(--ink-3); }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.4em 0; }

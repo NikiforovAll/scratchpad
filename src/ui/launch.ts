@@ -8,11 +8,11 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Pad } from "../discovery.ts";
+import { type Pad, resolveEntryPath } from "../discovery.ts";
 import type { IO } from "../commands.ts";
 import { bold, cyan, dim, note } from "../colors.ts";
 import { loadConfig, saveConfig } from "../config.ts";
@@ -73,6 +73,45 @@ export async function persistFileComments(pads: Pad[], payload: unknown, io: IO)
   }
 }
 
+// Toggle a GFM task checkbox in a file's CONTENT, posted by the viewer page
+// (WebView2 __scratch_checkbox / POST /checkbox). This is the ONE place the CLI
+// writes file content rather than just metadata — a deliberate exception to the
+// read-only/never-author invariant, scoped to flipping a single "[ ]"/"[x]"
+// marker. The edit is line-addressed: the page sends the source line index it
+// rendered; we re-read the file from disk, verify that line still IS a task
+// marker (the same regex the renderer used), and flip just that char — so a
+// drifted line is skipped rather than corrupted, and unrelated content (incl.
+// line endings elsewhere) is untouched. The file is resolved via the manifest
+// (linked `src` honored), so writes stay scoped to pad-registered files.
+const TASK_MARKER = /^(\s*[-*+]\s+\[)([ xX])(\].*)$/;
+export async function persistFileCheckbox(pads: Pad[], payload: unknown, io: IO): Promise<void> {
+  if (!payload || typeof payload !== "object") return;
+  const p = payload as { padDir?: unknown; filePath?: unknown; line?: unknown; checked?: unknown };
+  if (
+    typeof p.padDir !== "string" || typeof p.filePath !== "string" ||
+    typeof p.line !== "number" || !Number.isInteger(p.line) || p.line < 0 ||
+    typeof p.checked !== "boolean"
+  ) return;
+  const pad = pads.find((x) => x.dir === p.padDir);
+  if (!pad) return;
+  try {
+    const m = await readManifest(pad.dir);
+    const entry = m.files.find((f) => f.path === p.filePath);
+    if (!entry) return;
+    const abs = resolveEntryPath(pad.dir, entry);
+    const raw = await readFile(abs, "utf8");
+    const eol = raw.includes("\r\n") ? "\r\n" : "\n";
+    const lines = raw.split(/\r?\n/);
+    const target = lines[p.line];
+    const mt = typeof target === "string" ? target.match(TASK_MARKER) : null;
+    if (!mt) return; // line drifted since render — skip rather than corrupt
+    lines[p.line] = mt[1] + (p.checked ? "x" : " ") + mt[3];
+    await writeFile(abs, lines.join(eol), "utf8");
+  } catch (e) {
+    note(io, `saving checkbox failed (${(e as Error).message.split("\n")[0]}).`);
+  }
+}
+
 // Quit from the terminal with 'q', pager-style. Raw mode swallows Ctrl+C as
 // \x03, which we route through the same graceful quit — that also stops the
 // console from delivering CTRL_C_EVENT to the console-attached WebView2 host
@@ -122,20 +161,21 @@ export async function launchViewer(
   // primed from exactly what the launched page loaded.
   const reloader = createReloader(pads, rootLabel);
   const snap = await reloader.rebuild();
-  // Comment writeback handler shared by both transports.
+  // Writeback handlers shared by both transports.
   const persistComments = (payload: unknown) => persistFileComments(pads, payload, io);
+  const persistCheckbox = (payload: unknown) => persistFileCheckbox(pads, payload, io);
 
   // Native glimpse is the default; --browser forces the browser viewer. When the
   // native host isn't built, tryGlimpse prints how to install it and we fall back.
   if (!opts.forceBrowser) {
     const ok = await tryGlimpse(
       snap.html, opts.title, io, reloader, opts.frameless !== false, !!opts.installNative,
-      persistComments,
+      persistComments, persistCheckbox,
     );
     if (ok) return 0;
     io.err("falling back to the browser viewer.");
   }
-  return serveBrowser(snap.html, opts.title, io, reloader, persistComments);
+  return serveBrowser(snap.html, opts.title, io, reloader, persistComments, persistCheckbox);
 }
 
 // glimpse's WebView2 host is a compiled .NET binary. On a global `bun add -g`
@@ -196,6 +236,7 @@ async function tryGlimpse(
   frameless: boolean,
   install: boolean,
   persistComments: (payload: unknown) => Promise<void>,
+  persistCheckbox: (payload: unknown) => Promise<void>,
 ): Promise<boolean> {
   // glimpseui resolves its native host relative to its own module file. Inside a
   // `bun build --compile` standalone that module lives in the virtual `B:\~BUN\`
@@ -311,6 +352,11 @@ async function tryGlimpse(
         await persistComments(d.__scratch_comments);
         return;
       }
+      // Task-checkbox toggle from the page — flip the "[ ]"/"[x]" in the file.
+      if (d && d.__scratch_checkbox) {
+        await persistCheckbox(d.__scratch_checkbox);
+        return;
+      }
       // A native WebView2 reload (Ctrl+R/F5) re-renders the HTML string we
       // presented at launch, whose embedded #settings island is frozen at
       // launch-time config. The reloaded page asks us for the authoritative
@@ -361,6 +407,7 @@ async function serveBrowser(
   io: IO,
   reloader: Reloader,
   persistComments: (payload: unknown) => Promise<void>,
+  persistCheckbox: (payload: unknown) => Promise<void>,
 ): Promise<number> {
   // Reload is on-demand (the page's reload button / 'r' just does location.reload),
   // so we rebuild from disk on each page request — every load is fresh, no SSE.
@@ -375,6 +422,11 @@ async function serveBrowser(
       // Comment write-back — browser mirror of the WebView2 __scratch_comments path.
       if (req.method === "POST" && new URL(req.url).pathname === "/comments") {
         await persistComments(await req.json().catch(() => null));
+        return new Response(null, { status: 204 });
+      }
+      // Checkbox toggle write-back — browser mirror of __scratch_checkbox.
+      if (req.method === "POST" && new URL(req.url).pathname === "/checkbox") {
+        await persistCheckbox(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
       }
       let body = html; // first paint uses the prebuilt page; reloads rebuild

@@ -4,6 +4,8 @@
 
 Core invariant (do not violate): **the CLI never authors, copies, or moves file content.** It only creates pad dirs, writes manifests, and tracks metadata. The user/agent writes files with their normal tools; `scratch add` just registers them. A pad is *just a folder containing `scratchpad.json`* — the folder path is its identity. There is **no central store/index**.
 
+The **one deliberate exception**: clicking a rendered GFM task checkbox in the viewer flips that single `[ ]`/`[x]` marker in the source file (`persistFileCheckbox` in `src/ui/launch.ts`). It is line-addressed and verifies the line still IS a task marker before writing — it never authors or moves content beyond toggling that one char. Don't "fix" it as a violation.
+
 ## Commands
 
 ```bash

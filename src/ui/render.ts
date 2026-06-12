@@ -5,10 +5,10 @@
 // when a ```mermaid block is present.
 
 import { stat } from "node:fs/promises";
-import { extname, isAbsolute, join, resolve } from "node:path";
+import { extname } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
-import type { Pad } from "../discovery.ts";
+import { type Pad, resolveEntryPath } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 
@@ -110,9 +110,7 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
     let kind = classify(ext);
     let content: string | null = null;
     // Linked entries read from `src` (outside the pad); the rest from path under the pad dir.
-    const abs = meta.src
-      ? (isAbsolute(meta.src) ? meta.src : resolve(pad.dir, meta.src))
-      : join(pad.dir, path);
+    const abs = resolveEntryPath(pad.dir, meta);
     const file = Bun.file(abs);
     let created: string | undefined;
     let updated: string | undefined;
@@ -204,10 +202,14 @@ function needsMermaid(view: PadView[]): boolean {
 
 /** Viewer settings embedded into the page (persisted in the user config file).
  * Derived from ScratchConfig.ui so the shapes can't drift; frameless is a
- * launch-time concern, and zoom / starredThemes are optional here (default
- * 1 / []) so partial call sites keep working. */
-export type UiSettings = Omit<ScratchConfig["ui"], "frameless" | "zoom" | "starredThemes"> &
-  Partial<Pick<ScratchConfig["ui"], "zoom" | "starredThemes">>;
+ * launch-time concern, and zoom / starredThemes / gridStyle / wideMode are
+ * optional here (renderHtml defaults them: 1 / [] / dots / false) so partial
+ * call sites keep working. */
+export type UiSettings = Omit<
+  ScratchConfig["ui"],
+  "frameless" | "zoom" | "starredThemes" | "gridStyle" | "wideMode"
+> &
+  Partial<Pick<ScratchConfig["ui"], "zoom" | "starredThemes" | "gridStyle" | "wideMode">>;
 
 const DEFAULT_UI: UiSettings = {
   themeMode: "system",
@@ -509,10 +511,13 @@ function renderMarkdown(src) {
     if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
       if (!inUl) { closeLists(); html += '<ul>'; inUl = true; }
       // GFM task list item: "- [ ] todo" / "- [x] done". Checked → green box.
+      // data-line carries the 0-based source line index so a checkbox click can
+      // toggle the exact "[ ]"/"[x]" marker back in the file (see the checkbox
+      // click handler — the one place the read-only viewer writes file content).
       const task = m[1].match(/^\[([ xX])\]\s+(.*)$/);
       if (task) {
         const done = task[1] !== ' ';
-        html += '<li class="task' + (done ? ' done' : '') + '"><span class="chk">' + (done ? '✓' : '') + '</span>' + mdInline(task[2]) + '</li>';
+        html += '<li class="task' + (done ? ' done' : '') + '" data-line="' + i + '"><span class="chk" role="checkbox" tabindex="0" aria-checked="' + done + '">' + (done ? '✓' : '') + '</span>' + mdInline(task[2]) + '</li>';
       } else { html += '<li>' + mdInline(m[1]) + '</li>'; }
       i++; continue;
     }
@@ -1314,6 +1319,42 @@ previewEl.addEventListener('click', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Clickable task checkboxes. The viewer is read-only EXCEPT here: clicking a
+// rendered "- [ ]" / "- [x]" toggles that marker in the source FILE (not the
+// manifest). The edit is line-addressed — li.dataset.line is the source line —
+// and persists through the same channel fan-out as settings/comments
+// (WebView2 __scratch_checkbox / POST /checkbox). The TASK_MARKER regex mirrors
+// the host's (launch.ts persistFileCheckbox) so both flip the same char.
+const TASK_MARKER = /^(\s*[-*+]\s+\[)([ xX])(\].*)$/;
+function persistCheckbox(line, checked) {
+  if (!currentRef) return false;
+  const payload = { padDir: currentRef.pad.dir, filePath: currentRef.f.path, line: line, checked: checked };
+  return postToHost('__scratch_checkbox', '/checkbox', payload, () => showToast('Saving checkbox failed'));
+}
+previewEl.addEventListener('click', (e) => {
+  const chk = e.target.closest && e.target.closest('.md li.task .chk');
+  if (!chk) return;
+  const li = chk.closest('li.task');
+  const f = currentRef && currentRef.f;
+  if (!li || !f || f.kind !== 'markdown' || f.content == null) return;
+  const line = parseInt(li.dataset.line, 10);
+  if (isNaN(line)) return;
+  const checked = !li.classList.contains('done');
+  // Flip the marker in the embedded content too, so the raw view, a re-render,
+  // and a second click all stay in sync. Bail if the line drifted (file changed
+  // underneath) rather than edit the wrong line.
+  const lines = f.content.replace(/\r\n/g, '\n').split('\n');
+  const m = lines[line] != null && lines[line].match(TASK_MARKER);
+  if (!m) return;
+  lines[line] = m[1] + (checked ? 'x' : ' ') + m[3];
+  f.content = lines.join('\n');
+  li.classList.toggle('done', checked);
+  chk.textContent = checked ? '✓' : '';
+  chk.setAttribute('aria-checked', String(checked));
+  if (!persistCheckbox(line, checked)) showToast('Checkboxes cannot be saved from an exported page', 'info');
+});
+
+// ---------------------------------------------------------------------------
 // Inline comments. Quote-anchored margin notes on the RENDERED markdown view
 // (see _plans/SPEC.md): the manifest stores {quote, prefix, suffix} and we
 // re-find the quote in the preview's text on every render. Mutations replace
@@ -1448,11 +1489,16 @@ function openCmtPop(rect, build) {
   el.className = 'cmt-pop';
   build(el);
   document.body.appendChild(el);
+  // rect is in screen (viewport) px, but this fixed element sits inside the
+  // zoomed root, so its left/top get multiplied by zoom at layout — assign
+  // them in the root's own coordinate space or the popover lands away from
+  // the comment whenever zoom != 100%.
+  const z = SETTINGS.zoom || 1;
   const w = el.offsetWidth || 300, h = el.offsetHeight || 120;
-  const vw = window.innerWidth || 1280, vh = window.innerHeight || 800;
-  const left = Math.min(Math.max(8, rect.left), Math.max(8, vw - w - 8));
-  let top = rect.bottom + 6;
-  if (top + h > vh - 8) top = Math.max(8, rect.top - h - 6);
+  const vw = (window.innerWidth || 1280) / z, vh = (window.innerHeight || 800) / z;
+  const left = Math.min(Math.max(8, rect.left / z), Math.max(8, vw - w - 8));
+  let top = rect.bottom / z + 6;
+  if (top + h > vh - 8) top = Math.max(8, rect.top / z - h - 6);
   el.style.left = left + 'px';
   el.style.top = top + 'px';
   cmtPopEl = el;
@@ -1651,8 +1697,11 @@ document.addEventListener('mouseup', (e) => {
   try { const r = range.getBoundingClientRect(); if (r && (r.width || r.height || r.left || r.top)) rect = r; } catch (_) {}
   pendingSel = { anchor: { quote, prefix, suffix }, rect };
   const btn = ensureCmtAdd();
-  btn.style.left = Math.max(8, rect.left) + 'px';
-  btn.style.top = (rect.bottom + 6) + 'px';
+  // Same zoom-space conversion as openCmtPop: rect is screen px, the fixed
+  // button lives inside the zoomed root.
+  const z = SETTINGS.zoom || 1;
+  btn.style.left = Math.max(8, rect.left / z) + 'px';
+  btn.style.top = (rect.bottom / z + 6) + 'px';
   btn.style.display = '';
 });
 

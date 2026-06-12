@@ -38,6 +38,7 @@
   "scripts": {
     "scratch": "bun run src/cli.ts",
     "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "bun build src/cli.ts --compile --outfile dist/scratch && bun scripts/build-host.ts",
     "prepublishOnly": "bun test",
     "docs:dev": "vitepress dev docs",
@@ -52,6 +53,8 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.10.2",
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3",
     "vitepress": "^1.6.3"
   }
 }

@@ -18,6 +18,14 @@ export interface Pad {
   manifest: Manifest;
 }
 
+/** Absolute on-disk path of a file entry: a linked `src` (absolute, or relative
+ * to the pad dir) wins; otherwise the entry's `path` under the pad dir. */
+export function resolveEntryPath(padDir: string, entry: { path: string; src?: string }): string {
+  return entry.src
+    ? isAbsolute(entry.src) ? entry.src : resolve(padDir, entry.src)
+    : join(padDir, entry.path);
+}
+
 /** Validate a pad name. Returns an error message, or null if valid. Names must
  * not contain whitespace — use hyphens (the slug form) instead. */
 export function validateName(name: string): string | null {
@@ -60,12 +68,8 @@ export async function findPads(root: string, maxDepth = 6): Promise<Pad[]> {
       return; // don't descend into a pad
     }
     if (depth >= maxDepth) return;
-    let entries: Awaited<ReturnType<typeof readdir>>;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
+    if (!entries) return;
     for (const e of entries) {
       if (!e.isDirectory()) continue;
       if (IGNORE_DIRS.has(e.name) || e.name.startsWith(".")) continue;
