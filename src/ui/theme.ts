@@ -460,6 +460,9 @@ body {
 .preview { flex: 1; min-width: 0; overflow-y: auto; padding: 28px 28px 0;
   --grid: color-mix(in srgb, var(--ink-muted) 30%, transparent);
   background-color: var(--field); background-size: 22px 22px; }
+/* Focusable so keyboard / Vimium scrolling targets it (the only scroll container);
+   the pane itself shouldn't show a focus ring. */
+.preview:focus, .preview:focus-visible { outline: none; }
 /* off = no image (flat field). dots = intersections; lines = crosshatch (a touch
    fainter since lines cover more area). */
 :root[data-grid="dots"] .preview {

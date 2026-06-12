@@ -318,7 +318,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <div class="appver" title="scratch version">v${escapeHtml(pkg.version)}</div>
     </div>
     <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
-    <main class="preview" id="preview"></main>
+    <main class="preview" id="preview" tabindex="0"></main>
   </div>
   <div class="modal-scrim" id="helpModal" style="display:none">
     <div class="modal">
@@ -694,6 +694,12 @@ function renderPreview(pad, f) {
     (f.description ? '<div class="pdesc">' + esc(f.description) + '</div>' : '') +
     '<hr class="divider"/>' + bodyHtml +
     '</div>';
+
+  // The preview pane is the only scrollable element (html/body are overflow:hidden),
+  // so keyboard scrolling and a browser Vimium need it focused to act on it — they
+  // target the focused/document element, not an arbitrary inner overflow box.
+  // preventScroll so this never fights the reload scroll-position restore.
+  preview.focus({ preventScroll: true });
 
   if (canRaw) {
     const rd = document.getElementById('vRendered'), rw = document.getElementById('vRaw');
