@@ -458,7 +458,8 @@ async function selectPads(
     fail(io, `${pads.length} scratchpads found under ${root}; name one, or pass --all to view them together:`);
     for (const p of pads) {
       const rel = toPosix(relative(root, p.dir)) || ".";
-      io.err(`  ${cyan(`scratch ${verb} ${p.manifest.name}`)}    ${dim(`(${rel})`)}`);
+      const name = /\s/.test(p.manifest.name) ? `'${p.manifest.name}'` : p.manifest.name;
+      io.err(`  ${cyan(`scratch ${verb} ${name}`)}    ${dim(`(${rel})`)}`);
     }
     return null;
   }
