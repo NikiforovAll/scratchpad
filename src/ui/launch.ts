@@ -10,11 +10,11 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Pad, resolveEntryPath } from "../discovery.ts";
 import type { IO } from "../commands.ts";
-import { bold, cyan, dim, note } from "../colors.ts";
+import { bold, cyan, dim, note, ok } from "../colors.ts";
 import { loadConfig, saveConfig } from "../config.ts";
 import { readManifest, sanitizeComments, writeManifest } from "../manifest.ts";
 import { createReloader, type Reloader } from "./reload.ts";
@@ -110,6 +110,42 @@ export async function persistFileCheckbox(pads: Pad[], payload: unknown, io: IO)
   } catch (e) {
     note(io, `saving checkbox failed (${(e as Error).message.split("\n")[0]}).`);
   }
+}
+
+// Save-a-copy from the native viewer (its setHTML origin isn't a secure context,
+// so the page can't use showSaveFilePicker). The page hands us the export HTML;
+// we pop a real OS Save dialog (PowerShell on Windows, where the native host
+// lives) and write the file. Returns the chosen path, or null if cancelled.
+async function saveExportToFile(payload: unknown, io: IO): Promise<string | null> {
+  const p = (payload ?? {}) as { html?: unknown; name?: unknown };
+  if (typeof p.html !== "string") return null;
+  const suggested = typeof p.name === "string" && p.name ? p.name : "scratchpad.html";
+  let target: string | null = null;
+  if (process.platform === "win32") {
+    // FileName via env var dodges all PowerShell quoting; -STA is required for the
+    // WinForms dialog. Empty stdout = the user cancelled.
+    const ps = [
+      "Add-Type -AssemblyName System.Windows.Forms | Out-Null",
+      "$d = New-Object System.Windows.Forms.SaveFileDialog",
+      "$d.Filter = 'HTML page (*.html)|*.html|All files (*.*)|*.*'",
+      "$d.FileName = $env:SCRATCH_SAVE_NAME",
+      "$d.InitialDirectory = (Get-Location).Path",
+      "$d.Title = 'Save scratchpad export'",
+      "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.FileName) }",
+    ].join("; ");
+    const r = spawnSync("powershell.exe", ["-NoProfile", "-STA", "-Command", ps], {
+      encoding: "utf8",
+      env: { ...process.env, SCRATCH_SAVE_NAME: suggested },
+    });
+    const out = (r.stdout ?? "").trim();
+    if (out) target = out;
+  } else {
+    target = resolve(suggested);
+  }
+  if (!target) return null; // cancelled
+  await writeFile(target, p.html, "utf8");
+  ok(io, `exported → ${cyan(target)}`);
+  return target;
 }
 
 // Quit from the terminal with 'q', pager-style. Raw mode swallows Ctrl+C as
@@ -355,6 +391,18 @@ async function tryGlimpse(
       // Task-checkbox toggle from the page — flip the "[ ]"/"[x]" in the file.
       if (d && d.__scratch_checkbox) {
         await persistCheckbox(d.__scratch_checkbox);
+        return;
+      }
+      // Save-a-copy: the page can't open its own save dialog (non-secure origin),
+      // so it asks us to. Echo the result back so it can clear its dirty flag.
+      if (d && d.__scratch_save) {
+        try {
+          const saved = await saveExportToFile(d.__scratch_save, io);
+          win.send(`window.__scratchSaved(${JSON.stringify({ saved: saved != null, path: saved })})`);
+        } catch (e) {
+          note(io, `save failed (${(e as Error).message.split("\n")[0]}).`);
+          win.send(`window.__scratchSaved(${JSON.stringify({ saved: false })})`);
+        }
         return;
       }
       // A native WebView2 reload (Ctrl+R/F5) re-renders the HTML string we

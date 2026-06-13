@@ -6,7 +6,7 @@
 // (resolved within the root) or by an explicit path.
 
 import { readdir } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { hasManifest, readManifest, type Manifest } from "./manifest.ts";
 
 /** Directories never descended into during a scan. */
@@ -44,6 +44,13 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-");
   return s || "pad";
+}
+
+/** The default export/save filename slug (sans extension): a single pad's name,
+ * else the root folder's. Shared by `scratch export`, the live viewer's Ctrl+S,
+ * and pad selection so all three agree on the name. */
+export function exportFileSlug(singleName: string | null, root: string): string {
+  return singleName != null ? slugify(singleName) : slugify(basename(root)) || "scratchpads";
 }
 
 /** Resolve the scan root: explicit dir → SCRATCH_DIR env → cwd. */

@@ -8,7 +8,7 @@ import { stat } from "node:fs/promises";
 import { extname } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
-import { type Pad, resolveEntryPath } from "../discovery.ts";
+import { type Pad, exportFileSlug, resolveEntryPath } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 
@@ -227,6 +227,8 @@ export async function renderHtml(
 ): Promise<string> {
   const data = payloadJson(view, rootLabel);
   const titleName = view.length === 1 ? view[0]!.name : rootLabel;
+  // Suggested filename for in-viewer save — the same slug `scratch export` writes.
+  const exportName = exportFileSlug(view.length === 1 ? view[0]!.name : null, rootLabel);
   const zoom = ui.zoom ?? 1;
   const gridStyle = ui.gridStyle ?? "dots";
   const wideMode = ui.wideMode ?? false;
@@ -242,6 +244,7 @@ export async function renderHtml(
     // The client keys "save a copy" behavior off this attribute, and it rides
     // along when the page re-saves itself, so saved copies stay exports.
     (opts.exportMode ? " data-export" : "") +
+    ` data-export-name="${escapeHtml(exportName)}"` +
     (zoom === 1 ? "" : ` style="zoom: ${zoom}"`);
   // NOT part of payloadJson: __scratchReload diff-compares the data island to
   // detect "no changes", and settings must not break that.
@@ -274,16 +277,19 @@ export async function renderHtml(
     vendorCss += cssLink("hljs-light", HLJS_THEME_LIGHT);
   }
 
-  // Only exports get the Save-a-copy button: comments made there have no
-  // write-back channel, so saving the page itself is what persists them
-  // (saveCopy in the client script). Live viewers persist through the host.
-  const saveBtn = opts.exportMode
-    ? `<button class="icon-btn" id="saveCopy" title="Save a copy of this page — comments live in the saved file" aria-label="Save a copy">
+  // The Save-a-copy button ships in BOTH modes (Ctrl+S in the client script
+  // mirrors it). In an export, saving is what persists comments (no write-back
+  // channel); in a live viewer it exports a standalone copy of the page — the
+  // saved file gets data-export injected so it opens as a real export. The
+  // saveDot (unsaved-comments hint) only ever fires in export mode.
+  const saveTitle = opts.exportMode
+    ? "Save a copy of this page — comments live in the saved file"
+    : "Export a copy of this page to a file (Ctrl+S)";
+  const saveBtn = `<button class="icon-btn" id="saveCopy" title="${saveTitle}" aria-label="Save a copy">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         <span class="save-dot" id="saveDot" hidden></span>
       </button>
-      `
-    : "";
+      `;
 
   return `<!doctype html>
 <html lang="en"${htmlAttrs}>
@@ -359,6 +365,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
         <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Zoom in / out / reset</dd></div>
+        <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>S</kbd></dt><dd>Save / export a copy to a file</dd></div>
         <div class="sc-group">General</div>
         <div class="sc-live"><dt><kbd>r</kbd></dt><dd>Reload from disk</dd></div>
         <div><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
@@ -476,9 +483,10 @@ let DATA = JSON.parse(document.getElementById('data').textContent);
 // Static export (scratch export bakes data-export onto <html>): no host listens,
 // so the page file itself is where comments persist. Capture the pristine source
 // now, before any rendering mutates the DOM — saveCopy() splices the live DATA
-// back into this string instead of re-serializing the mutated document.
+// back into this string instead of re-serializing the mutated document. Captured
+// in every mode: a live viewer's Ctrl+S exports a copy off this same snapshot.
 const EXPORT_MODE = document.documentElement.hasAttribute('data-export');
-const PRISTINE = EXPORT_MODE ? '<!doctype html>\n' + document.documentElement.outerHTML : '';
+const PRISTINE = '<!doctype html>\n' + document.documentElement.outerHTML;
 const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function mdInline(s) {
@@ -1450,6 +1458,8 @@ document.addEventListener('keydown', (e) => {
     if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoom(SETTINGS.zoom + 0.1); return; }
     if (e.key === '-') { e.preventDefault(); setZoom(SETTINGS.zoom - 0.1); return; }
     if (e.key === '0') { e.preventDefault(); setZoom(1); return; }
+    // Save / export a copy — swallow the host's "save page" so ours runs instead.
+    if (e.key === 's' || e.key === 'S') { e.preventDefault(); saveCopy(); return; }
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const t = e.target;
@@ -1703,25 +1713,46 @@ function setExportDirty(v) {
     : 'Save a copy of this page — comments live in the saved file';
 }
 function builtExportHtml() {
+  // Saving from a live viewer turns the snapshot into a standalone export: mark
+  // <html> with data-export so the saved file opens in export mode (file is the
+  // comment store). Already present when re-saving an export — replace only the
+  // real opening tag, never an escaped <html in rendered content.
+  const src = EXPORT_MODE ? PRISTINE : PRISTINE.replace(/<html(?=[ >])/, '<html data-export');
   const open = '<script id="data" type="application/json">';
   const close = '</' + 'script>';
-  const i = PRISTINE.indexOf(open);
-  const j = i === -1 ? -1 : PRISTINE.indexOf(close, i);
+  const i = src.indexOf(open);
+  const j = i === -1 ? -1 : src.indexOf(close, i);
   if (j === -1) return null;
   // payloadJson's escaping, so the island can never contain a closing script tag.
-  return PRISTINE.slice(0, i + open.length) + JSON.stringify(DATA).replace(/</g, '\\u003c') + PRISTINE.slice(j);
+  return src.slice(0, i + open.length) + JSON.stringify(DATA).replace(/</g, '\\u003c') + src.slice(j);
 }
 function saveCopyName() {
+  // Match the scratch export output name (baked onto <html> at render time).
+  const n = document.documentElement.getAttribute('data-export-name');
+  if (n) return n + '.html';
   try {
-    const n = decodeURIComponent(location.pathname.split('/').pop() || '');
-    if (/\.html?$/i.test(n)) return n;
+    const p = decodeURIComponent(location.pathname.split('/').pop() || '');
+    if (/\.html?$/i.test(p)) return p;
   } catch (_) {}
   return 'scratchpad.html';
 }
+// The native host echoes a save result here (it owns the real OS dialog).
+window.__scratchSaved = function (res) {
+  if (res && res.saved) { setExportDirty(false); showToast(res.path ? 'Saved → ' + res.path : 'Saved', 'success'); }
+};
 function saveCopy() {
   const html = builtExportHtml();
   if (html == null) { showToast('Save failed'); return; }
   const name = saveCopyName();
+  // Native WebView2: setHTML's origin isn't a secure context, so showSaveFilePicker
+  // is unavailable — hand the bytes to the host, which opens a real OS save dialog
+  // and writes the file (it calls back via window.__scratchSaved).
+  const wv = window.chrome && window.chrome.webview;
+  if (wv) {
+    try { wv.postMessage({ __scratch_save: { html: html, name: name } }); showToast('Choose where to save…', 'info'); }
+    catch (_) { showToast('Save failed'); }
+    return;
+  }
   const blob = new Blob([html], { type: 'text/html' });
   const done = () => { setExportDirty(false); showToast('Saved — that file carries the comments', 'success'); };
   if (window.showSaveFilePicker) {

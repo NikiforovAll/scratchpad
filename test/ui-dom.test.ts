@@ -809,9 +809,49 @@ test("export mode: a comment edit arms Save-a-copy; saving splices DATA into the
     const island = out.match(/<script id="data" type="application\/json">([\s\S]*?)<\/script>/)![1]!;
     expect(JSON.parse(island).pads[0].files[0].comments).toEqual([]);
     // …and the copy is itself still a savable export.
-    expect(out).toMatch(/<html[^>]* data-export/);
+    expect(out).toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
     expect(out).toContain('id="saveCopy"');
     expect(dot.hidden).toBe(true); // saved → clean
+  } finally {
+    teardown();
+  }
+});
+
+test("live viewer: Ctrl+S exports a standalone copy with data-export injected", async () => {
+  const html = await renderPadWithComments([cmt()]); // exportMode = false (live)
+  const saved: Blob[] = [];
+  await boot(html, undefined, (w) => {
+    w.showSaveFilePicker = () =>
+      Promise.resolve({
+        createWritable: () =>
+          Promise.resolve({
+            write: (b: Blob) => {
+              saved.push(b);
+              return Promise.resolve();
+            },
+            close: () => Promise.resolve(),
+          }),
+      });
+  });
+  try {
+    // The live page is not itself an export…
+    expect(document.documentElement.hasAttribute("data-export")).toBe(false);
+    // …but its save button is present and Ctrl+S triggers a save.
+    expect(document.getElementById("saveCopy")).not.toBeNull();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }),
+    );
+    await new Promise((r) => setTimeout(r, 10)); // let the picker promise chain settle
+    expect(saved.length).toBe(1);
+    const out = await saved[0]!.text();
+    // The saved copy opens as a real export (file becomes the comment store)…
+    expect(out).toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
+    expect(out).toContain('id="saveCopy"');
+    // …and carries the current data island.
+    const island = out.match(
+      /<script id="data" type="application\/json">([\s\S]*?)<\/script>/,
+    )![1]!;
+    expect(JSON.parse(island).pads[0].files[0].comments.length).toBe(1);
   } finally {
     teardown();
   }

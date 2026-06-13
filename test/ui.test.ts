@@ -124,23 +124,26 @@ describe("renderHtml", () => {
     expect(html.length).toBeLessThan(150_000); // mermaid bundle NOT inlined
   });
 
-  test("export mode tags <html> and ships the Save-a-copy button; live mode has neither", async () => {
+  test("data-export marks only exports; the Save-a-copy button ships in both modes", async () => {
     const pad = await seedPad();
     const view = await buildView([pad]);
     const exported = await renderHtml(view, "Notes", undefined, { exportMode: true });
-    expect(exported).toMatch(/<html[^>]* data-export/);
+    // Anchor on the real <html> tag — the client JS also mentions "data-export".
+    expect(exported).toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
     expect(exported).toContain('id="saveCopy"');
     expect(exported).toContain('id="saveDot"');
     const live = await renderHtml(view, "Notes");
-    expect(live).not.toMatch(/<html[^>]* data-export/);
-    expect(live).not.toContain('id="saveCopy"');
+    // Live page is not itself an export (host owns write-back)…
+    expect(live).not.toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
+    // …but it carries the same save button: Ctrl+S exports a copy to a file.
+    expect(live).toContain('id="saveCopy"');
   });
 
   test("defaults to system mode + ember and ships the settings UI", async () => {
     const pad = await seedPad();
     const html = await renderHtml(await buildView([pad]), "Notes");
     // system mode = no data-theme attr (dark-first until the client resolves the OS)
-    expect(html).toContain('<html lang="en" data-color-theme="ember" data-grid="dots">');
+    expect(html).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-export-name="notes">');
     expect(html).toContain('id="settings"'); // settings island
     expect(html).toContain('"themeMode":"system"');
     expect(html).toContain('id="settingsBtn"');
@@ -167,7 +170,7 @@ describe("renderHtml", () => {
       themeMode: "light",
       colorTheme: "gruvbox",
     });
-    expect(html).toContain('<html lang="en" data-color-theme="gruvbox" data-grid="dots" data-theme="light">');
+    expect(html).toContain('<html lang="en" data-color-theme="gruvbox" data-grid="dots" data-theme="light" data-export-name="notes">');
     expect(html).toContain('"themeMode":"light"');
     expect(html).toContain('"colorTheme":"gruvbox"');
     // the color theme's override CSS is present
@@ -183,10 +186,10 @@ describe("renderHtml", () => {
       colorTheme: "ember",
       wideMode: true,
     });
-    expect(wide).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-wide>');
+    expect(wide).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-wide data-export-name="notes">');
     expect(wide).toContain('"wideMode":true');
     const plain = await renderHtml(view, "Notes");
-    expect(plain).toContain('<html lang="en" data-color-theme="ember" data-grid="dots">'); // no data-wide by default
+    expect(plain).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-export-name="notes">'); // no data-wide by default
     expect(plain).toContain('"wideMode":false');
   });
 
@@ -198,10 +201,10 @@ describe("renderHtml", () => {
       colorTheme: "ember",
       zoom: 1.25,
     });
-    expect(zoomed).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" style="zoom: 1.25">');
+    expect(zoomed).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-export-name="notes" style="zoom: 1.25">');
     expect(zoomed).toContain('"zoom":1.25');
     const plain = await renderHtml(view, "Notes");
-    expect(plain).toContain('<html lang="en" data-color-theme="ember" data-grid="dots">'); // no style attr
+    expect(plain).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-export-name="notes">'); // no style attr
     expect(plain).toContain('"zoom":1');
   });
 

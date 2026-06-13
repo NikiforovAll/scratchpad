@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rm as fsRm } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { bold, cyan, dim, fail, note, ok, warn } from "./colors.ts";
-import { findPads, resolvePad, resolveRoot, slugify, validateName, type Pad } from "./discovery.ts";
+import { exportFileSlug, findPads, resolvePad, resolveRoot, slugify, validateName, type Pad } from "./discovery.ts";
 import {
   DEFAULT_TYPE,
   hasManifest,
@@ -442,7 +442,7 @@ async function selectPads(
       fail(io, `no scratchpad "${args.pad}" found under ${root}`);
       return null;
     }
-    return { pads: [pad], label: pad.manifest.name, defaultName: slugify(pad.manifest.name) };
+    return { pads: [pad], label: pad.manifest.name, defaultName: exportFileSlug(pad.manifest.name, root) };
   }
   const pads = await findPads(root);
   if (pads.length === 0) {
@@ -452,7 +452,7 @@ async function selectPads(
   }
   if (pads.length === 1) {
     const pad = pads[0]!;
-    return { pads: [pad], label: pad.manifest.name, defaultName: slugify(pad.manifest.name) };
+    return { pads: [pad], label: pad.manifest.name, defaultName: exportFileSlug(pad.manifest.name, root) };
   }
   if (!args.all) {
     fail(io, `${pads.length} scratchpads found under ${root}; name one, or pass --all to view them together:`);
@@ -463,7 +463,7 @@ async function selectPads(
     }
     return null;
   }
-  return { pads, label: root, defaultName: slugify(basename(root)) || "scratchpads" };
+  return { pads, label: root, defaultName: exportFileSlug(null, root) };
 }
 
 /** scratch ui [<pad>] [--dir <root>] [--all] [--browser] [--install-native] — read-only visual viewer. */
