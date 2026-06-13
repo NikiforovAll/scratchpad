@@ -504,12 +504,62 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 /* Single centered reading column, lifted onto a card surface one step up from
    the margin field so it pops in both dark & light. Everything inside shares one
    left edge and fills the column width (rendered markdown AND raw alike). */
-.pbody { max-width: 1200px; margin: 0 auto 28px; padding: 34px 44px;
+/* Content-adaptive width: the card shrinks/grows to fit its widest block (wide
+   code blocks, tables, images, mermaid), centered, up to a cap. Prose is held to
+   a readable measure (below) so ordinary paragraphs DON'T balloon the card to the
+   cap — only genuinely wide content widens it. */
+.pbody { width: fit-content; max-width: min(100%, 1360px); margin: 0 auto 28px;
+  padding: 34px 44px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.12); }
-/* Wide mode (settings > width): a roomier column that still leaves a margin so
-   the grid reads around the card. Off by default. */
-:root[data-wide] .pbody { max-width: 95%; }
+/* The readable measure: text-level blocks cap here, so their max-content
+   contribution to the fit-content card is bounded. Non-text blocks (pre, table,
+   img, mermaid) are intentionally excluded — they're what may widen the card.
+   Wide mode (settings > width) lifts the cap (--measure: none) so the column uses
+   the window, and widens the card itself (still leaving a margin for the grid). */
+:root { --measure: 820px; }
+:root[data-wide] { --measure: none; }
+:root[data-wide] .pbody { width: auto; max-width: 95%; }
+.pbody > .phead, .pbody > .ptitle, .pbody > .pmeta, .pbody > .pdesc,
+.md > p, .md > ul, .md > ol, .md > blockquote, .md > dl,
+.md > :is(h1, h2, h3, h4, h5, h6) { max-width: var(--measure); }
+
+/* Table of contents: an opaque on-demand panel floating in the preview's right
+   gutter, pinned over the .body area so it sits below the topbar and stays put
+   while the preview scrolls underneath. Off by default; JS (updateToc) toggles
+   display when the user invokes it ('o' / settings) and the file has ≥2 headings.
+   Opaque (own surface + shadow) so it reads even where it overlaps the card; the
+   right offset clears the preview's scrollbar. Full H1–H6 hierarchy, full names
+   (links wrap rather than truncate). */
+/* Width tracks the longest heading (fit-content) up to a cap. Entries never
+ * wrap; anything past the cap is ellipsis-truncated (full name on hover via
+ * title) rather than scrolling — so the whole list is always visible at once. */
+.toc { position: absolute; top: 16px; right: 24px;
+  width: fit-content; min-width: 200px; max-width: min(48vw, 460px);
+  max-height: calc(100% - 32px); overflow-x: hidden; overflow-y: auto;
+  z-index: 4; display: none;
+  padding: 14px 16px; background: var(--elevated);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.18); }
+.toc-head { font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-muted); padding: 0 0 8px 2px; }
+.toc-nav { display: flex; flex-direction: column; border-left: 1px solid var(--border); }
+.toc-link { display: block; padding: 3px 8px; border-left: 2px solid transparent;
+  margin-left: -1px; font-size: 12.5px; line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--ink-3); text-decoration: none; }
+/* Indented by heading depth; deeper levels read progressively quieter. */
+.toc-link.toc-h1 { padding-left: 8px; }
+.toc-link.toc-h2 { padding-left: 20px; }
+.toc-link.toc-h3 { padding-left: 32px; font-size: 12px; color: var(--ink-muted); }
+.toc-link.toc-h4 { padding-left: 44px; font-size: 12px; color: var(--ink-muted); }
+.toc-link.toc-h5 { padding-left: 56px; font-size: 11.5px; color: var(--ink-muted); }
+.toc-link.toc-h6 { padding-left: 68px; font-size: 11.5px; color: var(--ink-muted); }
+.toc-link:hover { color: var(--ink-1); }
+.toc-link.active { color: var(--ember-glow); border-left-color: var(--ember); }
+/* Jumping to a heading (TOC click / #anchor) leaves a line of breathing room
+ * above it instead of pinning it flush to the top edge. */
+.md :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: 1.6em; }
 
 /* tree */
 .label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
@@ -554,6 +604,7 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
    font-size scales the whole reading column proportionally. */
 .md { max-width: 100%; color: var(--ink-2); font-size: 15px; line-height: 1.7; }
 .md strong, .md b { font-weight: 700; color: var(--ink-1); }
+.md del { color: var(--ink-3); }
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
   font-family: var(--serif); font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
 /* Stepped progression: h1 accent, then a uniform size + ink-ramp descent. */
@@ -591,7 +642,9 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0; }
 .md pre code { background: none; border: 0; padding: 0; font-size: 14px; line-height: 1.7; }
-.md table { border-collapse: collapse; margin: 1em 0; font-size: 13px; width: 100%; display: block; overflow-x: auto; }
+/* width:max-content (not 100%) so a wide table widens the fit-content card like a
+   code block, then scrolls once the card hits its cap. */
+.md table { border-collapse: collapse; margin: 1em 0; font-size: 13px; width: max-content; max-width: 100%; display: block; overflow-x: auto; }
 .md th, .md td { border: 1px solid var(--border); padding: 6px 11px; text-align: left; vertical-align: top; }
 .md thead th { background: color-mix(in srgb, var(--ink-muted) 12%, transparent); color: var(--ink-1); font-weight: 600; }
 .md tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ink-muted) 5%, transparent); }

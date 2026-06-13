@@ -27,7 +27,7 @@ async function renderPad(): Promise<string> {
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, "doc.md"),
-    "# Heading\n\nText **bold**.\n\n```ts\nconst x = 1;\n```\n\n```mermaid\ngraph TD; A-->B;\n```\n",
+    "# Heading\n\nText **bold** and ~~struck~~.\n\n```ts\nconst x = 1;\n```\n\n```mermaid\ngraph TD; A-->B;\n```\n",
     "utf8",
   );
   const m = newManifest("P");
@@ -92,6 +92,74 @@ function teardown() {
   GlobalRegistrator.unregister();
 }
 
+async function renderPadWithContent(content: string): Promise<string> {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "doc.md"), content, "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  return renderHtml(await buildView([pad]), "P");
+}
+
+test("table of contents: off by default, 'o' reveals the full H1–H6 hierarchy", async () => {
+  const html = await renderPadWithContent(
+    "# Top\n\ntext\n\n## Middle\n\ntext\n\n### Deep\n\ntext\n",
+  );
+  await boot(html);
+  try {
+    const toc = document.getElementById("toc")!;
+    // Built from the rendered headings (the ptitle <h1> is outside .md, excluded).
+    const links = toc.querySelectorAll(".toc-link");
+    expect(links.length).toBe(3);
+    // Each level carries its own class, indented in CSS; full names, no truncation.
+    expect(Array.from(links).map((l) => l.className.replace("toc-link ", ""))).toEqual([
+      "toc-h1",
+      "toc-h2",
+      "toc-h3",
+    ]);
+    expect((links[2] as any).textContent).toBe("Deep");
+    // Headings got slug ids the links point at.
+    const md = document.querySelector("#preview .md")!;
+    expect(md.querySelector("h2")!.id).toBe("middle");
+    expect((links[1] as any).getAttribute("href")).toBe("#middle");
+    // Off by default — hidden until invoked.
+    expect(toc.style.display).toBe("none");
+    // 'o' reveals it; again hides it (persisted setting toggles).
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "o" }));
+    expect(toc.style.display).toBe("block");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "o" }));
+    expect(toc.style.display).toBe("none");
+  } finally {
+    teardown();
+  }
+});
+
+test("Esc dismisses overlays but never closes the window; 'q' closes it", async () => {
+  const html = await renderPad();
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    // Open settings, then Esc closes the dialog — without posting a close.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s" }));
+    expect(document.getElementById("settingsModal")!.style.display).toBe("flex");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.getElementById("settingsModal")!.style.display).toBe("none");
+    expect(posted.some((m) => m && m.__glimpse_close)).toBe(false);
+    // Esc with nothing open is a no-op (no window close).
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(posted.some((m) => m && m.__glimpse_close)).toBe(false);
+    // 'q' is the only window-close key.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+    expect(posted.some((m) => m && m.__glimpse_close)).toBe(true);
+  } finally {
+    teardown();
+  }
+});
+
 test("renders markdown, highlights code, invokes mermaid, builds tree", async () => {
   const html = await renderPad();
   const { mermaidCalls } = await boot(html);
@@ -99,6 +167,8 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
     const preview = document.getElementById("preview")!;
     // markdown rendered to a heading
     expect(preview.querySelector(".md h1")?.textContent).toContain("Heading");
+    // GFM strikethrough rendered to <del>
+    expect(preview.querySelector(".md del")?.textContent).toBe("struck");
     // code block present + highlight wiring ran (stub adds .hljs)
     const code = preview.querySelector("pre code");
     expect(code).not.toBeNull();

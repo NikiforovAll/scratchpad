@@ -321,7 +321,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <a class="icon-btn" id="repoLink" href="https://github.com/nikiforovall/scratchpad" target="_blank" title="View on GitHub" aria-label="View on GitHub">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
       </a>
-      <button class="icon-btn" id="closeBtn" title="Close (Esc)" aria-label="Close" style="display:none">
+      <button class="icon-btn" id="closeBtn" title="Close (q)" aria-label="Close" style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
     </div>
@@ -336,6 +336,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
     </div>
     <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
     <main class="preview" id="preview" tabindex="0"></main>
+    <aside class="toc" id="toc" aria-label="On this page"></aside>
     <button class="icon-btn" id="sidebarOpen" title="Show sidebar ([)" aria-label="Show sidebar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
     </button>
@@ -352,6 +353,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>g</kbd><kbd>G</kbd></dt><dd>Top / bottom</dd></div>
         <div class="sc-group">View</div>
         <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
+        <div><dt><kbd>o</kbd></dt><dd>Toggle table of contents</dd></div>
         <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
         <div class="sc-live"><dt><kbd>Shift</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy active file path</dd></div>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
@@ -362,7 +364,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
         <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
         <div class="sc-live"><dt><kbd>q</kbd></dt><dd>Quit (close window)</dd></div>
-        <div><dt><kbd>Esc</kbd></dt><dd>Close dialogs / window</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Close dialogs</dd></div>
       </dl>
     </div>
   </div>
@@ -433,6 +435,13 @@ function settingsModalHtml(): string {
           </div>
         </div>
         <div class="settings-section">
+          <div class="settings-label">Contents (O)</div>
+          <div class="seg" id="tocSeg">
+            <button data-toc="on">On</button>
+            <button data-toc="off">Off</button>
+          </div>
+        </div>
+        <div class="settings-section">
           <div class="settings-label">Zoom</div>
           <div class="seg" id="zoomSeg">
             <button id="zoomOut" aria-label="Zoom out" title="Zoom out (Ctrl+-)">&minus;</button>
@@ -477,6 +486,7 @@ function mdInline(s) {
   s = s.replace(/\`([^\`]+)\`/g, (_, c) => '<code>' + c + '</code>');
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
   return s;
 }
@@ -597,6 +607,7 @@ function highlightRawMarkdown(src) {
 
 let current = null;       // key of selected file
 let currentRef = null;    // { pad, f }
+const scrollMem = {};     // fileKey -> last scrollTop (session-only)
 let rawMode = false;      // markdown: show source instead of rendered
 // Remember the raw/rendered preference across files AND sessions (localStorage
 // works in the browser fallback; the native data-URL origin may not persist it,
@@ -699,6 +710,9 @@ function copyActivePath() {
 }
 
 function renderPreview(pad, f) {
+  // Remember the outgoing file's scroll so returning to it lands where you left
+  // off (session-only — not persisted across launches).
+  if (current && previewEl) scrollMem[current] = previewEl.scrollTop;
   current = pad.dir + '::' + f.path; currentRef = { pad, f };
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
   // Meta is a single tight dot-separated line (type · #tags) — not scattered chips.
@@ -816,7 +830,24 @@ function renderPreview(pad, f) {
   // walks the final DOM. (Comments are a rendered-markdown concept: applyComments
   // no-ops when there's no .md container, i.e. raw mode or non-markdown files.)
   applyComments();
+  buildToc();
   document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
+  // Restore this file's remembered scroll (0 the first time it's opened).
+  const wantScroll = scrollMem[current] || 0;
+  const wantKey = current;
+  if (previewEl) {
+    previewEl.scrollTop = wantScroll;
+    // Highlighting / images / async content can shift heights right after render
+    // and nudge the position, so re-apply once layout settles — unless the user
+    // already switched away (wantKey stale) or scrolled the restored view.
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        if (current === wantKey && previewEl && previewEl.scrollTop !== wantScroll) {
+          previewEl.scrollTop = wantScroll;
+        }
+      });
+    }
+  }
 }
 
 function buildTree(preferKey, prevSelJson) {
@@ -951,7 +982,10 @@ function clampStarred(v) {
   return out.slice(-3);
 }
 const SETTINGS = (function () {
-  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, zoom: 1 };
+  // tocVisible is deliberately NOT persisted — the TOC is on-demand and always
+  // boots hidden, toggled ('o' / settings) for the current session only. So it's
+  // absent from the embedded snapshot / localStorage / saveConfig, unlike the rest.
+  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, tocVisible: false, zoom: 1 };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // Over file:// (export) the embedded snapshot is whatever the exporting machine
   // had saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -1080,6 +1114,8 @@ function applyTheme() {
   syncThemeCards();
   document.querySelectorAll('#gridSeg button').forEach((b) => b.classList.toggle('on', b.dataset.grid === SETTINGS.gridStyle));
   document.querySelectorAll('#widthSeg button').forEach((b) => b.classList.toggle('on', b.dataset.wide === (SETTINGS.wideMode ? 'on' : 'off')));
+  document.querySelectorAll('#tocSeg button').forEach((b) => b.classList.toggle('on', b.dataset.toc === (SETTINGS.tocVisible ? 'on' : 'off')));
+  updateToc();
 }
 function setThemeMode(m) {
   SETTINGS.themeMode = m;
@@ -1106,6 +1142,88 @@ function setWideMode(on) {
   applyTheme();
   persistSettings();
 }
+function setTocVisible(on) {
+  SETTINGS.tocVisible = on;
+  applyTheme(); // re-syncs the segment + calls updateToc(); session-only, not persisted
+}
+// The table of contents is an opaque on-demand panel: off by default, shown only
+// when the user asks for it ('o' / settings) AND the file has ≥2 headings. Being
+// opaque, it can float over the gutter without a transparency/legibility worry,
+// so no width gating is needed.
+let tocObserver = null;
+function tocShouldShow() {
+  return SETTINGS.tocVisible &&
+    document.querySelectorAll('#preview .md :is(h1,h2,h3,h4,h5,h6)').length >= 2;
+}
+function updateToc() {
+  const toc = document.getElementById('toc');
+  if (toc) toc.style.display = tocShouldShow() ? 'block' : 'none';
+}
+// Build the TOC from the rendered markdown's full heading hierarchy (H1–H6).
+// Runs after each preview render (file switch, raw↔rendered, reload) — it
+// (re)assigns heading ids, wires smooth-scroll links indented by level, and a
+// scroll-spy observer that lights the active section.
+function buildToc() {
+  const toc = document.getElementById('toc');
+  if (!toc) return;
+  if (tocObserver) { tocObserver.disconnect(); tocObserver = null; }
+  const md = document.querySelector('#preview .md');
+  const heads = md ? Array.from(md.querySelectorAll('h1, h2, h3, h4, h5, h6')) : [];
+  if (heads.length < 2) { toc.innerHTML = ''; updateToc(); return; }
+  const used = {};
+  const slug = (t) => {
+    let base = (t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
+    if (used[base] == null) { used[base] = 0; return base; }
+    return base + '-' + (++used[base]);
+  };
+  let html = '<div class="toc-head">On this page</div><nav class="toc-nav">';
+  const links = {};
+  heads.forEach((h) => {
+    const id = h.id || (h.id = slug(h.textContent));
+    html += '<a class="toc-link toc-' + h.tagName.toLowerCase() + '" href="#' + id +
+      '" data-tid="' + id + '" title="' + esc(h.textContent) + '">' + esc(h.textContent) + '</a>';
+  });
+  toc.innerHTML = html + '</nav>';
+  // Move the .active class between two links rather than rescanning every entry
+  // on each scroll-spy batch (fires repeatedly while scrolling).
+  let activeLink = null;
+  const setActive = (id) => {
+    const next = links[id] || null;
+    if (next === activeLink) return;
+    if (activeLink) activeLink.classList.remove('active');
+    if (next) next.classList.add('active');
+    activeLink = next;
+  };
+  toc.querySelectorAll('.toc-link').forEach((a) => {
+    links[a.dataset.tid] = a;
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const t = document.getElementById(a.dataset.tid);
+      if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Light the clicked entry right away; the spy keeps it correct as you scroll.
+      setActive(a.dataset.tid);
+    });
+  });
+  // Scroll-spy: a heading counts as "current" while it's in the top 30% band (the
+  // bottom rootMargin clips the rest). Several can sit in the band at once, and
+  // IntersectionObserver delivers entries in no positional order — so we track the
+  // visible set and always light the *topmost* (document-order) one, rather than
+  // letting whichever entry fired last win (which lit the next heading instead).
+  if (typeof IntersectionObserver === 'function') {
+    const visible = new Set();
+    tocObserver = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        if (en.isIntersecting) visible.add(en.target.id);
+        else visible.delete(en.target.id);
+      });
+      const top = heads.find((h) => visible.has(h.id));
+      if (top) setActive(top.id);
+    }, { root: document.getElementById('preview'), rootMargin: '0px 0px -70% 0px', threshold: 0 });
+    heads.forEach((h) => tocObserver.observe(h));
+  }
+  updateToc();
+}
+window.addEventListener('resize', updateToc);
 renderGalleryGrid();
 renderStarredGrid();
 applyTheme();
@@ -1130,6 +1248,7 @@ settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal)
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));
 document.querySelectorAll('#gridSeg button').forEach((b) => b.addEventListener('click', () => setGridStyle(b.dataset.grid)));
 document.querySelectorAll('#widthSeg button').forEach((b) => b.addEventListener('click', () => setWideMode(b.dataset.wide === 'on')));
+document.querySelectorAll('#tocSeg button').forEach((b) => b.addEventListener('click', () => setTocVisible(b.dataset.toc === 'on')));
 
 // Theme grids use delegation — the starred strip re-renders its cards, so
 // per-card listeners would go stale. Star click toggles a favorite only; it
@@ -1336,10 +1455,10 @@ document.addEventListener('keydown', (e) => {
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   if (e.key === 'Escape') {
+    // Esc only dismisses open overlays — never closes the window ('q' does that).
     if (galleryModal.style.display !== 'none') showGallery(false);
     else if (settingsModal.style.display !== 'none') showSettings(false);
     else if (helpModal.style.display !== 'none') showHelp(false);
-    else if (closeWindow) closeWindow();
     return;
   }
   if (e.key === 'q' && closeWindow) { closeWindow(); return; }
@@ -1351,6 +1470,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
   }
+  if (e.key === 'o') { setTocVisible(!SETTINGS.tocVisible); return; }
   if (e.key === 'C') { copyActivePath(); return; }
   if (e.key === 'c') { setCommentsVisible(!commentsVisible); return; }
   // vimium-style scrolling: j/k line steps, d/u half page. Instant (no smooth) —
