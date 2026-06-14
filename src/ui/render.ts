@@ -494,6 +494,11 @@ function mdInline(s) {
   s = s.replace(/\`([^\`]+)\`/g, (_, c) => '<code>' + c + '</code>');
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  // Underscore emphasis (__bold__ / _italic_). Per GFM, underscores inside a
+  // word don't open/close emphasis (snake_case stays literal), so require a
+  // non-word char on the outer side of each delimiter.
+  s = s.replace(/(^|[^\w])__([^_]+)__(?!\w)/g, '$1<strong>$2</strong>');
+  s = s.replace(/(^|[^\w])_([^_]+)_(?!\w)/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
   return s;
