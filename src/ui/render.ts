@@ -717,11 +717,70 @@ function copyActivePath() {
     .catch(() => showToast('Copy failed'));
 }
 
+// ---------------------------------------------------------------------------
+// In-app navigation history (back / forward across viewed documents).
+// The viewer is a single setHTML page with NO server and NO real URLs, so the
+// WebView's back/forward — including the mouse side buttons (3/4) — would leave
+// it for the blank initial entry the host opened before NavigateToString (the
+// "empty hanging page"). We mirror every document switch into the History API
+// so those buttons traverse the docs we've actually viewed. A buffer entry +
+// popstate trap keep the user from ever falling off the start onto that blank
+// page (back at the first doc just stays put; forward history is preserved).
+let navStack = [];        // [fileKey] viewed, in order
+let navIdx = -1;          // current position in navStack
+let navApplying = false;  // suppress recording while applying a popstate
+
+function navResolve(key) {
+  const sep = key.indexOf('::');
+  if (sep < 0) return null;
+  const dir = key.slice(0, sep), path = key.slice(sep + 2);
+  // Match by string (dir::path) — resilient across reloads that rebuild ITEMS
+  // with fresh pad/f objects but identical identities.
+  return ITEMS.find(x => x.pad.dir === dir && x.f.path === path) || null;
+}
+
+// Record a document switch as a History API entry. Called from renderPreview
+// for every switch; skipped while applying a popstate and de-duped when the key
+// is unchanged (raw-mode toggles, theme re-renders, hot-reloads of the same
+// file all re-call renderPreview without being real navigations).
+function navRecord(key) {
+  if (navApplying) return;
+  if (navIdx >= 0 && navStack[navIdx] === key) return;
+  if (navStack.length === 0) {
+    // Buffer entry: a same-document history slot below the first doc, so the
+    // first "back" is absorbed here (we bounce forward) instead of reloading
+    // the blank initial page cross-document.
+    try { history.replaceState({ scratchNav: '__buffer__' }, ''); } catch (_) {}
+  }
+  navStack = navStack.slice(0, navIdx + 1);
+  navStack.push(key);
+  navIdx = navStack.length - 1;
+  try { history.pushState({ scratchNav: navIdx }, ''); } catch (_) {}
+}
+
+window.addEventListener('popstate', (e) => {
+  const v = e.state && e.state.scratchNav;
+  if (v === '__buffer__' || v == null) {
+    // At (or below) the buffer — bounce forward to the first doc so the blank
+    // initial page is never shown. forward() keeps any forward entries intact.
+    if (navStack.length) { try { history.forward(); } catch (_) {} }
+    return;
+  }
+  const idx = typeof v === 'number' ? v : -1;
+  if (idx < 0 || idx >= navStack.length || idx === navIdx) return;
+  const it = navResolve(navStack[idx]);
+  if (!it) return;
+  navIdx = idx;
+  navApplying = true;
+  try { renderPreview(it.pad, it.f); } finally { navApplying = false; }
+});
+
 function renderPreview(pad, f) {
   // Remember the outgoing file's scroll so returning to it lands where you left
   // off (session-only — not persisted across launches).
   if (current && previewEl) scrollMem[current] = previewEl.scrollTop;
   current = pad.dir + '::' + f.path; currentRef = { pad, f };
+  navRecord(current);
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
   // Meta is a single tight dot-separated line (type · #tags) — not scattered chips.
   const metaBits = [f.registered ? esc(f.type || 'note') : 'unregistered'];
@@ -1504,7 +1563,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Intercept link clicks in the preview. The viewer is a single self-contained
-// page (loaded via setHTML in the WebView2 host — NO server, NO back button), so
+// page (loaded via setHTML in the WebView2 host — NO server, NO real URLs), so
 // letting a link navigate the webview lands on a dead URL = blank window. Instead:
 //   • relative link to a pad file  → open that file in the viewer
 //   • external (http/https/mailto) → hand off to the system browser
