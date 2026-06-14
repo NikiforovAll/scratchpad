@@ -5,7 +5,7 @@
 // when a ```mermaid block is present.
 
 import { stat } from "node:fs/promises";
-import { extname } from "node:path";
+import { dirname, extname, isAbsolute, resolve } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath } from "../discovery.ts";
@@ -36,7 +36,11 @@ const HLJS_THEME_LIGHT = {
   sri: "sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L",
 };
 
-const MAX_EMBED_BYTES = 512 * 1024; // skip embedding content above this
+const MAX_EMBED_BYTES = 512 * 1024; // skip embedding text/code content above this
+// Images get a far larger budget than text — a single screenshot routinely
+// exceeds 512KB, and embedding it is the only way it survives an export over
+// file://. Base64 inflates bytes ~33%, so this is the on-disk source ceiling.
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"]);
 const MD_EXT = new Set([".md", ".markdown", ".mdx"]);
@@ -77,6 +81,9 @@ interface FileView {
   lang?: string;
   /** text content for markdown/code/text; data URI for image; null otherwise. */
   content: string | null;
+  /** For markdown: raw inline-image src → embedded data URI, so `![](rel)` refs
+   * survive an export over file://. Absent when the doc has no local images. */
+  assets?: Record<string, string>;
   /** ISO timestamps from the file on disk (manifest has only pad-level dates). */
   created?: string;
   updated?: string;
@@ -88,6 +95,55 @@ interface PadView {
   id?: string;
   dir: string;
   files: FileView[];
+}
+
+/** Base64 data URI for an embedded image's bytes (shared by the registered-file
+ * and inline-markdown embed paths). */
+function imageDataUri(buf: Buffer, ext: string): string {
+  return `data:${MIME[ext] ?? "application/octet-stream"};base64,${buf.toString("base64")}`;
+}
+
+/** Extract the bare src token from an ![](...) destination — drops an optional
+ * "title" and surrounding <...>. Must mirror the client's extraction so the
+ * server-built asset key matches the client lookup. */
+function imageSrcToken(raw: string): string {
+  let s = raw.trim();
+  const sp = s.search(/\s/);
+  if (sp >= 0) s = s.slice(0, sp);
+  if (s.startsWith("<") && s.endsWith(">")) s = s.slice(1, -1);
+  return s;
+}
+
+/** Embed each local inline-image referenced by a markdown doc as a data URI,
+ * keyed by its raw src. Remote/scheme refs and non-images are left for the
+ * browser; missing/oversized files are skipped (the ref renders as a broken
+ * image, same as a browser would show). Resolves relative to the doc's dir. */
+async function embedInlineImages(markdown: string, baseDir: string): Promise<Record<string, string>> {
+  const assets: Record<string, string> = {};
+  // ![alt](src) — src is everything up to the first whitespace ("title" follows)
+  // or the closing paren. Local regex (not module-level) so the /g lastIndex is
+  // never shared across the concurrent scanPadFiles map.
+  for (const m of markdown.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) {
+    const src = imageSrcToken(m[1]!);
+    if (!src || src in assets) continue; // assets dedups by key
+    if (/^(https?:|data:|file:|\/\/)/i.test(src)) continue;
+    const ext = extname(src).toLowerCase();
+    if (!IMAGE_EXT.has(ext)) continue;
+    let rel = src;
+    try {
+      rel = decodeURIComponent(src); // paths may be percent-encoded (e.g. %20)
+    } catch {
+      // malformed escape — fall back to the raw token
+    }
+    const file = Bun.file(isAbsolute(rel) ? rel : resolve(baseDir, rel));
+    if (file.size > MAX_IMAGE_BYTES) continue; // 0 for a missing file → falls through to the read
+    try {
+      assets[src] = imageDataUri(Buffer.from(await file.arrayBuffer()), ext);
+    } catch {
+      // missing / unreadable (raced delete, perms) — leave the ref untouched
+    }
+  }
+  return assets;
 }
 
 function classify(ext: string): Kind {
@@ -127,11 +183,11 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
         // stat raced a delete/rename — dates just stay absent
       }
       const size = file.size;
-      if (size > MAX_EMBED_BYTES) {
+      const cap = kind === "image" ? MAX_IMAGE_BYTES : MAX_EMBED_BYTES;
+      if (size > cap) {
         kind = "toolarge";
       } else if (kind === "image") {
-        const buf = Buffer.from(await file.arrayBuffer());
-        content = `data:${MIME[ext] ?? "application/octet-stream"};base64,${buf.toString("base64")}`;
+        content = imageDataUri(Buffer.from(await file.arrayBuffer()), ext);
       } else if (kind === "binary") {
         content = null;
       } else {
@@ -140,6 +196,13 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
     } else {
       kind = "binary";
       content = null;
+    }
+    // Markdown may reference local images by relative path; embed them so the
+    // page stays self-contained (esp. an export, where the file isn't on disk).
+    let assets: Record<string, string> | undefined;
+    if (kind === "markdown" && content) {
+      const embedded = await embedInlineImages(content, dirname(abs));
+      if (Object.keys(embedded).length) assets = embedded;
     }
     return {
       path,
@@ -154,6 +217,7 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       kind,
       lang: kind === "code" ? ext.slice(1) : undefined,
       content,
+      assets,
       created,
       updated,
       comments: meta.comments,
@@ -500,6 +564,16 @@ function mdInline(s) {
   s = s.replace(/(^|[^\w])__([^_]+)__(?!\w)/g, '$1<strong>$2</strong>');
   s = s.replace(/(^|[^\w])_([^_]+)_(?!\w)/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  // Images BEFORE links — else the link rule eats the [alt](src) tail. Local
+  // refs resolve to the embedded data URI (currentRef.f.assets, built server-
+  // side so exports stay self-contained); URLs/unknown refs pass through.
+  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, dst) => {
+    let src = dst.trim();
+    const sp = src.search(/\s/); if (sp >= 0) src = src.slice(0, sp);
+    if (src.startsWith('<') && src.endsWith('>')) src = src.slice(1, -1);
+    const a = currentRef && currentRef.f && currentRef.f.assets;
+    return '<img class="mdimg" src="' + ((a && a[src]) || src) + '" alt="' + alt + '" loading="lazy"/>';
+  });
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
   return s;
 }

@@ -660,6 +660,8 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .imgwrap { display: flex; justify-content: center; padding: 12px 0; }
 .imgwrap img { max-width: 100%; max-height: 80vh; object-fit: contain;
   border: 1px solid var(--border); border-radius: 6px; background: var(--elevated); }
+.md img.mdimg { max-width: 100%; height: auto; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--elevated); }
 .notice { color: var(--ink-muted); font-size: 13px; padding: 20px 0; }
 .htmlframe { width: 100%; height: 75vh; border: 1px solid var(--border);
   border-radius: 6px; background: #fff; }
