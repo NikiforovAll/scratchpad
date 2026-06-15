@@ -83,7 +83,33 @@ Read-only and **blocking** — keeps a local server alive until Ctrl+C. Always
 launch it **backgrounded** (don't await it) so the session keeps moving, then
 report the URL. Native glimpse window with automatic browser+server fallback
 (`--browser` forces it); shows all files in the pad (unregistered ones dimmed),
-renders markdown/code/`mermaid`, raw↔rendered toggle, auto light/dark.
+renders markdown/code/`mermaid`, embeds HTML diagrams (below), raw↔rendered
+toggle, auto light/dark.
+
+## Embedding HTML diagrams
+
+For anything markdown + mermaid can't express — a UI sketch, a custom chart, an
+interactive explainer — write a standalone `.html` file in the pad and embed it
+from a markdown doc with image syntax:
+
+```md
+![Cache layout](diagram.html)
+```
+
+The viewer renders `diagram.html` **live** in a sandboxed iframe right where the
+embed sits. The `.html` is just a loose file next to the doc — resolved by its
+relative path, **not** something you `scratch add`. Keep the markdown as prose;
+let the diagram be its own file. The embed is self-contained (baked into the
+page), so it survives `scratch export` and offline viewing.
+
+Write the file as a complete standalone HTML document (it then also opens in a
+plain browser). Scripts run isolated — no access to the viewer page. Every embed
+gets a built-in kit baked in (theme-aware CSS variables, pre-styled controls, SVG
+utility classes + an `#arrow` marker) so diagrams stay consistent and match the
+viewer's light/dark theme without hand-rolled CSS.
+
+Before authoring one, always read `references/HTML_DESIGN_GUIDE.md` for the kit
+reference and the styling/structure contract.
 
 ## Reading viewer feedback (`scratch comments`)
 

@@ -10,6 +10,7 @@ import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
+import { KIT_CSS, KIT_SVG_DEFS } from "./kit.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 
 // Pinned CDN builds (version + SRI). The script-global builds (highlight.min.js /
@@ -114,11 +115,13 @@ function imageSrcToken(raw: string): string {
   return s;
 }
 
-/** Embed each local inline-image referenced by a markdown doc as a data URI,
- * keyed by its raw src. Remote/scheme refs and non-images are left for the
- * browser; missing/oversized files are skipped (the ref renders as a broken
- * image, same as a browser would show). Resolves relative to the doc's dir. */
-async function embedInlineImages(markdown: string, baseDir: string): Promise<Record<string, string>> {
+/** Embed each local file referenced by a markdown `![alt](src)` so the page stays
+ * self-contained, keyed by raw src. Images become a data URI; a local `.html` ref
+ * becomes its raw markup (rendered live in a sandboxed iframe client-side — md stays
+ * prose, the diagram is its own loose file, NOT a manifest entry). Remote/scheme refs
+ * and other types are left for the browser; missing/oversized files are skipped.
+ * Resolves relative to the doc's dir. */
+async function embedInlineAssets(markdown: string, baseDir: string): Promise<Record<string, string>> {
   const assets: Record<string, string> = {};
   // ![alt](src) — src is everything up to the first whitespace ("title" follows)
   // or the closing paren. Local regex (not module-level) so the /g lastIndex is
@@ -128,7 +131,8 @@ async function embedInlineImages(markdown: string, baseDir: string): Promise<Rec
     if (!src || src in assets) continue; // assets dedups by key
     if (/^(https?:|data:|file:|\/\/)/i.test(src)) continue;
     const ext = extname(src).toLowerCase();
-    if (!IMAGE_EXT.has(ext)) continue;
+    const isImage = IMAGE_EXT.has(ext), isHtml = HTML_EXT.has(ext);
+    if (!isImage && !isHtml) continue;
     let rel = src;
     try {
       rel = decodeURIComponent(src); // paths may be percent-encoded (e.g. %20)
@@ -136,9 +140,11 @@ async function embedInlineImages(markdown: string, baseDir: string): Promise<Rec
       // malformed escape — fall back to the raw token
     }
     const file = Bun.file(isAbsolute(rel) ? rel : resolve(baseDir, rel));
-    if (file.size > MAX_IMAGE_BYTES) continue; // 0 for a missing file → falls through to the read
+    if (file.size > (isImage ? MAX_IMAGE_BYTES : MAX_EMBED_BYTES)) continue; // 0 for a missing file → falls through to the read
     try {
-      assets[src] = imageDataUri(Buffer.from(await file.arrayBuffer()), ext);
+      assets[src] = isImage
+        ? imageDataUri(Buffer.from(await file.arrayBuffer()), ext)
+        : await file.text();
     } catch {
       // missing / unreadable (raced delete, perms) — leave the ref untouched
     }
@@ -197,11 +203,12 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       kind = "binary";
       content = null;
     }
-    // Markdown may reference local images by relative path; embed them so the
-    // page stays self-contained (esp. an export, where the file isn't on disk).
+    // Markdown may reference local images / html diagrams by relative path; embed
+    // them so the page stays self-contained (esp. an export, where the file isn't
+    // on disk).
     let assets: Record<string, string> | undefined;
     if (kind === "markdown" && content) {
-      const embedded = await embedInlineImages(content, dirname(abs));
+      const embedded = await embedInlineAssets(content, dirname(abs));
       if (Object.keys(embedded).length) assets = embedded;
     }
     return {
@@ -290,6 +297,9 @@ export async function renderHtml(
   opts: { exportMode?: boolean } = {},
 ): Promise<string> {
   const data = payloadJson(view, rootLabel);
+  // Static kit (tokens + classes + #arrow marker) baked into every ![](file.html)
+  // embed's iframe; same <-escape as the data island so it's inline-script-safe.
+  const kitJson = JSON.stringify({ css: KIT_CSS, defs: KIT_SVG_DEFS }).replace(/</g, "\\u003c");
   const titleName = view.length === 1 ? view[0]!.name : rootLabel;
   // Suggested filename for in-viewer save — the same slug `scratch export` writes.
   const exportName = exportFileSlug(view.length === 1 ? view[0]!.name : null, rootLabel);
@@ -446,6 +456,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
 <script id="data" type="application/json">${data}</script>
 <script id="settings" type="application/json">${settingsJson}</script>
 <script id="themes" type="application/json">${THEMES_JSON}</script>
+<script id="kit" type="application/json">${kitJson}</script>
 ${vendor}<script>${CLIENT_JS}</script>
 </body>
 </html>`;
@@ -553,6 +564,40 @@ const EXPORT_MODE = document.documentElement.hasAttribute('data-export');
 const PRISTINE = '<!doctype html>\n' + document.documentElement.outerHTML;
 const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// Wrap an author HTML doc/fragment as srcdoc for a sandboxed iframe (used by
+// ![](file.html) embeds). color-scheme follows the host theme; a ResizeObserver
+// posts content height up so the parent can size the frame to its content (see the
+// message listener in enhance). Runs in an opaque-origin iframe — no host access.
+// Static embed kit (tokens + classes + #arrow marker), read once from the #kit
+// island. See kit.ts.
+const KIT = (function () {
+  try { return JSON.parse(document.getElementById('kit').textContent); }
+  catch (_) { return { css: '', defs: '' }; }
+})();
+// Static frame script: posts content height up (ResizeObserver) so the parent can
+// size the frame, and forwards keystrokes up so the host's shortcuts (t/s/?/…) still
+// fire when focus is inside the frame (an iframe otherwise swallows them; keys typed
+// into the frame's own inputs are left alone). Fully static — built once, not per
+// embed. srcdoc auto-wraps content in a document, so no doctype/html/head/body
+// scaffolding. The script tags are built as '<' + 'script>' so no literal script-tag
+// (least of all a closing one) appears in this source — this whole block is itself
+// emitted inside the host page's own script element, where a closing tag would end it.
+const FRAME_SCRIPT = '<' + 'script>(function(){function p(){var d=document.documentElement,b=document.body,h=Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0);parent.postMessage({__scratchFrame:1,h:h},"*");}var o=new ResizeObserver(p);o.observe(document.documentElement);if(document.body)o.observe(document.body);addEventListener("load",p);p();addEventListener("keydown",function(e){var x=e.target;if(x&&(x.tagName==="INPUT"||x.tagName==="TEXTAREA"||x.isContentEditable))return;parent.postMessage({__scratchKey:1,key:e.key,ctrlKey:e.ctrlKey,metaKey:e.metaKey,altKey:e.altKey,shiftKey:e.shiftKey},"*");});})();' + '<' + '/script>';
+function htmlFrameDoc(fragment) {
+  // Force color-scheme to the RESOLVED viewer theme (not the OS) so the kit's
+  // light-dark() tokens track the toggle. data-theme is absent in system mode →
+  // fall back to the OS preference, dark-first like the rest of the viewer.
+  const t = document.documentElement.dataset.theme;
+  const dark = t === 'dark' || (!t && (!window.matchMedia || matchMedia('(prefers-color-scheme: dark)').matches));
+  // body:flow-root (in the kit) contains child margins so the last child's bottom
+  // margin is counted in scrollHeight — otherwise a collapsed margin under-reports
+  // and the frame shows a phantom scrollbar (FRAME_SCRIPT measures the max metric).
+  return '<style>:root{color-scheme:' + (dark ? 'dark' : 'light') + '}' + KIT.css + '</style>'
+    + KIT.defs
+    + fragment
+    + FRAME_SCRIPT;
+}
+
 function mdInline(s) {
   s = esc(s);
   s = s.replace(/\`([^\`]+)\`/g, (_, c) => '<code>' + c + '</code>');
@@ -572,6 +617,10 @@ function mdInline(s) {
     const sp = src.search(/\s/); if (sp >= 0) src = src.slice(0, sp);
     if (src.startsWith('<') && src.endsWith('>')) src = src.slice(1, -1);
     const a = currentRef && currentRef.f && currentRef.f.assets;
+    // A local .html ref embeds as raw markup (server-side) → render it live in a
+    // sandboxed iframe. Keeps the md as prose; the diagram is its own loose file.
+    if (/\.html?$/i.test(src) && a && a[src] != null)
+      return '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(htmlFrameDoc(a[src])) + '" title="' + alt + '"></iframe>';
     return '<img class="mdimg" src="' + ((a && a[src]) || src) + '" alt="' + alt + '" loading="lazy"/>';
   });
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
@@ -719,7 +768,31 @@ function resolveRel(from, rel) {
 
 function mermaidTheme() { return document.documentElement.dataset.theme === 'light' ? 'neutral' : 'dark'; }
 
+// Size each rendered html-frame to its content. Added once; matches the posting
+// frame by contentWindow so multiple frames on a page resize independently.
+function armHtmlFrames() {
+  if (window.__scratchFrameListener) return;
+  window.__scratchFrameListener = true;
+  addEventListener('message', (e) => {
+    if (!e.data) return;
+    // Keystroke forwarded out of an embed iframe (which would otherwise swallow
+    // it) — replay it on the host document so the global shortcut handler runs.
+    if (e.data.__scratchKey === 1) {
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        key: e.data.key, ctrlKey: e.data.ctrlKey, metaKey: e.data.metaKey,
+        altKey: e.data.altKey, shiftKey: e.data.shiftKey, bubbles: true,
+      }));
+      return;
+    }
+    if (e.data.__scratchFrame !== 1) return;
+    document.querySelectorAll('iframe.htmlframe').forEach(f => {
+      if (f.contentWindow === e.source) f.style.height = (e.data.h + 1) + 'px';
+    });
+  });
+}
+
 function enhance(container) {
+  armHtmlFrames();
   if (window.hljs) {
     container.querySelectorAll('pre code:not(.hl-done)').forEach(el => { try { window.hljs.highlightElement(el); } catch (e) {} });
   }

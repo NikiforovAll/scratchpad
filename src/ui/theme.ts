@@ -679,6 +679,11 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .mermaid { margin: 1em 0; text-align: center; }
 .mermaid svg { max-width: 100%; height: auto; }
 
+/* live html embeds (![](file.html)) inside rendered markdown — sandboxed iframe,
+   height set from content. Scoped to .md so it doesn't clobber the full-file html
+   preview (bare .htmlframe, above). max-width keeps diagrams compact. */
+.md .htmlframe { display: block; width: 100%; max-width: 760px; border: 0; margin: 1em auto; height: 150px; }
+
 /* highlight.js — CODE blocks get a full CDN theme (github-dark / github, loaded
    in <head>). We only strip the theme's own background + padding so blocks sit on
    our recessed code surface; token colors come from the CDN theme. */

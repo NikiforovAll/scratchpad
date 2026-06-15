@@ -185,6 +185,43 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
   }
 });
 
+test("![](file.html) transcludes a local html file as a sandboxed iframe; missing/remote refs don't", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "diagram.html"), "<!doctype html><b id=x>hi</b>", "utf8");
+  await writeFile(
+    join(dir, "doc.md"),
+    "# D\n\n![Cache](diagram.html)\n\n![Gone](missing.html)\n\n![Remote](https://e.com/x.html)\n",
+    "utf8",
+  );
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "D", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  await boot(await renderHtml(await buildView([pad]), "P"));
+  try {
+    const frames = Array.from(document.querySelectorAll("#preview .md iframe.htmlframe")) as any[];
+    // exactly the resolvable local .html is embedded (missing + remote are not)
+    expect(frames.length).toBe(1);
+    expect(frames[0].getAttribute("sandbox")).toBe("allow-scripts");
+    // the file's content is carried in srcdoc (no allow-same-origin → isolated)
+    const srcdoc = frames[0].getAttribute("srcdoc") as string;
+    expect(srcdoc).toContain("<b id=x>hi</b>");
+    // the built-in kit is baked into every embed: theme tokens, SVG classes,
+    // the #arrow marker, and a forced (resolved) color-scheme
+    expect(srcdoc).toContain(".c-blue");
+    expect(srcdoc).toContain('id="arrow"');
+    expect(srcdoc).toContain("light-dark(");
+    expect(srcdoc).toMatch(/color-scheme:(dark|light)/);
+    // keystrokes are forwarded out so host shortcuts (t/s/?) still fire with frame focus
+    expect(srcdoc).toContain("__scratchKey");
+    // the doc.md is not bloated — the diagram never appears as a registered file row
+    expect(document.querySelector(".frow")?.textContent).not.toContain("diagram");
+  } finally {
+    teardown();
+  }
+});
+
 test("groups files under group headers, keeping ungrouped under FILES", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });
