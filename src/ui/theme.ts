@@ -685,13 +685,30 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .katex-display { margin: 0; }
 
 /* footnotes / citations (Pandoc/GFM [^id] refs + [^id]: defs) */
-sup.fnref { font-size: 0.72em; line-height: 0; margin-left: 1px; }
-sup.fnref a { text-decoration: none; }
+/* Citation ref: bracketed [n] in accent color so it reads as a clickable
+   citation, not a stray digit. <sup> already shrinks to ~0.83x, so keep our
+   factor mild (the old 0.72em compounded to ~0.6em — near-invisible). The
+   .md a border-bottom underline is dropped; hover restores an underline. */
+sup.fnref { font-size: 0.9em; line-height: 0; margin-left: 1px; font-weight: 600; }
+sup.fnref a { color: var(--accent-text); text-decoration: none; border-bottom: 0; }
+sup.fnref a::before { content: "["; }
+sup.fnref a::after { content: "]"; }
+sup.fnref a:hover { text-decoration: underline; }
 .fn-sep { margin-top: 2em; }
 .footnotes { font-size: 0.9em; color: var(--ink-2); }
 .footnotes ol { padding-left: 1.4em; }
 .footnotes li { margin: 0.35em 0; }
 .fn-back { text-decoration: none; margin-left: 0.35em; }
+
+/* Transient highlight on the jumped-to citation target (def <li> or ref <sup>).
+   Fades from an accent tint to nothing over 10s; the box-shadow ring extends the
+   tint slightly past the element so a tight <sup> still reads as highlighted.
+   animation-fill-mode forwards holds the cleared end state until JS strips it. */
+@keyframes anchor-flash {
+  from { background: var(--ember-dim); box-shadow: 0 0 0 4px var(--ember-dim); }
+  to   { background: transparent;     box-shadow: 0 0 0 4px transparent; }
+}
+.anchor-flash { animation: anchor-flash 10s ease-out forwards; border-radius: 4px; }
 
 /* live html embeds (![](file.html)) inside rendered markdown — sandboxed iframe,
    height set from content. Scoped to .md so it doesn't clobber the full-file html
