@@ -83,8 +83,22 @@ Read-only and **blocking** — keeps a local server alive until Ctrl+C. Always
 launch it **backgrounded** (don't await it) so the session keeps moving, then
 report the URL. Native glimpse window with automatic browser+server fallback
 (`--browser` forces it); shows all files in the pad (unregistered ones dimmed),
-renders markdown/code/`mermaid`, embeds HTML diagrams (below), raw↔rendered
-toggle, auto light/dark.
+renders markdown/code/`mermaid`, TeX math, embeds HTML diagrams (below),
+raw↔rendered toggle, auto light/dark.
+
+## Math notation (TeX)
+
+Markdown docs may use TeX/LaTeX math — inline `$…$` and display `$$…$$` — rendered
+by KaTeX in the viewer. Reach for it when a note needs a real formula instead of
+prose or ASCII (e.g. `$$\text{tokens} = \operatorname{round}(W/28) \times
+\operatorname{round}(H/28) + 2$$`). No setup needed; just write the math in the doc.
+
+## Footnotes / citations
+
+Markdown footnotes are supported — an inline `[^id]` reference plus a `[^id]: …`
+definition (Pandoc/GFM style). The viewer numbers each reference and renders a
+linked definitions list at the bottom. Use it for sources/citations in research
+notes (definitions render inline markdown, so links inside them work).
 
 ## Embedding HTML diagrams
 
