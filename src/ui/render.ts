@@ -36,6 +36,20 @@ const HLJS_THEME_LIGHT = {
   url: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css",
   sri: "sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L",
 };
+// KaTeX (math). The script-global build sets window.katex; the client renders
+// $…$ / $$…$$ spans in enhance(). Added CONDITIONALLY (only when a doc has math).
+const KATEX_CDN = {
+  url: "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js",
+  sri: "sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6",
+};
+// KaTeX stylesheet. It pulls the math fonts by RELATIVE url from the CDN, so an
+// export opened OFFLINE loses the glyphs — the .math span then degrades to its
+// raw $…$ source (kept as the span's fallback text). Deliberately NOT inlined:
+// same graceful-online-degradation contract as hljs/mermaid.
+const KATEX_CSS = {
+  url: "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css",
+  sri: "sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP",
+};
 
 const MAX_EMBED_BYTES = 512 * 1024; // skip embedding text/code content above this
 // Images get a far larger budget than text — a single screenshot routinely
@@ -245,6 +259,12 @@ export async function buildView(pads: Pad[]): Promise<PadView[]> {
 }
 
 const MERMAID_RE = /```[ \t]*mermaid\b/;
+// TeX math: $$display$$ (one line or multi-line) OR inline $…$. The inline arm
+// requires non-space adjacency to the delimiters and a non-word/non-$ char
+// outside them, so prose currency ("$5 and $10") doesn't trip it. Kept in sync
+// with the client extractor in mdInline/renderMarkdown; a drift only over- or
+// under-loads the bundle (the client still degrades to raw source).
+const MATH_RE = /\$\$[\s\S]+?\$\$|(?<![\\\w$])\$(?=\S)(?:\\.|[^$\n\\])+?(?<=\S)\$(?![\w$])/;
 
 /** The embedded data island, escaped for inline <script> AND safe as an eval arg. */
 export function payloadJson(view: PadView[], rootLabel: string): string {
@@ -252,8 +272,8 @@ export function payloadJson(view: PadView[], rootLabel: string): string {
 }
 
 /** Which vendor bundles a view requires — used to decide in-place vs full reload. */
-export function bundleNeeds(view: PadView[]): { hljs: boolean; mermaid: boolean } {
-  return { hljs: needsHljs(view), mermaid: needsMermaid(view) };
+export function bundleNeeds(view: PadView[]): { hljs: boolean; mermaid: boolean; math: boolean } {
+  return { hljs: needsHljs(view), mermaid: needsMermaid(view), math: needsMath(view) };
 }
 
 function needsHljs(view: PadView[]): boolean {
@@ -268,6 +288,11 @@ function needsHljs(view: PadView[]): boolean {
 function needsMermaid(view: PadView[]): boolean {
   return view.some((p) =>
     p.files.some((f) => f.kind === "markdown" && f.content != null && MERMAID_RE.test(f.content)),
+  );
+}
+function needsMath(view: PadView[]): boolean {
+  return view.some((p) =>
+    p.files.some((f) => f.kind === "markdown" && f.content != null && MATH_RE.test(f.content)),
   );
 }
 
@@ -339,6 +364,7 @@ export async function renderHtml(
   let vendor = "";
   if (needsHljs(view)) vendor += cdnTag(HLJS_CDN);
   if (needsMermaid(view)) vendor += cdnTag(MERMAID_CDN);
+  if (needsMath(view)) vendor += cdnTag(KATEX_CDN);
 
   // hljs theme stylesheets, placed BEFORE our <style> so equal-specificity
   // overrides (e.g. transparent .hljs background) win without !important. Both
@@ -350,6 +376,9 @@ export async function renderHtml(
     vendorCss += cssLink("hljs-dark", HLJS_THEME_DARK);
     vendorCss += cssLink("hljs-light", HLJS_THEME_LIGHT);
   }
+  // KaTeX CSS is theme-agnostic (math inherits the page `color`), so a single
+  // link — no light/dark pair like hljs.
+  if (needsMath(view)) vendorCss += cssLink("katex-css", KATEX_CSS);
 
   // The Save-a-copy button ships in BOTH modes (Ctrl+S in the client script
   // mirrors it). In an export, saving is what persists comments (no write-back
@@ -598,9 +627,32 @@ function htmlFrameDoc(fragment) {
     + FRAME_SCRIPT;
 }
 
+// Footnote registry for the current renderMarkdown pass (Pandoc/GFM [^id] refs +
+// [^id]: defs). Set/reset by renderMarkdown; null outside a render so mdInline
+// leaves stray [^x] literal. { defs: id→text, order: [id…] in ref order, seen: id→n }.
+let FN = null;
+
 function mdInline(s) {
+  // Stash inline code spans and math BEFORE escaping/emphasis run — their bodies
+  // hold chars ($ _ * \\ <) those passes would corrupt, and a $…$ inside \`code\`
+  // must stay literal (not become math). Restored at the very end.
+  const stash = [];
+  const hold = (html) => { stash.push(html); return '\x00S' + (stash.length - 1) + '\x00'; };
+  s = s.replace(/\`([^\`]+)\`/g, (_, c) => hold('<code>' + esc(c) + '</code>'));
+  // $$display$$ or inline $…$ (single line). data-tex carries the source; KaTeX
+  // renders it in enhance(). Offline (no katex) the raw source stays as the span's
+  // text, so math degrades to readable source. Kept in sync with MATH_RE.
+  s = s.replace(/\$\$([^$\n]+?)\$\$|(?<![\\\w$])\$(?=\S)((?:\\.|[^$\n\\])+?)(?<=\S)\$(?![\w$])/g, (raw, disp, inl) => {
+    const display = disp != null, tex = display ? disp : inl;
+    return hold('<span class="math' + (display ? ' math-display' : '') + '" data-tex="' + esc(tex) + '">' + esc(raw) + '</span>');
+  });
+  // Backslash escapes (GFM): \\<punct> → the literal punctuation. Stashed here —
+  // AFTER code/math extraction so a real $…$ span keeps its own backslashes — so
+  // the emphasis/link/footnote passes never see the escaped char and \\$ renders
+  // as a plain $ (consistent with a bare $). Backtick is omitted: code spans own
+  // it, and it'd clash with this raw-template delimiter.
+  s = s.replace(/\\([\\$*_~\[\]()#+\-.!<>{}|])/g, (_, ch) => hold(esc(ch)));
   s = esc(s);
-  s = s.replace(/\`([^\`]+)\`/g, (_, c) => '<code>' + c + '</code>');
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
   // Underscore emphasis (__bold__ / _italic_). Per GFM, underscores inside a
@@ -624,6 +676,17 @@ function mdInline(s) {
     return '<img class="mdimg" src="' + ((a && a[src]) || src) + '" alt="' + alt + '" loading="lazy"/>';
   });
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
+  // Footnote references [^id]: numbered by first-appearance order, linked to the
+  // definitions list renderMarkdown appends. Only refs with a matching definition
+  // are transformed; an unknown [^x] is left literal. ([^id] has no (…) tail, so
+  // the link rule above never touches it.)
+  if (FN) s = s.replace(/\[\^([^\]\s]+)\]/g, (whole, id) => {
+    if (FN.defs[id] == null) return whole;
+    let n = FN.seen[id];
+    if (!n) { FN.order.push(id); n = FN.order.length; FN.seen[id] = n; }
+    return '<sup class="fnref" id="fnref-' + esc(id) + '"><a href="#fn-' + esc(id) + '">' + n + '</a></sup>';
+  });
+  if (stash.length) s = s.replace(/\x00S(\d+)\x00/g, (_, n) => stash[+n]);
   return s;
 }
 // Map a fence/extension language token to highlight.js's canonical grammar name.
@@ -648,8 +711,14 @@ function renderMarkdown(src) {
   const lines = src.replace(/\r\n/g, '\n').split('\n');
   let html = '', i = 0, inUl = false, inOl = false;
   const closeLists = () => { if (inUl) { html += '</ul>'; inUl = false; } if (inOl) { html += '</ol>'; inOl = false; } };
+  // Pre-pass: collect footnote definitions ([^id]: text) so inline refs can be
+  // numbered and a definitions list rendered at the end. Lines are NOT removed —
+  // task-checkbox data-line uses the source index — the main loop skips them.
+  FN = { defs: {}, order: [], seen: {} };
+  for (const ln of lines) { const d = ln.match(/^\[\^([^\]\s]+)\]:\s*(.*)$/); if (d) FN.defs[d[1]] = d[2]; }
   while (i < lines.length) {
     let line = lines[i];
+    if (/^\[\^[^\]\s]+\]:/.test(line)) { i++; continue; } // a footnote def — collected above
     let fence = line.match(/^\s*\`\`\`\s*([^\s\`]*)\s*$/);
     if (fence) {
       closeLists(); const lang = normLang(fence[1] || ''); i++; let buf = [];
@@ -657,6 +726,30 @@ function renderMarkdown(src) {
       i++;
       if (lang === 'mermaid') html += '<div class="mermaid">' + esc(buf.join('\n')) + '</div>';
       else html += '<pre><code' + (lang ? ' class="language-' + lang + '"' : '') + '>' + esc(buf.join('\n')) + '</code></pre>';
+      continue;
+    }
+    // Display math block: a line that STARTS with $$. Scan forward to the matching
+    // closing $$ — which may be on a later line and/or followed by trailing prose —
+    // so a block can be lone-delimiter ($$ on its own lines), a full single line
+    // ($$x$$), or span lines with text after the close ($$…$$ where …). The closing
+    // line's trailing text is re-emitted as a paragraph. Scanning to the FIRST $$
+    // (not a lone-$$ line) is what stops a stray $$ from swallowing later
+    // headings/tables. Kept in sync with MATH_RE / the inline extractor.
+    if (/^\s*\$\$/.test(line)) {
+      closeLists();
+      let rest = line.slice(line.indexOf('$$') + 2);
+      const parts = []; let closed = false, tail = '';
+      for (;;) {
+        const ci = rest.indexOf('$$');
+        if (ci >= 0) { parts.push(rest.slice(0, ci)); tail = rest.slice(ci + 2); closed = true; break; }
+        parts.push(rest); i++;
+        if (i >= lines.length) break;
+        rest = lines[i];
+      }
+      i++; // past the closing line (or off the end if unclosed)
+      const tex = parts.join('\n').trim();
+      html += '<div class="math math-display" data-tex="' + esc(tex) + '">' + esc('$$' + tex + '$$') + '</div>';
+      if (closed && tail.trim()) html += '<p>' + mdInline(tail) + '</p>';
       continue;
     }
     // GFM pipe table: a header row followed by a |---|:--:|---| separator row.
@@ -699,6 +792,17 @@ function renderMarkdown(src) {
     closeLists(); html += '<p>' + mdInline(line) + '</p>'; i++;
   }
   closeLists();
+  // Footnote definitions list, in reference order, each with a ↩ back-link.
+  if (FN.order.length) {
+    const ids = FN.order.slice(); // snapshot — a def may itself reference a footnote
+    html += '<hr class="fn-sep"/><section class="footnotes"><ol>';
+    for (const id of ids) {
+      html += '<li id="fn-' + esc(id) + '">' + mdInline(FN.defs[id]) +
+        ' <a href="#fnref-' + esc(id) + '" class="fn-back" aria-label="Back to reference">↩</a></li>';
+    }
+    html += '</ol></section>';
+  }
+  FN = null; // outside a render, leave stray [^x] literal
   return html;
 }
 
@@ -811,6 +915,17 @@ function enhance(container) {
       const pre = document.createElement('pre'); pre.className = 'code';
       const code = document.createElement('code'); code.textContent = el.textContent;
       pre.appendChild(code); el.replaceWith(pre);
+    });
+  }
+  // KaTeX: render each .math node in place. data-tex holds the source (the DOM
+  // decodes the attribute on read). If katex is absent (offline) the raw $…$ left
+  // in the node stays visible — graceful degradation, like mermaid above.
+  if (window.katex) {
+    container.querySelectorAll('.math').forEach(el => {
+      const tex = el.getAttribute('data-tex');
+      if (tex == null) return;
+      try { window.katex.render(tex, el, { displayMode: el.classList.contains('math-display'), throwOnError: false }); }
+      catch (e) {}
     });
   }
 }
@@ -927,7 +1042,11 @@ window.addEventListener('popstate', (e) => {
   try { renderPreview(it.pad, it.f); } finally { navApplying = false; }
 });
 
-function renderPreview(pad, f) {
+// nav describes how this render was triggered, which decides the scroll target:
+//   • { anchor }   — a link with a #fragment → land on that heading
+//   • { top:true } — a plain link → top of the doc (a fresh read, not a resume)
+//   • absent       — left-nav / history / re-render → restore the remembered scroll
+function renderPreview(pad, f, nav) {
   // Remember the outgoing file's scroll so returning to it lands where you left
   // off (session-only — not persisted across launches).
   if (current && previewEl) scrollMem[current] = previewEl.scrollTop;
@@ -1051,9 +1170,28 @@ function renderPreview(pad, f) {
   applyComments();
   buildToc();
   document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
-  // Restore this file's remembered scroll (0 the first time it's opened).
-  const wantScroll = scrollMem[current] || 0;
   const wantKey = current;
+  // A link with a #fragment lands on the heading — beating the rAF re-apply below,
+  // so the scroll-restore is skipped entirely when an anchor target resolves.
+  if (nav && nav.anchor) {
+    // Resolve the heading once — it's in the DOM from the innerHTML set above and
+    // enhance() doesn't replace it, so the rAF re-applies reuse the same node.
+    const el = document.getElementById(nav.anchor);
+    const toAnchor = () => { if (el) { try { scrollToAnchor(el); } catch (_) {} } };
+    toAnchor();
+    // hljs/mermaid/images shift heights right after render and would drift the
+    // heading off the top, so re-apply across the next few frames until layout
+    // settles (mermaid in particular lays out async) — unless the user navigated away.
+    if (el && typeof requestAnimationFrame === 'function') {
+      let n = 0;
+      const tick = () => { if (current !== wantKey) return; toAnchor(); if (++n < 6) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    }
+    return;
+  }
+  // A plain link forces the top (nav.top); left-nav / history / re-renders resume
+  // where the file was last left (0 the first time it's opened).
+  const wantScroll = nav && nav.top ? 0 : (scrollMem[current] || 0);
   if (previewEl) {
     previewEl.scrollTop = wantScroll;
     // Highlighting / images / async content can shift heights right after render
@@ -1388,17 +1526,23 @@ function buildToc() {
   if (tocObserver) { tocObserver.disconnect(); tocObserver = null; }
   const md = document.querySelector('#preview .md');
   const heads = md ? Array.from(md.querySelectorAll('h1, h2, h3, h4, h5, h6')) : [];
-  if (heads.length < 2) { toc.innerHTML = ''; updateToc(); return; }
   const used = {};
   const slug = (t) => {
-    let base = (t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
+    // GFM slug: drop everything but [a-z0-9], space and hyphen, then map each
+    // space to ONE hyphen. Must NOT collapse runs — "A — B" loses the em-dash to
+    // two spaces → "a--b" (double hyphen), which is the id GitHub/the author links to.
+    let base = (t || '').toLowerCase().replace(/[^a-z0-9 -]+/g, '').replace(/ /g, '-').replace(/^-+|-+$/g, '') || 'section';
     if (used[base] == null) { used[base] = 0; return base; }
     return base + '-' + (++used[base]);
   };
+  // Assign GFM heading ids before the <2-heading early return, so in-page anchor
+  // links ([x](#heading)) resolve even on docs with too few headings for a TOC.
+  heads.forEach((h) => { if (!h.id) h.id = slug(h.textContent); });
+  if (heads.length < 2) { toc.innerHTML = ''; updateToc(); return; }
   let html = '<div class="toc-head">On this page</div><nav class="toc-nav">';
   const links = {};
   heads.forEach((h) => {
-    const id = h.id || (h.id = slug(h.textContent));
+    const id = h.id;
     html += '<a class="toc-link toc-' + h.tagName.toLowerCase() + '" href="#' + id +
       '" data-tid="' + id + '" title="' + esc(h.textContent) + '">' + esc(h.textContent) + '</a>';
   });
@@ -1418,7 +1562,7 @@ function buildToc() {
     a.addEventListener('click', (e) => {
       e.preventDefault();
       const t = document.getElementById(a.dataset.tid);
-      if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (t) scrollToAnchor(t);
       // Light the clicked entry right away; the spy keeps it correct as you scroll.
       setActive(a.dataset.tid);
     });
@@ -1720,6 +1864,27 @@ document.addEventListener('keydown', (e) => {
 //   • relative link to a pad file  → open that file in the viewer
 //   • external (http/https/mailto) → hand off to the system browser
 //   • anything else                → swallow (no navigation)
+// Scroll an in-doc anchor to the top of the preview, CLAMPED to the container's
+// scroll range. A near-bottom target — notably the footnotes block, which
+// renderMarkdown appends at the very end — has less content below it than the
+// viewport height, and scrollIntoView({block:'start'}) over-scrolls past the
+// bottom here (WebView2/Chromium), leaving a blank gap below the doc. Computing
+// the target scrollTop and clamping to [0, scrollHeight - clientHeight] keeps the
+// scroll constrained to actual content. ANCHOR_GAP gives a little headroom above
+// the target (mirrors the headings' scroll-margin-top).
+const ANCHOR_GAP = 24;
+function scrollToAnchor(el) {
+  if (!el || !previewEl) return;
+  const offsetTop = el.getBoundingClientRect().top - previewEl.getBoundingClientRect().top;
+  const top = previewEl.scrollTop + offsetTop - ANCHOR_GAP;
+  const max = Math.max(0, previewEl.scrollHeight - previewEl.clientHeight);
+  // Set scrollTop directly (clamped) rather than scrollTo({behavior:'smooth'}):
+  // the destination clamp is the actual fix (a near-bottom target like the
+  // appended footnotes can't over-scroll past the content), and a direct set is
+  // synchronous — scrollTo's smooth animation schedules an async scroll event that
+  // outlives a headless page and crashes the test runner.
+  previewEl.scrollTop = Math.max(0, Math.min(top, max));
+}
 previewEl.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a');
   if (!a) return;
@@ -1731,10 +1896,22 @@ previewEl.addEventListener('click', (e) => {
     return;
   }
   if (!currentRef || !href) return;
-  const target = resolveRel(currentRef.f.path, href.split('#')[0]);
+  const hashAt = href.indexOf('#');
+  const filePart = hashAt >= 0 ? href.slice(0, hashAt) : href;
+  const hash = hashAt >= 0 ? decodeURIComponent(href.slice(hashAt + 1)) : '';
+  // Pure in-page anchor [x](#heading): scroll within the current doc (ids assigned
+  // by buildToc on every render). No re-render, so no scroll-restore to fight.
+  if (!filePart) {
+    const t = hash && document.getElementById(hash);
+    if (t) scrollToAnchor(t);
+    return;
+  }
+  const target = resolveRel(currentRef.f.path, filePart);
   const pad = currentRef.pad;
-  const f = pad.files.find(x => x.path === target || x.path === href || x.path.endsWith('/' + target));
-  if (f) { renderPreview(pad, f); }
+  const f = pad.files.find(x => x.path === target || x.path === filePart || x.path.endsWith('/' + target));
+  // Cross-file link: open the doc at its #fragment, or at the top for a plain link
+  // — following a link is a fresh read, NOT a resume (that's reserved for the nav).
+  if (f) { renderPreview(pad, f, hash ? { anchor: hash } : { top: true }); }
 });
 
 // ---------------------------------------------------------------------------

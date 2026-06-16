@@ -108,7 +108,7 @@ describe("renderHtml", () => {
     expect(html).toContain("hljs.highlightElement"); // highlight wiring present
     expect(html).toMatch(/<script src="https:\/\/cdnjs\.cloudflare\.com[^"]+highlight[^"]+" integrity="sha384-/);
     expect(html).not.toContain("mermaid@"); // no mermaid CDN tag
-    expect(html.length).toBeLessThan(150_000); // bundles no longer inlined
+    expect(html.length).toBeLessThan(200_000); // bundles no longer inlined (inlined hljs alone is >1MB)
   });
 
   test("links mermaid via CDN only when a mermaid block exists", async () => {
@@ -121,7 +121,24 @@ describe("renderHtml", () => {
     const pad: Pad = { dir, manifest: await readManifest(dir) };
     const html = await renderHtml(await buildView([pad]), "Diagram");
     expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+mermaid@[^"]+" integrity="sha384-/);
-    expect(html.length).toBeLessThan(150_000); // mermaid bundle NOT inlined
+    expect(html.length).toBeLessThan(200_000); // mermaid bundle NOT inlined (inlined mermaid is >2MB)
+  });
+
+  test("links KaTeX (JS + CSS, with SRI) only when a doc contains math", async () => {
+    const noMath = await seedPad(); // no $…$ / $$…$$
+    expect(await renderHtml(await buildView([noMath]), "Notes")).not.toContain("katex@");
+
+    const dir = join(root, "math");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "eq.md"), "# Eq\n\n$$\\text{tokens} = W \\times H$$\n", "utf8");
+    const m = newManifest("Math");
+    m.files.push({ path: "eq.md", title: "Eq", type: "note" });
+    await writeManifest(dir, m);
+    const pad: Pad = { dir, manifest: await readManifest(dir) };
+    const html = await renderHtml(await buildView([pad]), "Math");
+    expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+katex@[^"]+" integrity="sha384-/);
+    expect(html).toMatch(/<link id="katex-css"[^>]+katex@[^"]+\.css" integrity="sha384-/);
+    expect(html.length).toBeLessThan(200_000); // KaTeX NOT inlined (fonts/CSS load from CDN)
   });
 
   test("data-export marks only exports; the Save-a-copy button ships in both modes", async () => {

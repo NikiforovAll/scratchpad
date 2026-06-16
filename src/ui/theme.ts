@@ -679,6 +679,20 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
 .mermaid { margin: 1em 0; text-align: center; }
 .mermaid svg { max-width: 100%; height: auto; }
 
+/* KaTeX math. Display blocks scroll horizontally rather than overflow the card;
+   the raw-source fallback (offline, no katex) inherits prose color/wrapping. */
+.math-display { margin: 1em 0; overflow-x: auto; overflow-y: hidden; }
+.katex-display { margin: 0; }
+
+/* footnotes / citations (Pandoc/GFM [^id] refs + [^id]: defs) */
+sup.fnref { font-size: 0.72em; line-height: 0; margin-left: 1px; }
+sup.fnref a { text-decoration: none; }
+.fn-sep { margin-top: 2em; }
+.footnotes { font-size: 0.9em; color: var(--ink-2); }
+.footnotes ol { padding-left: 1.4em; }
+.footnotes li { margin: 0.35em 0; }
+.fn-back { text-decoration: none; margin-left: 0.35em; }
+
 /* live html embeds (![](file.html)) inside rendered markdown — sandboxed iframe,
    height set from content. Scoped to .md so it doesn't clobber the full-file html
    preview (bare .htmlframe, above). max-width keeps diagrams compact. */

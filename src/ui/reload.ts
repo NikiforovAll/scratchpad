@@ -28,6 +28,7 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
   // keep in place.
   let haveHljs = false;
   let haveMermaid = false;
+  let haveMath = false;
   let primed = false;
 
   async function rebuild(): Promise<Snapshot> {
@@ -43,9 +44,12 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
     }
     const view = await buildView(fresh);
     const needs = bundleNeeds(view);
-    const full = primed && ((needs.hljs && !haveHljs) || (needs.mermaid && !haveMermaid));
+    const full =
+      primed &&
+      ((needs.hljs && !haveHljs) || (needs.mermaid && !haveMermaid) || (needs.math && !haveMath));
     haveHljs = haveHljs || needs.hljs;
     haveMermaid = haveMermaid || needs.mermaid;
+    haveMath = haveMath || needs.math;
     primed = true;
     // Re-read the user config so a theme saved from the settings panel is baked
     // into every rebuilt page (glimpse re-present, browser reload, first launch).

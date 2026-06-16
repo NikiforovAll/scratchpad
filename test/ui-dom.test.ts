@@ -19,6 +19,10 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "scratch-dom-"));
 });
 afterEach(async () => {
+  // Safety net: if a test threw before its `await teardown()`, the happy-dom
+  // window is still registered. Close it here so windows never accumulate across
+  // tests (un-closed windows keep their timers/observers alive → OOM crash).
+  if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -51,10 +55,19 @@ async function boot(html: string, seedStorage?: Record<string, string>, pre?: (w
   if (pre) pre(w);
   // Stub vendored libs (their real bundles are huge / need a real browser).
   const mermaidCalls: any[] = [];
+  const katexCalls: any[] = [];
   w.hljs = { highlightElement: (el: any) => el.classList.add("hljs") };
   w.mermaid = {
     initialize: (cfg: any) => mermaidCalls.push(["init", cfg]),
     run: (opts: any) => mermaidCalls.push(["run", opts?.nodes?.length ?? 0]),
+  };
+  // KaTeX render replaces the node's content; the stub records the source + mode
+  // and marks the node so tests can assert it was rendered.
+  w.katex = {
+    render: (tex: string, el: any, opts: any) => {
+      katexCalls.push([tex, !!opts?.displayMode]);
+      el.setAttribute("data-rendered", "1");
+    },
   };
   // Simulate a dark-preferring OS (happy-dom's own matchMedia returns false).
   w.matchMedia = () => ({ matches: true, addEventListener() {}, addListener() {} });
@@ -85,11 +98,31 @@ async function boot(html: string, seedStorage?: Record<string, string>, pre?: (w
       }
     }
   }
-  return { mermaidCalls };
+  return { mermaidCalls, katexCalls };
 }
 
-function teardown() {
-  GlobalRegistrator.unregister();
+// unregister() is async — it awaits happyDOM.close(), which aborts the page's
+// timers/observers and frees the window. It MUST be awaited; firing it un-awaited
+// lets each test's window leak (close races the next register()) → memory grows
+// until Bun OOM-panics once the file passes ~25 tests. Callers must `await`.
+async function teardown() {
+  if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
+}
+
+// happy-dom has no layout engine. To observe scrollToAnchor's clamped scroll, make
+// the target heading report a top offset and capture the scrollTop it sets on
+// #preview. Expected landing = headingTop - ANCHOR_GAP (24), clamped to the range.
+const ANCHOR_GAP = 24;
+function armAnchorScroll(headingTop = 300): () => number {
+  (Element.prototype as any).getBoundingClientRect = function () {
+    return { top: this.tagName === "H2" ? headingTop : 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 };
+  };
+  const pv = document.getElementById("preview") as any;
+  Object.defineProperty(pv, "scrollHeight", { configurable: true, get: () => 10000 });
+  Object.defineProperty(pv, "clientHeight", { configurable: true, get: () => 500 });
+  let scrolled = 0;
+  Object.defineProperty(pv, "scrollTop", { configurable: true, get: () => scrolled, set: (v: number) => (scrolled = v) });
+  return () => scrolled;
 }
 
 async function renderPadWithContent(content: string): Promise<string> {
@@ -132,7 +165,111 @@ test("table of contents: off by default, 'o' reveals the full H1–H6 hierarchy"
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "o" }));
     expect(toc.style.display).toBe("none");
   } finally {
-    teardown();
+    await teardown();
+  }
+});
+
+test("in-page anchor link [x](#heading) scrolls to the matching heading", async () => {
+  // A single H1 below the body heading: too few for a TOC, but the anchor must
+  // still resolve — id assignment is independent of whether the TOC renders.
+  const html = await renderPadWithContent(
+    "intro [jump](#what-would-be-needed)\n\n## What would be needed\n\nbody\n",
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    const heading = md.querySelector("h2")!;
+    expect(heading.id).toBe("what-would-be-needed");
+    // No TOC (only one heading), yet the anchor still has a target.
+    expect(document.getElementById("toc")!.querySelectorAll(".toc-link").length).toBe(0);
+    // Clicking the anchor scrolls to the heading, clamped to the scroll range.
+    const scrolled = armAnchorScroll(300);
+    const link = md.querySelector('a[href="#what-would-be-needed"]') as any;
+    expect(link).not.toBeNull();
+    link.click();
+    expect(scrolled()).toBe(300 - ANCHOR_GAP);
+  } finally {
+    await teardown();
+  }
+});
+
+test("heading ids follow GFM slugging: punctuation dropped, spaces kept 1:1 (no collapse)", async () => {
+  // "method — block": the em-dash is dropped, leaving two spaces → a DOUBLE hyphen,
+  // matching the id GitHub generates (and what authors hand-write in #anchors).
+  const html = await renderPadWithContent(
+    "[jump](#calculation-method--block-tiling)\n\n## Calculation method — block tiling\n\nbody\n",
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    expect(md.querySelector("h2")!.id).toBe("calculation-method--block-tiling");
+    const scrolled = armAnchorScroll(300);
+    (md.querySelector('a[href="#calculation-method--block-tiling"]') as any).click();
+    expect(scrolled()).toBe(300 - ANCHOR_GAP);
+  } finally {
+    await teardown();
+  }
+});
+
+test("cross-file anchor [x](other.md#heading) opens the doc and scrolls to the heading", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(dir + "/doc.md", "see [there](other.md#what-would-be-needed)\n", "utf8");
+  await writeFile(dir + "/other.md", "# Other\n\n## What would be needed\n\nbody\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+  m.files.push({ path: "other.md", title: "Other", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  await boot(await renderHtml(await buildView([pad]), "P"));
+  try {
+    // Arm before the click: the heading is created when the doc renders, but the
+    // prototype rect stub applies to it and the #preview scrollTop accessor persists.
+    const scrolled = armAnchorScroll(300);
+    const link = document.querySelector('#preview .md a[href="other.md#what-would-be-needed"]') as any;
+    expect(link).not.toBeNull();
+    link.click();
+    // The viewer switched to other.md...
+    expect(document.querySelector("#preview .pfile")!.textContent).toBe("other.md");
+    // ...and landed on the linked heading (not the top / a remembered scroll).
+    const heading = document.querySelector("#preview .md h2")!;
+    expect(heading.id).toBe("what-would-be-needed");
+    expect(scrolled()).toBe(300 - ANCHOR_GAP);
+  } finally {
+    await teardown();
+  }
+});
+
+test("a plain link opens at the top; the left nav restores the remembered scroll", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(dir + "/doc.md", "go [over](other.md)\n", "utf8");
+  await writeFile(dir + "/other.md", "# Other\n\nbody\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+  m.files.push({ path: "other.md", title: "Other", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  await boot(await renderHtml(await buildView([pad]), "P"));
+  const preview = document.getElementById("preview") as any;
+  try {
+    const rows = Array.from(document.querySelectorAll(".frow[data-fi]")) as any[];
+    // Visit other.md via the nav, scroll partway down, then go back to doc.md
+    // (leaving other.md records its scroll position).
+    rows[1].click();
+    preview.scrollTop = 137;
+    rows[0].click();
+    // Reaching the same file through the left nav restores where we left off.
+    rows[1].click();
+    expect(preview.scrollTop).toBe(137);
+    // Go back to doc.md, then follow its plain link to other.md: a link is a fresh
+    // read → top of the doc, NOT the resume.
+    rows[0].click();
+    (document.querySelector('#preview .md a[href="other.md"]') as any).click();
+    expect(document.querySelector("#preview .pfile")!.textContent).toBe("other.md");
+    expect(preview.scrollTop).toBe(0);
+  } finally {
+    await teardown();
   }
 });
 
@@ -156,7 +293,7 @@ test("Esc dismisses overlays but never closes the window; 'q' closes it", async 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
     expect(posted.some((m) => m && m.__glimpse_close)).toBe(true);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -181,7 +318,184 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
     // tree built with the file row
     expect(document.querySelector(".frow")?.textContent).toContain("Doc");
   } finally {
-    teardown();
+    await teardown();
+  }
+});
+
+test("renders TeX math via KaTeX (inline + display), guarding code spans and prose currency", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "math.md"),
+    [
+      "# Math",
+      "",
+      "Inline $E = mc^2$ here.",
+      "",
+      "It costs $5 and $10, and `$a$` stays code.",
+      "",
+      "$$",
+      "\\text{tokens} = \\operatorname{round}(W/28) \\times \\operatorname{round}(H/28) + 2",
+      "$$",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const m = newManifest("P");
+  m.files.push({ path: "math.md", title: "Math", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  const html = await renderHtml(await buildView([pad]), "P");
+  // KaTeX CDN linked only because the doc has math.
+  expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+katex@[^"]+" integrity="sha384-/);
+  const { katexCalls } = await boot(html);
+  try {
+    const preview = document.getElementById("preview")!;
+    // Exactly two math nodes: one inline, one display. The currency "$5 and $10"
+    // and the `$a$` code span must NOT be picked up as math.
+    const maths = preview.querySelectorAll(".md .math");
+    expect(maths.length).toBe(2);
+    expect(preview.querySelectorAll(".md .math-display").length).toBe(1);
+    // Code span survived literally, not consumed by math extraction.
+    expect(preview.querySelector(".md code")?.textContent).toBe("$a$");
+    // Prose currency stayed as text in the paragraph.
+    expect(preview.textContent).toContain("$5 and $10");
+    // KaTeX invoked for both, with the right displayMode and source.
+    expect(katexCalls.some((c) => c[0] === "E = mc^2" && c[1] === false)).toBe(true);
+    expect(katexCalls.some((c) => c[1] === true && c[0].includes("\\operatorname{round}"))).toBe(true);
+  } finally {
+    await teardown();
+  }
+});
+
+test("display math with trailing prose stays inline and does not swallow following blocks", async () => {
+  // Regression: a $$…$$ that opens a line but has prose after the closing $$ must
+  // NOT trigger the multi-line block gather (which used to eat the heading + table).
+  const html = await renderPadWithContent(
+    [
+      "$$x = 1$$ where $x$ is the answer.",
+      "",
+      "## After",
+      "",
+      "| a | b |",
+      "| - | - |",
+      "| 1 | 2 |",
+      "",
+    ].join("\n"),
+  );
+  const { katexCalls } = await boot(html);
+  try {
+    const preview = document.getElementById("preview")!;
+    // The heading and table after the math rendered (were previously swallowed).
+    expect(preview.querySelector(".md h2")?.textContent).toBe("After");
+    expect(preview.querySelector(".md table")).not.toBeNull();
+    // The $$…$$ rendered as an inline display span (not a block div eating the tail).
+    expect(katexCalls.some((c) => c[0] === "x = 1" && c[1] === true)).toBe(true);
+    // Trailing prose survived as text.
+    expect(preview.textContent).toContain("where");
+  } finally {
+    await teardown();
+  }
+});
+
+test("multi-line $$ block spanning lines, with trailing prose after the close, renders", async () => {
+  // Mirrors cost-analysis.md: opening $$ shares its line with content, the block
+  // spans to a closing $$ that is mid-line and followed by prose (with inline math).
+  const html = await renderPadWithContent(
+    [
+      "## Cost",
+      "",
+      "$$\\text{cost} = \\frac{t \\cdot N}{10^6} \\cdot r",
+      "\\qquad (= \\$251.91)$$ where $r$ = rate.",
+      "",
+      "| a | b |",
+      "| - | - |",
+      "| 1 | 2 |",
+      "",
+    ].join("\n"),
+  );
+  const { katexCalls } = await boot(html);
+  try {
+    const preview = document.getElementById("preview")!;
+    // The two-line block became ONE display-math node carrying both lines.
+    const disp = preview.querySelectorAll(".md .math-display");
+    expect(disp.length).toBe(1);
+    expect(katexCalls.some((c) => c[1] === true && c[0].includes("\\qquad") && c[0].includes("\\text{cost}"))).toBe(true);
+    // Trailing prose after the close rendered as a paragraph, with its inline $r$.
+    expect(preview.textContent).toContain("where");
+    expect(katexCalls.some((c) => c[0] === "r" && c[1] === false)).toBe(true);
+    // The heading before and the table after both survived (no swallowing).
+    expect(preview.querySelector(".md h2")?.textContent).toBe("Cost");
+    expect(preview.querySelector(".md table")).not.toBeNull();
+  } finally {
+    await teardown();
+  }
+});
+
+test("footnotes: [^id] refs are numbered and linked to a definitions list ([^id]: …)", async () => {
+  const html = await renderPadWithContent(
+    [
+      "A frozen-tower model[^arxiv] documented by the authors[^blog].",
+      "",
+      "Reusing the first ref[^arxiv] keeps its number.",
+      "",
+      "An unknown[^missing] stays literal.",
+      "",
+      "[^arxiv]: jina-embeddings-v5-omni, [arXiv](https://arxiv.org/abs/2605.08384).",
+      "[^blog]: Elastic Search Labs writeup.",
+      "",
+    ].join("\n"),
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    // Two distinct definitions → an ordered footnotes list with 2 items.
+    const items = md.querySelectorAll(".footnotes li");
+    expect(items.length).toBe(2);
+    // arxiv, blog, arxiv (reused) are refs; the unknown is NOT.
+    const refs = md.querySelectorAll("sup.fnref");
+    expect(refs.length).toBe(3);
+    expect(refs[0].querySelector("a")?.getAttribute("href")).toBe("#fn-arxiv");
+    expect(refs[0].textContent).toBe("1");
+    expect(refs[2].textContent).toBe("1"); // reused arxiv keeps #1
+    expect(refs[1].textContent).toBe("2"); // blog is #2
+    // The definition itself renders inline markdown (the [arXiv](url) link).
+    expect(md.querySelector("#fn-arxiv a[href='https://arxiv.org/abs/2605.08384']")).not.toBeNull();
+    // Back-link to the reference exists.
+    expect(md.querySelector("#fn-arxiv .fn-back")?.getAttribute("href")).toBe("#fnref-arxiv");
+    // Unknown footnote with no definition stays literal text.
+    expect(md.textContent).toContain("[^missing]");
+  } finally {
+    await teardown();
+  }
+});
+
+test("backslash escapes: \\$ \\* \\_ render the literal punctuation (GFM), without triggering math/emphasis", async () => {
+  const html = await renderPadWithContent(
+    [
+      "rate: r = \\$/1M tokens",
+      "",
+      "literal \\*stars\\* and \\_under\\_ stay literal",
+      "",
+      "real $x+y$ math still renders.",
+      "",
+    ].join("\n"),
+  );
+  const { katexCalls } = await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    // \$ renders as a plain $ — no backslash, no math span around it.
+    expect(md.textContent).toContain("r = $/1M tokens");
+    expect(md.textContent).not.toContain("\\$");
+    // Escaped emphasis markers stay literal (no <em>/<strong>).
+    expect(md.textContent).toContain("*stars*");
+    expect(md.textContent).toContain("_under_");
+    expect(md.querySelector("em")).toBeNull();
+    expect(md.querySelector("strong")).toBeNull();
+    // A genuine $…$ span is untouched and still rendered by KaTeX.
+    expect(katexCalls.some((c) => c[0] === "x+y" && c[1] === false)).toBe(true);
+  } finally {
+    await teardown();
   }
 });
 
@@ -218,7 +532,7 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     // the doc.md is not bloated — the diagram never appears as a registered file row
     expect(document.querySelector(".frow")?.textContent).not.toContain("diagram");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -242,7 +556,7 @@ test("groups files under group headers, keeping ungrouped under FILES", async ()
     const rows = Array.from(document.querySelectorAll(".frow")).map((r) => r.querySelector(".fttl")?.textContent);
     expect(rows).toEqual(["A", "B", "C"]);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -269,7 +583,7 @@ test("fence languages with special chars normalize to hljs grammar names", async
     expect(langs).toContain("csharp");
     expect(langs).toContain("cpp");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -285,7 +599,7 @@ test("raw/rendered toggle swaps between source and rendered markdown", async () 
     (document.getElementById("vRendered") as any).click();
     expect(preview.querySelector(".md")).not.toBeNull(); // back to rendered
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -308,7 +622,7 @@ test("copy buttons write the absolute file path and content to the clipboard", a
     cc.click();
     expect(copied).toContain("# Heading");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -318,7 +632,7 @@ test("auto-detects dark theme from prefers-color-scheme", async () => {
   try {
     expect(document.documentElement.dataset.theme).toBe("dark");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -335,7 +649,7 @@ test("a saved theme overrides the OS and toggling persists the choice", async ()
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem("scratch.themeMode")).toBe("dark");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -386,7 +700,7 @@ test("settings modal: mode + color theme switch, persisted via localStorage fall
     (document.getElementById("settingsClose") as any).click();
     expect((modal as any).style.display).toBe("none");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -440,7 +754,7 @@ test("theme gallery: star toggles favorites without applying, FIFO caps at 3", a
     );
     expect(ids).toEqual(["nord", "vitesse"]);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -456,7 +770,7 @@ test("starred themes seed from localStorage and clamp unknown ids", async () => 
     // unknown + dupes dropped, active (ember) appended.
     expect(ids).toEqual(["solarized", "kanagawa", "ember"]);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -477,7 +791,7 @@ test("embedded settings from the config file apply at boot", async () => {
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(document.documentElement.dataset.colorTheme).toBe("tokyo-night");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -497,7 +811,7 @@ test("inside the WebView2 host, settings changes post __scratch_settings", async
     // webview present → nothing written to localStorage
     expect(localStorage.getItem("scratch.colorTheme")).toBeNull();
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -537,7 +851,7 @@ test("after a native reload, __scratchSettings re-applies config saved since lau
     ).map((c) => (c as any).dataset.themeId);
     expect(ids).toEqual(["nord", "dracula", "gruvbox"]);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -552,7 +866,7 @@ test("preview header shows file dates (deduped to 'created' for untouched files)
     expect(dates.textContent).not.toContain("updated");
     expect(dates.getAttribute("title")).toContain("created");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -572,7 +886,7 @@ test("zoom buttons step within 0.5–2, persist via localStorage fallback, and r
     expect(label.textContent).toBe("100%");
     expect(localStorage.getItem("scratch.zoom")).toBe("1");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -582,7 +896,7 @@ test("saved zoom is restored at boot in the localStorage fallback path", async (
   try {
     expect(document.getElementById("zoomReset")!.textContent).toBe("150%");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -606,7 +920,7 @@ test("sidebar collapses via the in-pane button and '[', persisting to localStora
     expect(sidebar.classList.contains("collapsed")).toBe(false);
     expect(localStorage.getItem("scratch.sidebarCollapsed")).toBe("0");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -649,7 +963,7 @@ test("j/k, d/u, g/G scroll the preview; arrows still switch files", async () => 
     expect(activeTitle()).not.toBe(before);
     expect(activeTitle()).toContain("B");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -663,7 +977,7 @@ test("'q' closes the window when a close channel exists", async () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
     expect(posted.some((m) => m && m.__glimpse_close)).toBe(true);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -673,7 +987,7 @@ test("a saved collapsed sidebar is restored at boot", async () => {
   try {
     expect(document.getElementById("sidebar")!.classList.contains("collapsed")).toBe(true);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -736,7 +1050,7 @@ test("a stored comment renders a highlight; clicking it opens the popover", asyn
     pill.click();
     expect(document.querySelector(".cmt-pop .cmt-body")!.textContent).toBe("my note");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -752,7 +1066,7 @@ test("duplicate quotes disambiguate via prefix/suffix context", async () => {
     // Anchored in the second paragraph, not the first occurrence.
     expect((hls[0] as any).parentElement.textContent).toContain("three");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -772,7 +1086,7 @@ test("a quote that no longer exists is surfaced as orphaned, not dropped", async
     expect(pop.querySelector(".cmt-quote")!.textContent).toContain("vanished zebra");
     expect(pop.querySelector(".cmt-body")!.textContent).toBe("my note");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -798,7 +1112,7 @@ test("delete posts the shrunken comment array and removes the highlight", async 
     // Unwrapping restored the original text.
     expect(document.querySelector("#preview .md")!.textContent).toContain("Text bold here.");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -850,7 +1164,7 @@ test("export mode: a comment edit arms Save-a-copy; saving splices DATA into the
     expect(out).toContain('id="saveCopy"');
     expect(dot.hidden).toBe(true); // saved → clean
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -890,7 +1204,7 @@ test("live viewer: Ctrl+S exports a standalone copy with data-export injected", 
     )![1]!;
     expect(JSON.parse(island).pads[0].files[0].comments.length).toBe(1);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -915,7 +1229,7 @@ test("edit updates the body and bumps updated, persisting the full array", async
     // The always-visible note pill reflects the new body.
     expect((document.querySelector(".cmt-note") as any).dataset.note).toBe("revised note");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -945,7 +1259,7 @@ test("Ctrl+Enter in the comment textarea submits like the button", async () => {
     expect(posted.find((m) => m && m.__scratch_comments)).toBeUndefined();
     expect(document.querySelector(".cmt-pop")).not.toBeNull();
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -965,7 +1279,7 @@ test("'c' toggles comment visibility and persists to localStorage", async () => 
     expect(document.documentElement.hasAttribute("data-comments-off")).toBe(false);
     expect(localStorage.getItem("scratch.comments")).toBe("1");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -984,7 +1298,7 @@ test("clicking the comments button opens a pad-wide summary, click again closes 
     btn.click();
     expect(document.querySelector(".cmt-pop.cmt-summary")).toBeNull();
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -995,7 +1309,7 @@ test("a saved hidden-comments choice is restored at boot", async () => {
     expect(document.documentElement.hasAttribute("data-comments-off")).toBe(true);
     expect((document.getElementById("commentsToggle") as any).classList.contains("muted")).toBe(true);
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -1041,7 +1355,7 @@ test("selecting text shows the add affordance; submitting persists a new comment
     expect(hl.textContent).toBe("prose");
     expect((document.querySelector(".cmt-note") as any).dataset.note).toBe("fresh thought");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -1056,7 +1370,7 @@ test("raw mode renders no comment highlights; rendered view restores them", asyn
     (document.getElementById("vRendered") as any).click();
     expect(document.querySelector(".cmt-hl")).not.toBeNull();
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -1084,7 +1398,7 @@ test("in-place reload shows a toast (success on change, info when unchanged)", a
     expect(toast.classList.contains("toast-info")).toBe(false);
     expect(toast.textContent).toContain("Reloaded from disk");
   } finally {
-    teardown();
+    await teardown();
   }
 });
 
@@ -1134,6 +1448,6 @@ test("clicking a task checkbox toggles it and posts __scratch_checkbox with the 
     msg = posted.find((m) => m && m.__scratch_checkbox);
     expect(msg.__scratch_checkbox).toMatchObject({ line: 3, checked: false });
   } finally {
-    teardown();
+    await teardown();
   }
 });
