@@ -673,7 +673,10 @@ function mdInline(s) {
     // sandboxed iframe. Keeps the md as prose; the diagram is its own loose file.
     if (/\.html?$/i.test(src) && a && a[src] != null)
       return '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(htmlFrameDoc(a[src])) + '" title="' + alt + '"></iframe>';
-    return '<img class="mdimg" src="' + ((a && a[src]) || src) + '" alt="' + alt + '" loading="lazy"/>';
+    // Eager (not lazy): this is a local, self-contained viewer, so lazy buys
+    // almost nothing — and a lazy image that loads mid-scroll reflows the doc and
+    // drifts an anchor/TOC jump off its target. Loading up front fixes heights early.
+    return '<img class="mdimg" src="' + ((a && a[src]) || src) + '" alt="' + alt + '"/>';
   });
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
   // Footnote references [^id]: numbered by first-appearance order, linked to the
@@ -1050,6 +1053,7 @@ function renderPreview(pad, f, nav) {
   // Remember the outgoing file's scroll so returning to it lands where you left
   // off (session-only — not persisted across launches).
   if (current && previewEl) scrollMem[current] = previewEl.scrollTop;
+  cancelPin(); // a re-render invalidates any in-flight anchor re-pin (stale element)
   current = pad.dir + '::' + f.path; currentRef = { pad, f };
   navRecord(current);
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
@@ -1174,19 +1178,10 @@ function renderPreview(pad, f, nav) {
   // A link with a #fragment lands on the heading — beating the rAF re-apply below,
   // so the scroll-restore is skipped entirely when an anchor target resolves.
   if (nav && nav.anchor) {
-    // Resolve the heading once — it's in the DOM from the innerHTML set above and
-    // enhance() doesn't replace it, so the rAF re-applies reuse the same node.
-    const el = document.getElementById(nav.anchor);
-    const toAnchor = () => { if (el) { try { scrollToAnchor(el); } catch (_) {} } };
-    toAnchor();
-    // hljs/mermaid/images shift heights right after render and would drift the
-    // heading off the top, so re-apply across the next few frames until layout
-    // settles (mermaid in particular lays out async) — unless the user navigated away.
-    if (el && typeof requestAnimationFrame === 'function') {
-      let n = 0;
-      const tick = () => { if (current !== wantKey) return; toAnchor(); if (++n < 6) requestAnimationFrame(tick); };
-      requestAnimationFrame(tick);
-    }
+    // Land on the heading and keep it pinned while layout settles (hljs/mermaid/
+    // images/embeds shift heights right after render). cancelPin() above already
+    // killed any prior pin, so this jump owns the re-pin window.
+    pinAnchor(document.getElementById(nav.anchor));
     return;
   }
   // A plain link forces the top (nav.top); left-nav / history / re-renders resume
@@ -1562,7 +1557,7 @@ function buildToc() {
     a.addEventListener('click', (e) => {
       e.preventDefault();
       const t = document.getElementById(a.dataset.tid);
-      if (t) scrollToAnchor(t);
+      if (t) pinAnchor(t);
       // Light the clicked entry right away; the spy keeps it correct as you scroll.
       setActive(a.dataset.tid);
     });
@@ -1824,6 +1819,7 @@ document.addEventListener('keydown', (e) => {
     if (galleryModal.style.display !== 'none') showGallery(false);
     else if (settingsModal.style.display !== 'none') showSettings(false);
     else if (helpModal.style.display !== 'none') showHelp(false);
+    else if (SETTINGS.tocVisible) setTocVisible(false);
     return;
   }
   if (e.key === 'q' && closeWindow) { closeWindow(); return; }
@@ -1885,6 +1881,44 @@ function scrollToAnchor(el) {
   // outlives a headless page and crashes the test runner.
   previewEl.scrollTop = Math.max(0, Math.min(top, max));
 }
+// Re-pin an anchor jump across the next few frames. A single scrollToAnchor lands
+// correctly for the CURRENT layout, but content below shifts as it settles (HTML
+// embed iframes post their height back async; images decode after insertion), which
+// drifts the target off the top. Re-applying for a short window keeps it pinned —
+// this is why footnote/cross-file jumps felt accurate but a one-shot TOC click didn't.
+// pinToken cancels an in-flight pin when a newer jump (or a re-render) supersedes it,
+// so loops never fight each other or scroll a stale element.
+const PIN_FRAMES = 8;
+let pinToken = 0;
+function cancelPin() { pinToken++; }
+function pinAnchor(el) {
+  if (!el) return;
+  const my = ++pinToken;
+  scrollToAnchor(el);
+  if (typeof requestAnimationFrame !== 'function') return;
+  let n = 0;
+  const tick = () => {
+    if (my !== pinToken) return; // superseded by a newer jump / navigation
+    scrollToAnchor(el);
+    if (++n < PIN_FRAMES) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+// Transient target highlight: after a citation/anchor jump, flash the landing
+// element so it's obvious where you ended up, then fade out (CSS anim, ~10s).
+// Toggling the class with a forced reflow restarts the animation on re-clicks,
+// and only one target stays lit at a time.
+let flashEl = null, flashTimer = null;
+function flashTarget(el) {
+  if (!el) return;
+  if (flashEl && flashEl !== el) flashEl.classList.remove('anchor-flash');
+  if (flashTimer) clearTimeout(flashTimer);
+  el.classList.remove('anchor-flash');
+  void el.offsetWidth; // reflow so the animation restarts even on the same node
+  el.classList.add('anchor-flash');
+  flashEl = el;
+  flashTimer = setTimeout(() => { el.classList.remove('anchor-flash'); flashEl = flashTimer = null; }, 10000);
+}
 previewEl.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a');
   if (!a) return;
@@ -1903,7 +1937,7 @@ previewEl.addEventListener('click', (e) => {
   // by buildToc on every render). No re-render, so no scroll-restore to fight.
   if (!filePart) {
     const t = hash && document.getElementById(hash);
-    if (t) scrollToAnchor(t);
+    if (t) { pinAnchor(t); flashTarget(t); }
     return;
   }
   const target = resolveRel(currentRef.f.path, filePart);
