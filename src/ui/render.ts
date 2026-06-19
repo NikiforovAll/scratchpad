@@ -182,7 +182,9 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
   // result in manifest.files[] order — the author's deliberate reading order.
   const views = pad.manifest.files.map(async (meta): Promise<FileView> => {
     const path = meta.path;
-    const ext = extname(path).toLowerCase();
+    // Linked entries carry a label in `path`; classify by the real source filename
+    // (its extension) so external files preview by kind, not as "binary/missing".
+    const ext = extname(meta.src ?? path).toLowerCase();
     let kind = classify(ext);
     let content: string | null = null;
     // Linked entries read from `src` (outside the pad); the rest from path under the pad dir.
