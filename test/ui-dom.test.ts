@@ -322,6 +322,40 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
   }
 });
 
+test("clicking a rendered mermaid SVG opens the diagram lightbox; Esc closes it", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const md = document.querySelector(".mermaid")!;
+    // Stand in for mermaid's rendered output (the stub doesn't emit real SVG).
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.style.maxWidth = "320px";
+    md.appendChild(svg);
+
+    const modal = document.getElementById("diagramModal")!;
+    expect(modal.style.display).toBe("none");
+    svg.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(modal.style.display).toBe("flex");
+    const cloned = document.querySelector("#diagramStage svg") as SVGElement;
+    expect(cloned).not.toBeNull();
+    // mermaid's inline max-width cap is stripped so the lightbox CSS can scale up.
+    expect(cloned.style.maxWidth).toBe("");
+
+    // Wheel up zooms in (transform gains a scale > 1); double-click resets.
+    const stage = document.getElementById("diagramStage")!;
+    stage.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true, cancelable: true }));
+    expect(cloned.style.transform).toContain("scale(1.1");
+    stage.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(cloned.style.transform).toContain("scale(1)");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(modal.style.display).toBe("none");
+    expect(document.querySelector("#diagramStage svg")).toBeNull();
+  } finally {
+    await teardown();
+  }
+});
+
 test("renders TeX math via KaTeX (inline + display), guarding code spans and prose currency", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });

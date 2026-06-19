@@ -427,6 +427,22 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
   display: flex; align-items: center; justify-content: center; z-index: 50; }
 .modal { background: var(--elevated); border: 1px solid var(--border); border-radius: 10px;
   min-width: 340px; max-width: 440px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+/* diagram lightbox: enlarged mermaid SVG, fit to viewport */
+.mermaid svg { cursor: zoom-in; }
+#diagramModal { background: rgba(0,0,0,0.45); }
+.diagram-stage { box-sizing: border-box; width: 92vw; height: 90vh; padding: 24px;
+  background: var(--elevated); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
+.diagram-stage:active { cursor: grabbing; }
+/* SVG carries a viewBox; width/height 100% + its default preserveAspectRatio
+   (xMidYMid meet) scales it to fit the stage without distortion. Zoom/pan then
+   layer a transform on top (transform-origin set to 0 0 in JS). */
+.diagram-stage svg { display: block; width: 100% !important; height: 100% !important;
+  max-width: none !important; max-height: none !important; }
+.diagram-close { position: fixed; top: 16px; right: 16px; z-index: 1;
+  background: var(--elevated); border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .modal-head { display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px; border-bottom: 1px solid var(--border);
   font-family: var(--serif); font-size: 16px; color: var(--ink-1); }

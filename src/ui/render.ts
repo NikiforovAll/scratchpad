@@ -483,6 +483,10 @@ ${vendorCss}<style>${THEME_CSS}</style>
   </div>
   ${SETTINGS_MODAL_HTML}
   ${GALLERY_MODAL_HTML}
+  <div class="modal-scrim" id="diagramModal" style="display:none">
+    <button class="icon-btn diagram-close" id="diagramClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    <div class="diagram-stage" id="diagramStage"></div>
+  </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="data" type="application/json">${data}</script>
@@ -1697,6 +1701,64 @@ document.getElementById('helpBtn').addEventListener('click', () => showHelp(true
 document.getElementById('helpClose').addEventListener('click', () => showHelp(false));
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal) showHelp(false); });
 
+// Diagram lightbox: click a rendered mermaid SVG to enlarge it (fit-to-viewport).
+// The SVG is CLONED into the stage — moving it would break the in-page layout and
+// mermaid's own sizing. Mermaid stamps an inline max-width on the svg that caps it
+// at its layout width; strip it so the lightbox CSS can scale it up.
+const diagramModal = document.getElementById('diagramModal');
+const diagramStage = document.getElementById('diagramStage');
+// Pan/zoom state — ONLY in expanded mode. The cloned svg fits the stage at
+// scale 1 (CSS); zoom/pan layer a CSS transform on top (origin 0 0, so the math
+// below is anchor-able to the cursor). Reset on every open.
+let dgSvg = null, dgScale = 1, dgTx = 0, dgTy = 0, dgDrag = null;
+const DG_MIN = 0.5, DG_MAX = 16;
+// Cursor-anchored zoom offsets by the stage's padding — read it from CSS so the
+// value lives in one place (theme.ts) rather than being duplicated here.
+const DG_PAD = parseFloat(getComputedStyle(diagramStage).paddingLeft) || 0;
+function dgApply() {
+  if (dgSvg) dgSvg.style.transform = 'translate(' + dgTx + 'px,' + dgTy + 'px) scale(' + dgScale + ')';
+}
+function dgReset() { dgScale = 1; dgTx = 0; dgTy = 0; dgApply(); }
+const showDiagram = (v) => {
+  diagramModal.style.display = v ? 'flex' : 'none';
+  if (!v) { diagramStage.innerHTML = ''; dgSvg = null; dgDrag = null; }
+};
+function openDiagram(svg) {
+  const clone = svg.cloneNode(true);
+  clone.style.maxWidth = '';
+  clone.style.transformOrigin = '0 0';
+  diagramStage.innerHTML = '';
+  diagramStage.appendChild(clone);
+  dgSvg = clone;
+  dgReset();
+  showDiagram(true);
+}
+document.getElementById('diagramClose').addEventListener('click', () => showDiagram(false));
+diagramModal.addEventListener('click', (e) => { if (e.target === diagramModal) showDiagram(false); });
+// Zoom toward the cursor: keep the point under the pointer fixed as scale changes.
+diagramStage.addEventListener('wheel', (e) => {
+  if (!dgSvg) return;
+  e.preventDefault();
+  const r = diagramStage.getBoundingClientRect();
+  const px = e.clientX - r.left - DG_PAD, py = e.clientY - r.top - DG_PAD;
+  const next = Math.min(DG_MAX, Math.max(DG_MIN, dgScale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+  const k = next / dgScale;
+  dgTx = px - (px - dgTx) * k; dgTy = py - (py - dgTy) * k; dgScale = next;
+  dgApply();
+}, { passive: false });
+diagramStage.addEventListener('pointerdown', (e) => {
+  if (!dgSvg) return;
+  dgDrag = { x: e.clientX, y: e.clientY, tx: dgTx, ty: dgTy };
+  diagramStage.setPointerCapture(e.pointerId);
+});
+diagramStage.addEventListener('pointermove', (e) => {
+  if (!dgDrag) return;
+  dgTx = dgDrag.tx + (e.clientX - dgDrag.x); dgTy = dgDrag.ty + (e.clientY - dgDrag.y);
+  dgApply();
+});
+diagramStage.addEventListener('pointerup', () => { dgDrag = null; });
+diagramStage.addEventListener('dblclick', dgReset);
+
 // Frameless window chrome: glimpse's Windows WebView2 host opens with no system
 // title bar (frameless), so the page must offer its own close affordance. The
 // host closes when the page posts {__glimpse_close:true}. Only shown when running
@@ -1834,7 +1896,8 @@ document.addEventListener('keydown', (e) => {
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   if (e.key === 'Escape') {
     // Esc only dismisses open overlays — never closes the window ('q' does that).
-    if (galleryModal.style.display !== 'none') showGallery(false);
+    if (diagramModal.style.display !== 'none') showDiagram(false);
+    else if (galleryModal.style.display !== 'none') showGallery(false);
     else if (settingsModal.style.display !== 'none') showSettings(false);
     else if (helpModal.style.display !== 'none') showHelp(false);
     else if (SETTINGS.tocVisible) setTocVisible(false);
@@ -1939,6 +2002,8 @@ function flashTarget(el) {
   flashTimer = setTimeout(() => { el.classList.remove('anchor-flash'); flashEl = flashTimer = null; }, 10000);
 }
 previewEl.addEventListener('click', (e) => {
+  const svg = e.target.closest && e.target.closest('.mermaid svg');
+  if (svg) { openDiagram(svg); return; }
   const a = e.target.closest && e.target.closest('a');
   if (!a) return;
   e.preventDefault();
