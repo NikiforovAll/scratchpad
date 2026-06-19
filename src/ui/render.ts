@@ -467,6 +467,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div class="sc-live"><dt><kbd>Shift</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy active file path</dd></div>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
         <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
+        <div><dt><kbd>]</kbd></dt><dd>Toggle top bar</dd></div>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Zoom in / out / reset</dd></div>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>S</kbd></dt><dd>Save / export a copy to a file</dd></div>
         <div class="sc-group">General</div>
@@ -1799,6 +1800,21 @@ try {
   }
 } catch (_) {}
 
+// Collapsible top bar (']' key). Per-machine window geometry, same as the
+// sidebar above — localStorage, not the config file.
+const topbarEl = document.getElementById('topbar');
+function toggleTopbar() {
+  const c = topbarEl.classList.toggle('collapsed');
+  try { localStorage.setItem('scratch.topbarCollapsed', c ? '1' : '0'); } catch (_) {}
+}
+try {
+  if (localStorage.getItem('scratch.topbarCollapsed') === '1') {
+    topbarEl.style.transition = 'none';
+    topbarEl.classList.add('collapsed');
+    setTimeout(() => { topbarEl.style.transition = ''; }, 0);
+  }
+} catch (_) {}
+
 // Keyboard shortcuts (see the help modal). Ignored while typing in a field.
 const previewEl = document.getElementById('preview');
 document.addEventListener('keydown', (e) => {
@@ -1827,6 +1843,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 's') { showSettings(settingsModal.style.display === 'none'); return; }
   if (e.key === 't') { toggleTheme(); return; }
   if (e.key === '[') { toggleSidebar(); return; }
+  if (e.key === ']') { toggleTopbar(); return; }
   if (e.key === 'r') { requestReload(); return; }
   if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;

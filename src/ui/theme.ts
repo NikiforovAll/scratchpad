@@ -386,6 +386,9 @@ body {
   -webkit-app-region: drag;
   user-select: none;
 }
+.topbar.collapsed { height: 0; min-height: 0; padding-top: 0; padding-bottom: 0;
+  border-bottom: none; overflow: hidden;
+  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
 .brand { display: flex; align-items: baseline; gap: 10px; overflow: hidden; }
 .wordmark { font-family: var(--serif); font-weight: 500; font-size: 18px; letter-spacing: -0.02em; }
 .wordmark .dot { color: var(--ember); }
