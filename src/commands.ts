@@ -485,9 +485,9 @@ export async function cmdUi(
   });
 }
 
-/** scratch export [<pad>] [--dir <root>] [--all] [-o/--out <file>] — write self-contained HTML. */
+/** scratch export [<pad>] [--dir <root>] [--all] [-o/--out <file>] [--offline] — write self-contained HTML. */
 export async function cmdExport(
-  args: { pad?: string; dir?: string; all?: boolean; out?: string },
+  args: { pad?: string; dir?: string; all?: boolean; out?: string; offline?: boolean },
   io: IO,
 ): Promise<number> {
   const { buildView, renderHtml } = await import("./ui/render.ts");
@@ -496,17 +496,28 @@ export async function cmdExport(
   const sel = await selectPads(args, root, io, "export");
   if (!sel) return 1;
 
-  // File contents are embedded; hljs/mermaid load from the pinned CDN (so the
-  // file needs network for highlighting/diagrams, but degrades gracefully).
-  // The exporter's saved theme is baked in; the exported file's own settings
-  // panel falls back to localStorage (no host listening to write config).
+  // File contents are embedded. Online (default): hljs/mermaid/katex load from the
+  // pinned CDN (needs network, degrades gracefully). --offline: those libs are
+  // inlined from the build cache so the page needs NO network (air-gapped sandbox).
+  // The exporter's saved theme is baked in; the exported file's own settings panel
+  // falls back to localStorage (no host listening to write config).
   const view = await buildView(sel.pads);
   const cfg = await loadConfig();
-  const html = await renderHtml(view, sel.label, cfg.ui, { exportMode: true });
+  let html: string;
+  try {
+    html = await renderHtml(view, sel.label, cfg.ui, { exportMode: true, offline: args.offline });
+  } catch (e) {
+    if (args.offline) {
+      fail(io, "offline export needs the vendor cache — run `bun run vendor` first.");
+      return 1;
+    }
+    throw e;
+  }
   const outPath = resolve(args.out ?? `${sel.defaultName}.html`);
   await Bun.write(outPath, html);
   ok(io, `exported ${bold(sel.label)} → ${cyan(outPath)}`);
-  io.out(dim(`  ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB; open it in any browser (hljs/mermaid via CDN).`));
+  const via = args.offline ? "fully self-contained, no network" : "hljs/mermaid via CDN";
+  io.out(dim(`  ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB; open it in any browser (${via}).`));
   io.out(dim(`  comments added in the page persist via its Save-a-copy button.`));
   return 0;
 }

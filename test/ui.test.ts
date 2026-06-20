@@ -1,8 +1,9 @@
 // UI rendering tests: buildView scans all files + merges manifest metadata;
 // renderHtml embeds a self-contained page. No window is launched here.
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildView, renderHtml } from "../src/ui/render.ts";
@@ -238,5 +239,78 @@ describe("renderHtml", () => {
     const island = html.split('type="application/json">')[1]!.split("</script>")[0]!;
     expect(island).not.toContain("</script");
     expect(island).toContain("\\u003c/script");
+  });
+});
+
+describe("renderHtml --offline", () => {
+  // The offline path inlines the gitignored build cache (src/ui/vendor/bundle.ts).
+  // Populate it once if absent (same step `bun run build` runs) so the suite is
+  // self-sufficient; needs network only on a cold cache.
+  beforeAll(async () => {
+    if (existsSync(join(import.meta.dir, "..", "src", "ui", "vendor", "bundle.ts"))) return;
+    const p = Bun.spawn(["bun", "scripts/fetch-vendor.ts"], { cwd: join(import.meta.dir, ".."), stdout: "ignore", stderr: "inherit" });
+    if ((await p.exited) !== 0) throw new Error("fetch-vendor failed — cannot run offline tests");
+  });
+
+  // A pad with code + a mermaid block + math — exercises all three vendor libs.
+  async function seedRichPad(): Promise<Pad> {
+    const dir = join(root, "rich");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "doc.md"), "# Rich\n\n```mermaid\ngraph TD; A-->B;\n```\n\n$$E=mc^2$$\n\n```ts\nconst x=1;\n```\n", "utf8");
+    const m = newManifest("Rich");
+    m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+    await writeManifest(dir, m);
+    return { dir, manifest: await readManifest(dir) };
+  }
+
+  test("inlines all vendor libs (gzip island + bootstrap), no CDN references", async () => {
+    const html = await renderHtml(await buildView([await seedRichPad()]), "Rich", undefined, {
+      exportMode: true,
+      offline: true,
+    });
+    expect(html).not.toContain("cdnjs.cloudflare.com");
+    expect(html).not.toContain("cdn.jsdelivr.net");
+    expect(html).not.toContain("integrity="); // no SRI'd CDN tags
+    // JS libs ride as a gzip+base64 island the in-page bootstrap decompresses.
+    expect(html).toContain('id="vendor-gz"');
+    expect(html).toContain("DecompressionStream");
+    expect(html).not.toContain("Highlight.js"); // hljs is gzipped, not literal anymore
+    // Compressed: well under the raw ~4MB (mermaid 3.3MB→~1.2MB), still multi-MB.
+    expect(html.length).toBeGreaterThan(1_000_000);
+    expect(html.length).toBeLessThan(2_500_000);
+  });
+
+  test("the gzip island carries exactly the needed libs", async () => {
+    const html = await renderHtml(await buildView([await seedRichPad()]), "Rich", undefined, {
+      exportMode: true,
+      offline: true,
+    });
+    const island = html.split('id="vendor-gz" type="application/json">')[1]!.split("</script>")[0]!;
+    const keys = Object.keys(JSON.parse(island)).sort();
+    expect(keys).toEqual(["hljs", "katex", "mermaid"]);
+  });
+
+  test("KaTeX fonts are inlined as data: URIs, no relative font refs", async () => {
+    const html = await renderHtml(await buildView([await seedRichPad()]), "Rich", undefined, {
+      exportMode: true,
+      offline: true,
+    });
+    expect(html).toContain("data:font/woff2;base64,");
+    expect(html).not.toContain("url(fonts/"); // relative refs rewritten away
+  });
+
+  test("a no-mermaid pad omits the multi-MB mermaid bundle", async () => {
+    const pad = await seedPad(); // code only, no mermaid, no math
+    const html = await renderHtml(await buildView([pad]), "Notes", undefined, { exportMode: true, offline: true });
+    expect(html).not.toContain("cdnjs.cloudflare.com");
+    const island = JSON.parse(html.split('id="vendor-gz" type="application/json">')[1]!.split("</script>")[0]!);
+    expect(island.hljs).toBeString(); // hljs IS inlined (code present)
+    expect(island.mermaid).toBeUndefined(); // mermaid (3.3MB) NOT pulled in
+    expect(html.length).toBeLessThan(500_000);
+  });
+
+  test("non-offline export still emits CDN tags (unchanged default)", async () => {
+    const html = await renderHtml(await buildView([await seedRichPad()]), "Rich", undefined, { exportMode: true });
+    expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+mermaid@[^"]+" integrity="sha384-/);
   });
 });

@@ -13,43 +13,18 @@ import { type Comment, DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
 import { KIT_CSS, KIT_SVG_DEFS } from "./kit.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 
-// Pinned CDN builds (version + SRI). The script-global builds (highlight.min.js /
-// mermaid.min.js) set window.hljs / window.mermaid; if they fail to load
-// (offline), the client degrades gracefully (plain code + mermaid source). SRI is
-// computed from the exact CDN bytes — bump it when bumping the pinned versions.
-const HLJS_CDN = {
-  url: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js",
-  sri: "sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU",
-};
-const MERMAID_CDN = {
-  url: "https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js",
-  sri: "sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF",
-};
-// highlight.js token-color THEMES (CSS). Code blocks use these full IDE-style
-// palettes; the raw-markdown view keeps our own warm palette (scoped to .mdsrc in
-// theme.ts). Both load when hljs does; the client enables one per light/dark.
-const HLJS_THEME_DARK = {
-  url: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css",
-  sri: "sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH",
-};
-const HLJS_THEME_LIGHT = {
-  url: "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css",
-  sri: "sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L",
-};
-// KaTeX (math). The script-global build sets window.katex; the client renders
-// $…$ / $$…$$ spans in enhance(). Added CONDITIONALLY (only when a doc has math).
-const KATEX_CDN = {
-  url: "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js",
-  sri: "sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6",
-};
-// KaTeX stylesheet. It pulls the math fonts by RELATIVE url from the CDN, so an
-// export opened OFFLINE loses the glyphs — the .math span then degrades to its
-// raw $…$ source (kept as the span's fallback text). Deliberately NOT inlined:
-// same graceful-online-degradation contract as hljs/mermaid.
-const KATEX_CSS = {
-  url: "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css",
-  sri: "sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP",
-};
+// Pinned CDN builds (version + SRI) live in vendor-manifest.ts — the single source
+// of truth shared with scripts/fetch-vendor.ts (offline cache). The script-global
+// builds set window.hljs / window.mermaid / window.katex; if they fail to load
+// (online page, offline) the client degrades gracefully (plain code + raw source).
+import {
+  HLJS_CDN,
+  HLJS_THEME_DARK,
+  HLJS_THEME_LIGHT,
+  KATEX_CDN,
+  KATEX_CSS,
+  MERMAID_CDN,
+} from "./vendor-manifest.ts";
 
 const MAX_EMBED_BYTES = 512 * 1024; // skip embedding text/code content above this
 // Images get a far larger budget than text — a single screenshot routinely
@@ -321,7 +296,7 @@ export async function renderHtml(
   view: PadView[],
   rootLabel: string,
   ui: UiSettings = DEFAULT_UI,
-  opts: { exportMode?: boolean } = {},
+  opts: { exportMode?: boolean; offline?: boolean } = {},
 ): Promise<string> {
   const data = payloadJson(view, rootLabel);
   // Static kit (tokens + classes + #arrow marker) baked into every ![](file.html)
@@ -357,30 +332,59 @@ export async function renderHtml(
     zoom,
   }).replace(/</g, "\\u003c");
 
-  // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
-  // before the client script runs. SRI + crossorigin guard integrity; on load
-  // failure the client degrades gracefully.
-  const cdnTag = (c: { url: string; sri: string }) =>
-    `<script src="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n`;
-
   let vendor = "";
-  if (needsHljs(view)) vendor += cdnTag(HLJS_CDN);
-  if (needsMermaid(view)) vendor += cdnTag(MERMAID_CDN);
-  if (needsMath(view)) vendor += cdnTag(KATEX_CDN);
-
-  // hljs theme stylesheets, placed BEFORE our <style> so equal-specificity
-  // overrides (e.g. transparent .hljs background) win without !important. Both
-  // present with an id; the client enables exactly one per the active theme.
-  const cssLink = (id: string, c: { url: string; sri: string }) =>
-    `<link id="${id}" rel="stylesheet" href="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer" />\n`;
   let vendorCss = "";
-  if (needsHljs(view)) {
-    vendorCss += cssLink("hljs-dark", HLJS_THEME_DARK);
-    vendorCss += cssLink("hljs-light", HLJS_THEME_LIGHT);
+  if (opts.offline) {
+    // Self-contained export: inline the pinned vendor bytes (no CDN, no network).
+    // Bytes come from the gitignored build cache module scripts/fetch-vendor.ts
+    // generates (run `bun run vendor`/`build`). Imported dynamically so the normal
+    // CDN path never needs it and a missing cache only affects --offline.
+    //
+    // JS libs ride as a gzip+base64 island that VENDOR_BOOT decompresses in-page
+    // (mermaid 3.3MB→~1.2MB) — base64 is JSON/JS-string-safe, so no <-escape needed.
+    // BOOT injects each via a Blob-URL <script> ASYNCHRONOUSLY, i.e. AFTER CLIENT_JS
+    // captures PRISTINE synchronously, so the save snapshot stays clean and re-saved
+    // copies keep these compressed islands. CSS stays inline (gzip barely helps once
+    // the woff2 fonts are data: URIs); the <style> ids match the CDN <link> ids so the
+    // client's per-theme toggle still works ((HTMLStyleElement).disabled is honored),
+    // and they sit BEFORE our own <style>.
+    const b = await import("./vendor/bundle.ts");
+    const gz: Record<string, string> = {};
+    if (needsHljs(view)) gz.hljs = b.HLJS_JS_GZ;
+    if (needsMermaid(view)) gz.mermaid = b.MERMAID_JS_GZ;
+    if (needsMath(view)) gz.katex = b.KATEX_JS_GZ;
+    if (Object.keys(gz).length) {
+      vendor += `<script id="vendor-gz" type="application/json">${JSON.stringify(gz)}</script>\n`;
+      vendor += `<script>${VENDOR_BOOT}</script>\n`;
+    }
+    if (needsHljs(view)) {
+      vendorCss += `<style id="hljs-dark">${b.HLJS_THEME_DARK_CSS}</style>\n`;
+      vendorCss += `<style id="hljs-light">${b.HLJS_THEME_LIGHT_CSS}</style>\n`;
+    }
+    if (needsMath(view)) vendorCss += `<style id="katex-css">${b.KATEX_CSS}</style>\n`;
+  } else {
+    // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
+    // before the client script runs. SRI + crossorigin guard integrity; on load
+    // failure the client degrades gracefully.
+    const cdnTag = (c: { url: string; sri: string }) =>
+      `<script src="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n`;
+    if (needsHljs(view)) vendor += cdnTag(HLJS_CDN);
+    if (needsMermaid(view)) vendor += cdnTag(MERMAID_CDN);
+    if (needsMath(view)) vendor += cdnTag(KATEX_CDN);
+
+    // hljs theme stylesheets, placed BEFORE our <style> so equal-specificity
+    // overrides (e.g. transparent .hljs background) win without !important. Both
+    // present with an id; the client enables exactly one per the active theme.
+    const cssLink = (id: string, c: { url: string; sri: string }) =>
+      `<link id="${id}" rel="stylesheet" href="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer" />\n`;
+    if (needsHljs(view)) {
+      vendorCss += cssLink("hljs-dark", HLJS_THEME_DARK);
+      vendorCss += cssLink("hljs-light", HLJS_THEME_LIGHT);
+    }
+    // KaTeX CSS is theme-agnostic (math inherits the page `color`), so a single
+    // link — no light/dark pair like hljs.
+    if (needsMath(view)) vendorCss += cssLink("katex-css", KATEX_CSS);
   }
-  // KaTeX CSS is theme-agnostic (math inherits the page `color`), so a single
-  // link — no light/dark pair like hljs.
-  if (needsMath(view)) vendorCss += cssLink("katex-css", KATEX_CSS);
 
   // The Save-a-copy button ships in BOTH modes (Ctrl+S in the client script
   // mirrors it). In an export, saving is what persists comments (no write-back
@@ -585,6 +589,39 @@ const GALLERY_MODAL_HTML = `<div class="modal-scrim gallery-scrim" id="galleryMo
       <div class="gallery-body"><div class="theme-grid" id="galleryGrid"></div></div>
     </div>
   </div>`;
+
+// Offline (--offline) vendor bootstrap. The JS libs ship gzip+base64 in the
+// #vendor-gz island (mermaid 3.3MB→~1.2MB on disk); this decompresses each with
+// DecompressionStream and injects it as a Blob-URL <script> so window.hljs/mermaid/
+// katex are set in global scope exactly as a real <script src> would. It runs BEFORE
+// CLIENT_JS but the actual injection is async (after PRISTINE is captured), so the
+// save snapshot never sees the blob scripts. __vendorPending tells enhance() to defer
+// mermaid's destructive raw-source fallback until libs land (or fail). On a browser
+// without DecompressionStream the promise rejects → CLIENT_JS clears pending and the
+// page degrades gracefully (raw code / mermaid source), same as an offline CDN miss.
+const VENDOR_BOOT = String.raw`
+window.__vendorPending = true;
+window.__vendorReady = (function () {
+  if (typeof DecompressionStream === 'undefined') return Promise.reject();
+  var V; try { V = JSON.parse(document.getElementById('vendor-gz').textContent); } catch (e) { return Promise.resolve(); }
+  function gunzip(b64) {
+    var bin = atob(b64), n = bin.length, a = new Uint8Array(n);
+    for (var i = 0; i < n; i++) a[i] = bin.charCodeAt(i);
+    return new Response(new Blob([a]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  }
+  function addScript(buf) {
+    return new Promise(function (res) {
+      var u = URL.createObjectURL(new Blob([buf], { type: 'text/javascript' }));
+      var s = document.createElement('script');
+      s.onload = s.onerror = function () { URL.revokeObjectURL(u); res(); };
+      s.src = u; document.head.appendChild(s);
+    });
+  }
+  return Object.keys(V).reduce(function (p, k) {
+    return p.then(function () { return gunzip(V[k]).then(addScript); });
+  }, Promise.resolve());
+})();
+`;
 
 // Client-side: tree nav, preview switching, minimal markdown renderer, raw/
 // rendered toggle, syntax highlighting (if hljs present), mermaid (if present),
@@ -918,9 +955,12 @@ function enhance(container) {
         window.mermaid.run({ nodes });
       } catch (e) {}
     }
-  } else {
-    // CDN mermaid failed to load (offline): show the diagram SOURCE as a readable
-    // code block instead of a div with whitespace-collapsed text.
+  } else if (!window.__vendorPending) {
+    // mermaid unavailable (offline CDN miss, or no DecompressionStream for an inlined
+    // export): show the diagram SOURCE as a readable code block instead of a div with
+    // whitespace-collapsed text. Skipped while __vendorPending — the offline bootstrap
+    // is still decompressing mermaid; replacing the .mermaid div now would be
+    // destructive (nothing left to render). The post-boot re-render handles it.
     container.querySelectorAll('.mermaid').forEach(el => {
       const pre = document.createElement('pre'); pre.className = 'code';
       const code = document.createElement('code'); code.textContent = el.textContent;
@@ -2641,4 +2681,17 @@ document.getElementById('commentsToggle').addEventListener('click', (e) => {
 applyCommentsVisibility();
 
 buildTree();
+
+// Offline (--offline) export: vendor libs decompress asynchronously (see VENDOR_BOOT),
+// so the first render above ran without them (code unhighlighted, mermaid/math left as
+// source). Once they land — or fail (no DecompressionStream → reject) — clear the
+// pending flag and re-render the current file so highlighting/diagrams/math apply (or
+// degrade for good). No-op when not an offline export (__vendorReady is undefined).
+if (window.__vendorReady) {
+  const vendorDone = () => {
+    window.__vendorPending = false;
+    if (currentRef) renderPreview(currentRef.pad, currentRef.f);
+  };
+  window.__vendorReady.finally(vendorDone);
+}
 `;

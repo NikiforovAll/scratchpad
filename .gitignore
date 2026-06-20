@@ -4,6 +4,9 @@ node_modules/
 # build output
 dist/
 
+# offline vendor cache (populated by scripts/fetch-vendor.ts, baked into --offline exports)
+src/ui/vendor/
+
 # vitepress
 docs/.vitepress/dist/
 docs/.vitepress/cache/
