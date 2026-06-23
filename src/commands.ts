@@ -128,9 +128,21 @@ export async function cmdAdd(
   const m = pad.manifest;
   // In-pad files are relative to the pad dir (you write them there); a --link
   // target is an external path, so a relative one is resolved against the cwd.
-  const abs = isAbsolute(args.file)
-    ? resolve(args.file)
-    : resolve(args.link ? process.cwd() : pad.dir, args.file);
+  let abs: string;
+  if (isAbsolute(args.file)) {
+    abs = resolve(args.file);
+  } else if (args.link) {
+    abs = resolve(process.cwd(), args.file);
+  } else {
+    // In-pad files are pad-relative by contract, but callers often pass a
+    // cwd/repo-root-relative path that already points inside the pad (e.g.
+    // "_plans/foo/bar.md" from the repo root) — resolving that against pad.dir
+    // doubles the prefix. Keep pad-relative as the contract; fall back to
+    // cwd-relative only when the pad-relative path doesn't exist.
+    const fromPad = resolve(pad.dir, args.file);
+    const fromCwd = resolve(process.cwd(), args.file);
+    abs = !existsSync(fromPad) && existsSync(fromCwd) ? fromCwd : fromPad;
+  }
   let rel = toPosix(relative(pad.dir, abs));
   const inside = !(rel.startsWith("..") || isAbsolute(rel));
 

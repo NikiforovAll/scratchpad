@@ -139,6 +139,25 @@ describe("full loop: add / ls / show / rm", () => {
     expect(all()).toContain("updated");
   });
 
+  test("add resolves a cwd-relative path that points inside the pad", async () => {
+    const padDir = await seed(); // pad at <root>/notes, file a.md exists
+    const prevCwd = process.cwd();
+    process.chdir(root);
+    try {
+      log = []; errs = [];
+      // Caller passes a cwd-relative path that already includes the pad prefix;
+      // it must not be doubled to notes/notes/a.md.
+      const code = await run(["add", "Notes", "notes/a.md", "--dir", root, "--title", "A"], io);
+      expect(code).toBe(0);
+      const m = JSON.parse(await readFile(join(padDir, MANIFEST_NAME), "utf8"));
+      expect(m.files).toHaveLength(1);
+      expect(m.files[0].path).toBe("a.md");
+      expect(m.files[0].src).toBeUndefined(); // registered in-pad, not by reference
+    } finally {
+      process.chdir(prevCwd);
+    }
+  });
+
   test("ls with no pad lists pads under root", async () => {
     await seed();
     log = []; errs = [];

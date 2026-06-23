@@ -489,10 +489,10 @@ test("footnotes: [^id] refs are numbered and linked to a definitions list ([^id]
     // arxiv, blog, arxiv (reused) are refs; the unknown is NOT.
     const refs = md.querySelectorAll("sup.fnref");
     expect(refs.length).toBe(3);
-    expect(refs[0].querySelector("a")?.getAttribute("href")).toBe("#fn-arxiv");
-    expect(refs[0].textContent).toBe("1");
-    expect(refs[2].textContent).toBe("1"); // reused arxiv keeps #1
-    expect(refs[1].textContent).toBe("2"); // blog is #2
+    expect(refs[0]!.querySelector("a")?.getAttribute("href")).toBe("#fn-arxiv");
+    expect(refs[0]!.textContent).toBe("1");
+    expect(refs[2]!.textContent).toBe("1"); // reused arxiv keeps #1
+    expect(refs[1]!.textContent).toBe("2"); // blog is #2
     // The definition itself renders inline markdown (the [arXiv](url) link).
     expect(md.querySelector("#fn-arxiv a[href='https://arxiv.org/abs/2605.08384']")).not.toBeNull();
     // Back-link to the reference exists.
