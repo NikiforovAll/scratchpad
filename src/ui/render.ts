@@ -696,6 +696,14 @@ function mdInline(s) {
   // as a plain $ (consistent with a bare $). Backtick is omitted: code spans own
   // it, and it'd clash with this raw-template delimiter.
   s = s.replace(/\\([\\$*_~\[\]()#+\-.!<>{}|])/g, (_, ch) => hold(esc(ch)));
+  // Angle-bracket autolinks (CommonMark): <https://…>, <mailto:…>, or a bare
+  // <user@host>. Stashed BEFORE esc — otherwise the < > get HTML-escaped and the
+  // whole thing renders as literal text (the footnote-URL bug this fixes). The
+  // inner string is the link text verbatim; a bare email gets a mailto: href.
+  s = s.replace(/<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^<>\s]+|[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+)>/g, (_, url) => {
+    const href = !url.includes(':') ? 'mailto:' + url : url;
+    return hold('<a href="' + esc(href) + '">' + esc(url) + '</a>');
+  });
   s = esc(s);
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
@@ -716,13 +724,27 @@ function mdInline(s) {
     // A local .html ref embeds as raw markup (server-side) → render it live in a
     // sandboxed iframe. Keeps the md as prose; the diagram is its own loose file.
     if (/\.html?$/i.test(src) && a && a[src] != null)
-      return '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(htmlFrameDoc(a[src])) + '" title="' + alt + '"></iframe>';
+      return hold('<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(htmlFrameDoc(a[src])) + '" title="' + alt + '"></iframe>');
     // Eager (not lazy): this is a local, self-contained viewer, so lazy buys
     // almost nothing — and a lazy image that loads mid-scroll reflows the doc and
     // drifts an anchor/TOC jump off its target. Loading up front fixes heights early.
-    return '<img class="mdimg" src="' + ((a && a[src]) || src) + '" alt="' + alt + '"/>';
+    return hold('<img class="mdimg" src="' + ((a && a[src]) || src) + '" alt="' + alt + '"/>');
   });
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => '<a href="' + h + '">' + t + '</a>');
+  // Links are stashed, not left inline: their generated markup (and any URL in an
+  // href or an embedded iframe srcdoc above) must be invisible to the bare-URL
+  // pass below, so it only ever linkifies URLs in real prose.
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, h) => hold('<a href="' + h + '">' + t + '</a>'));
+  // Bare-URL linkification (GFM autolink extension): http(s):// or www. runs in
+  // plain prose. Trailing sentence punctuation and an unbalanced closing ) are
+  // pushed back outside the link.
+  s = s.replace(/(?:https?:\/\/|www\.)[^\s<]+/g, (url) => {
+    let tail = '';
+    const tm = url.match(/[.,;:!?'"]+$/);
+    if (tm) { tail = tm[0]; url = url.slice(0, -tail.length); }
+    if (url.endsWith(')') && !url.includes('(')) { tail = ')' + tail; url = url.slice(0, -1); }
+    const href = url.startsWith('www.') ? 'http://' + url : url;
+    return hold('<a href="' + href + '">' + url + '</a>') + tail;
+  });
   // Footnote references [^id]: numbered by first-appearance order, linked to the
   // definitions list renderMarkdown appends. Only refs with a matching definition
   // are transformed; an unknown [^x] is left literal. ([^id] has no (…) tail, so

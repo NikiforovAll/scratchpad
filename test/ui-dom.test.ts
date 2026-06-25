@@ -211,6 +211,59 @@ test("heading ids follow GFM slugging: punctuation dropped, spaces kept 1:1 (no 
   }
 });
 
+test("autolinks: angle-bracket <url>/<mailto>/<email>, bare URLs and www. all become anchors", async () => {
+  const html = await renderPadWithContent(
+    [
+      "Angle <https://learn.microsoft.com/x#y> here.",
+      "",
+      "Mail <mailto:a@b.com> and bare <a@b.com> too.",
+      "",
+      "Bare https://example.com/p?q=1 in prose, and www.example.org as well.",
+      "",
+      "Trailing (see https://example.com/doc).",
+      "",
+      "Markdown [link](https://kept.example) stays single.",
+      "",
+      "Remote image ![pic](https://img.example/p.png) keeps its src intact.",
+      "",
+      "[^n]: ref <https://fn.example/page> (fetched).",
+      "",
+      "Cite[^n] it.",
+    ].join("\n"),
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    // Angle-bracket autolink: real anchor, not literal &lt;…&gt; text.
+    const angle = md.querySelector('a[href="https://learn.microsoft.com/x#y"]')!;
+    expect(angle).not.toBeNull();
+    expect(angle.textContent).toBe("https://learn.microsoft.com/x#y");
+    expect(md.innerHTML).not.toContain("&lt;https://");
+    // mailto: kept; bare email gets a mailto: href.
+    expect(md.querySelector('a[href="mailto:a@b.com"]')).not.toBeNull();
+    // Bare URL + www. linkified (www. gets an http:// href).
+    expect(md.querySelector('a[href="https://example.com/p?q=1"]')).not.toBeNull();
+    expect(md.querySelector('a[href="http://www.example.org"]')).not.toBeNull();
+    // Trailing ) stays outside the link.
+    const trailing = md.querySelector('a[href="https://example.com/doc"]')!;
+    expect(trailing).not.toBeNull();
+    expect(trailing.textContent).toBe("https://example.com/doc");
+    // An existing markdown link is not double-wrapped.
+    const kept = md.querySelectorAll('a[href="https://kept.example"]');
+    expect(kept.length).toBe(1);
+    expect(kept[0].querySelector("a")).toBeNull();
+    // A remote image's src is not linkified into a broken nested anchor — the
+    // bare-URL pass never sees stashed <img>/<a> markup.
+    const img = md.querySelector('img[src="https://img.example/p.png"]')!;
+    expect(img).not.toBeNull();
+    expect(img.querySelector("a")).toBeNull();
+    // Autolink inside a footnote definition is linkified in the rendered list.
+    expect(md.querySelector('.footnotes a[href="https://fn.example/page"]')).not.toBeNull();
+  } finally {
+    await teardown();
+  }
+});
+
 test("cross-file anchor [x](other.md#heading) opens the doc and scrolls to the heading", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });
