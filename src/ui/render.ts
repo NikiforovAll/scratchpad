@@ -9,7 +9,7 @@ import { dirname, extname, isAbsolute, resolve } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath } from "../discovery.ts";
-import { type Comment, DEFAULT_TYPE, type FileEntry } from "../manifest.ts";
+import { type Comment, DEFAULT_TYPE, type FileEntry, MANIFEST_NAME } from "../manifest.ts";
 import { KIT_CSS, KIT_SVG_DEFS } from "./kit.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 
@@ -472,6 +472,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>o</kbd></dt><dd>Toggle table of contents</dd></div>
         <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
         <div class="sc-live"><dt><kbd>Shift</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy active file path</dd></div>
+        <div class="sc-live"><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy manifest path</dd></div>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
         <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
         <div><dt><kbd>]</kbd></dt><dd>Toggle top bar</dd></div>
@@ -1054,6 +1055,17 @@ function copyActivePath() {
   if (!f || EXPORT_MODE) return;
   copyText(f.abs || f.path)
     .then(() => showToast('Path copied', 'success'))
+    .catch(() => showToast('Copy failed'));
+}
+
+// Copy the active pad's manifest path (Ctrl+Alt+C). Like copyActivePath, the
+// path is only meaningful on the exporter's machine, so it's absent in exports.
+function copyManifestPath() {
+  const pad = currentRef && currentRef.pad;
+  if (!pad || EXPORT_MODE) return;
+  const path = pad.dir.replace(/\\/g, '/') + '/${MANIFEST_NAME}';
+  copyText(path)
+    .then(() => showToast('Manifest path copied', 'success'))
     .catch(() => showToast('Copy failed'));
 }
 
@@ -1953,6 +1965,11 @@ document.addEventListener('keydown', (e) => {
     if (e.key === '0') { e.preventDefault(); setZoom(1); return; }
     // Save / export a copy — swallow the host's "save page" so ours runs instead.
     if (e.key === 's' || e.key === 'S') { e.preventDefault(); saveCopy(); return; }
+  }
+  // Copy the active pad's manifest path. Ctrl+Alt+C (not Ctrl+Shift+C — that's the
+  // browser's inspect-element). Alt is excluded from the block above, so handle it here.
+  if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'c' || e.key === 'C')) {
+    e.preventDefault(); copyManifestPath(); return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const t = e.target;
