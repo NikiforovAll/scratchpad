@@ -74,6 +74,33 @@ describe("buildView", () => {
     expect(f!.content).toBe("<h1>hi</h1>");
   });
 
+  test("embeds resolved commentsExport for a commented text file, not for images", async () => {
+    const dir = join(root, "c");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "doc.md"), "# Title\n\nThe quick brown fox.\n", "utf8");
+    await writeFile(join(dir, "pic.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const m = newManifest("C");
+    const comment = {
+      id: "k1", body: "rephrase",
+      anchor: { quote: "quick brown fox", prefix: "The ", suffix: "." },
+      created: "2026-06-12T00:00:00Z", updated: "2026-06-12T00:00:00Z",
+    };
+    m.files.push({ path: "doc.md", comments: [comment] });
+    m.files.push({ path: "pic.png", comments: [comment] }); // image content can't be located
+    await writeManifest(dir, m);
+    const pad: Pad = { dir, manifest: await readManifest(dir) };
+    const [pv] = await buildView([pad]);
+    const byPath = Object.fromEntries(pv!.files.map((f) => [f.path, f]));
+    expect(byPath["doc.md"]!.commentsExport).toEqual([
+      {
+        id: "k1", file: "doc.md", comment: "rephrase", quote: "quick brown fox",
+        matched: true, line: 3, section_heading: "Title",
+        context: "The quick brown fox.", context_lines: "3-3",
+      },
+    ]);
+    expect(byPath["pic.png"]!.commentsExport).toBeUndefined();
+  });
+
   test("registered-but-missing file still appears", async () => {
     const dir = join(root, "p");
     await mkdir(dir, { recursive: true });

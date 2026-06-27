@@ -17,6 +17,7 @@ import {
   type FileEntry,
   type FileType,
 } from "./manifest.ts";
+import type { CommentItem } from "./comments.ts";
 
 export interface IO {
   out: (s: string) => void;
@@ -309,7 +310,7 @@ export async function cmdComments(
     fail(io, "usage: scratch comments <pad> [<file>] [--json]");
     return 2;
   }
-  const { buildIndex, locateComment } = await import("./comments.ts");
+  const { toCommentItems } = await import("./comments.ts");
   const root = resolveRoot(args.dir);
   const pad = await resolvePad(args.pad, root);
   if (!pad) {
@@ -329,40 +330,20 @@ export async function cmdComments(
   // Files carrying comments (optionally narrowed by the filter), in manifest order.
   const entries = m.files.filter((f) => f.comments?.length && matches(f.path));
 
-  // Resolve content the same way `show` does (linked files live at `src`), locate
-  // each comment's quote in the source, and flatten into one agent-friendly list:
-  // each item is self-contained (file + what the human said + the editable block).
-  type Item = {
-    id: string;
-    file: string;
-    comment: string;
-    quote: string;
-    matched: boolean;
-    line: number | null;
-    section_heading: string | null;
-    context: string | null;
-    context_lines: string | null;
-  };
-  const items: Item[] = [];
-  for (const f of entries) {
-    const abs = f.src ? (isAbsolute(f.src) ? f.src : resolve(pad.dir, f.src)) : join(pad.dir, f.path);
-    const source = existsSync(abs) ? await Bun.file(abs).text() : "";
-    const index = buildIndex(source); // parse the file once, reuse for all its comments
-    for (const c of f.comments ?? []) {
-      const r = locateComment(index, c);
-      items.push({
-        id: c.id,
-        file: f.path,
-        comment: c.body,
-        quote: c.anchor.quote.replace(/\s+/g, " ").trim(),
-        matched: r.matched,
-        line: r.line,
-        section_heading: r.heading,
-        context: r.context,
-        context_lines: r.contextLines ? `${r.contextLines[0]}-${r.contextLines[1]}` : null,
-      });
-    }
-  }
+  // Resolve content the same way `show` does (linked files live at `src`), then
+  // flatten each file's comments into one agent-friendly list via the shared
+  // helper (also used by the viewer's copy-comments shortcut, so output matches).
+  // Files are independent → read them concurrently; the result stays in manifest
+  // order (Promise.all preserves it).
+  const items: CommentItem[] = (
+    await Promise.all(
+      entries.map(async (f) => {
+        const abs = f.src ? (isAbsolute(f.src) ? f.src : resolve(pad.dir, f.src)) : join(pad.dir, f.path);
+        const source = existsSync(abs) ? await Bun.file(abs).text() : "";
+        return toCommentItems(f.path, source, f.comments ?? []);
+      }),
+    )
+  ).flat();
 
   if (args.json) {
     emitJson(io, { pad: m.name, comments: items });

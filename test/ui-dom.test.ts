@@ -1489,6 +1489,36 @@ test("in-place reload shows a toast (success on change, info when unchanged)", a
   }
 });
 
+test("hard-refresh data sync: page asks for data; quiet patch is silent when unchanged", async () => {
+  const html = await renderPad();
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    // On load the page asks the host for the authoritative pad data (sibling of
+    // the settings handshake), so a native hard refresh self-heals from disk.
+    expect(posted.some((m) => m && m.__scratch_get_data)).toBe(true);
+
+    const toast = document.getElementById("toast")!;
+    const w = globalThis as any;
+    const data = JSON.parse(document.getElementById("data")!.textContent!);
+
+    // quiet=true + unchanged → NO toast (every plain refresh would otherwise flash).
+    w.__scratchReload(data, true);
+    expect(toast.classList.contains("visible")).toBe(false);
+
+    // quiet=true + drift → patches and reports the sync (distinct from 'r').
+    const changed = JSON.parse(JSON.stringify(data));
+    changed.pads[0].files[0].content = "# Synced\n";
+    w.__scratchReload(changed, true);
+    expect(toast.classList.contains("visible")).toBe(true);
+    expect(toast.textContent).toContain("Synced from disk");
+  } finally {
+    await teardown();
+  }
+});
+
 // --- clickable task checkboxes ---
 
 async function renderPadWithTasks(content: string): Promise<string> {

@@ -10,6 +10,7 @@ import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry, MANIFEST_NAME } from "../manifest.ts";
+import { type CommentItem, toCommentItems } from "../comments.ts";
 import { KIT_CSS, KIT_SVG_DEFS } from "./kit.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 
@@ -79,6 +80,10 @@ interface FileView {
   updated?: string;
   /** Inline comments from the manifest (quote-anchored; see manifest.ts). */
   comments?: Comment[];
+  /** Comments resolved against the source (file:line, heading, context) at render
+   * time — the CLI's `comments --json` shape, embedded so the viewer's Ctrl+Alt+C
+   * can copy it synchronously (no host round-trip = clipboard activation survives). */
+  commentsExport?: CommentItem[];
 }
 interface PadView {
   name: string;
@@ -220,6 +225,12 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
       created,
       updated,
       comments: meta.comments,
+      // Resolve against the source now (only text content can be located; image
+      // data-URIs / binary / oversized are skipped) so the copy shortcut is sync.
+      commentsExport:
+        meta.comments?.length && content != null && kind !== "image"
+          ? toCommentItems(path, content, meta.comments)
+          : undefined,
     };
   });
   return Promise.all(views);
@@ -471,8 +482,9 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
         <div><dt><kbd>o</kbd></dt><dd>Toggle table of contents</dd></div>
         <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
+        <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy comments (JSON)</dd></div>
         <div class="sc-live"><dt><kbd>Shift</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy active file path</dd></div>
-        <div class="sc-live"><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy manifest path</dd></div>
+        <div class="sc-live"><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>P</kbd></dt><dd>Copy manifest path</dd></div>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
         <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
         <div><dt><kbd>]</kbd></dt><dd>Toggle top bar</dd></div>
@@ -1058,7 +1070,7 @@ function copyActivePath() {
     .catch(() => showToast('Copy failed'));
 }
 
-// Copy the active pad's manifest path (Ctrl+Alt+C). Like copyActivePath, the
+// Copy the active pad's manifest path (Ctrl+Alt+P). Like copyActivePath, the
 // path is only meaningful on the exporter's machine, so it's absent in exports.
 function copyManifestPath() {
   const pad = currentRef && currentRef.pad;
@@ -1066,6 +1078,38 @@ function copyManifestPath() {
   const path = pad.dir.replace(/\\/g, '/') + '/${MANIFEST_NAME}';
   copyText(path)
     .then(() => showToast('Manifest path copied', 'success'))
+    .catch(() => showToast('Copy failed'));
+}
+
+// Copy the active file's comments as JSON (Ctrl+Alt+C) — the same shape
+// 'scratch comments <file> --json' emits, for handing off to an agent. The
+// resolved locate fields (file:line, heading, context) are precomputed on the
+// host and embedded as f.commentsExport, so this copies synchronously inside the
+// keydown handler (an async host round-trip would lose the clipboard's user
+// activation). Works in exports too: comments are content, not a machine-specific
+// path. The LIVE f.comments array is the source of truth (it's what add/edit/
+// delete mutate); commentsExport is a render-time snapshot we only borrow the
+// resolved fields from, by id. So a comment deleted this session is gone here,
+// and one added/edited live falls back to the minimal shape until a reload.
+function copyPageComments() {
+  const ref = currentRef;
+  if (!ref || !ref.f) return;
+  const resolved = {};
+  (ref.f.commentsExport || []).forEach((it) => { resolved[it.id] = it; });
+  const items = (ref.f.comments || []).map((c) => {
+    const r = resolved[c.id];
+    const quote = (c.anchor && c.anchor.quote ? c.anchor.quote : '').replace(/\s+/g, ' ').trim();
+    return r && r.comment === c.body && r.quote === quote
+      ? r // unchanged since render — use the fully-resolved snapshot
+      : {
+          id: c.id, file: ref.f.path, comment: c.body, quote,
+          matched: false, line: null, section_heading: null, context: null, context_lines: null,
+        };
+  });
+  if (!items.length) { showToast('No comments on this page'); return; }
+  const json = JSON.stringify({ pad: ref.pad.name, comments: items }, null, 2);
+  copyText(json)
+    .then(() => showToast(items.length + (items.length === 1 ? ' comment copied' : ' comments copied'), 'success'))
     .catch(() => showToast('Copy failed'));
 }
 
@@ -1382,11 +1426,15 @@ function showToast(msg, variant) {
   _toastTimer = setTimeout(() => el.classList.remove('visible'), 2000);
 }
 
-window.__scratchReload = function (payload) {
+// quiet=true is the hard-refresh auto-sync (see the bootstrap below): patch
+// silently if disk drifted, and say NOTHING when it matches — otherwise every
+// plain launch/refresh (where the embedded island already equals disk) would
+// flash a toast. The user-initiated 'r' reload (quiet falsy) always gives feedback.
+window.__scratchReload = function (payload, quiet) {
   if (!payload || !payload.pads) return;
   // Nothing on disk changed since last render → no DOM swap, no flash; just tell
   // the user it's current. This is the common case when reload is pressed out of habit.
-  if (JSON.stringify(payload) === JSON.stringify(DATA)) { showToast('No changes — up to date', 'info'); return; }
+  if (JSON.stringify(payload) === JSON.stringify(DATA)) { if (!quiet) showToast('No changes — up to date', 'info'); return; }
   const key = currentRef ? currentRef.pad.dir + '::' + currentRef.f.path : null;
   const prevSelJson = currentRef ? JSON.stringify(currentRef.f) : null;
   const pv = document.getElementById('preview');
@@ -1395,7 +1443,7 @@ window.__scratchReload = function (payload) {
   buildTree(key, prevSelJson);
   const pv2 = document.getElementById('preview');
   if (pv2) pv2.scrollTop = scroll;
-  showToast('Reloaded from disk', 'success');
+  showToast(quiet ? 'Synced from disk' : 'Reloaded from disk', 'success');
 };
 
 // Theme + settings. The server embeds the persisted choice (#settings island,
@@ -1766,7 +1814,15 @@ window.__scratchSettings = function (cfg) {
 };
 (function () {
   const wv = window.chrome && window.chrome.webview;
-  if (wv) { try { wv.postMessage({ __scratch_get_settings: true }); } catch (_) {} }
+  if (!wv) return;
+  // A native hard refresh (Ctrl+R/F5) re-renders the launch-time HTML string, so
+  // the embedded #settings island AND #data island are frozen at launch — stale
+  // after any settings change OR file/comment edit saved since. Ask the host for
+  // both authoritative copies; it replies via __scratchSettings / __scratchReload.
+  // No-op on first launch (the islands already match disk).
+  const post = (msg) => { try { wv.postMessage(msg); } catch (_) {} };
+  post({ __scratch_get_settings: true });
+  post({ __scratch_get_data: true });
 })();
 
 // Shortcuts help modal.
@@ -1966,9 +2022,12 @@ document.addEventListener('keydown', (e) => {
     // Save / export a copy — swallow the host's "save page" so ours runs instead.
     if (e.key === 's' || e.key === 'S') { e.preventDefault(); saveCopy(); return; }
   }
-  // Copy the active pad's manifest path. Ctrl+Alt+C (not Ctrl+Shift+C — that's the
-  // browser's inspect-element). Alt is excluded from the block above, so handle it here.
+  // Ctrl+Alt copies (not Ctrl+Shift+C — that's the browser's inspect-element).
+  // Alt is excluded from the block above, so handle these here.
   if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'c' || e.key === 'C')) {
+    e.preventDefault(); copyPageComments(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'p' || e.key === 'P')) {
     e.preventDefault(); copyManifestPath(); return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;

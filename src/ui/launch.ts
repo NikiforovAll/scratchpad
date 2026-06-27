@@ -377,6 +377,15 @@ async function tryGlimpse(
     // patch via __scratchReload (which only re-renders the open file if it
     // actually changed), or, when new vendor bundles are needed, a full re-render
     // delivered through present() (setHTML, or loadFile if oversized).
+    // Rebuild from disk and push to the page — an in-place data patch, or a full
+    // re-render via present() when new vendor bundles are needed (so highlighting/
+    // diagrams added since launch load their script). Shared by manual reload ('r')
+    // and the hard-refresh data sync; quiet suppresses the page's reload toast.
+    const pushReload = async (quiet: boolean) => {
+      const s = await reloader.rebuild();
+      if (s.full) await present(s.html);
+      else win.send(`window.__scratchReload(${s.payloadJson}${quiet ? ", true" : ""})`);
+    };
     win.on("message", async (d: any) => {
       if (d && d.__scratch_settings) {
         await persistViewerSettings(d.__scratch_settings, io);
@@ -419,11 +428,22 @@ async function tryGlimpse(
         }
         return;
       }
+      // Hard-refresh DATA sync — sibling of __scratch_get_settings. A native
+      // Ctrl+R/F5 re-renders the launch-time HTML (its embedded data island frozen
+      // at launch), so the reloaded page asks us for the current pad data; we
+      // rebuild from disk and patch it in (quiet → silent unless drifted). Keeps
+      // disk the single source of truth on hard refresh as it is for 'r'.
+      if (d && d.__scratch_get_data) {
+        try {
+          await pushReload(true);
+        } catch (e) {
+          note(io, `data sync failed (${(e as Error).message.split("\n")[0]}).`);
+        }
+        return;
+      }
       if (!d || !d.__scratch_reload) return;
       try {
-        const s = await reloader.rebuild();
-        if (s.full) await present(s.html);
-        else win.send(`window.__scratchReload(${s.payloadJson})`);
+        await pushReload(false);
       } catch (e) {
         note(io, `reload failed (${(e as Error).message.split("\n")[0]}).`);
       }

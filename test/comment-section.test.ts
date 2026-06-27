@@ -2,7 +2,7 @@
 // markdown and its enclosing section — what `scratch comments` reads.
 
 import { expect, test } from "bun:test";
-import { buildIndex, headingFor, locateComment } from "../src/comments.ts";
+import { buildIndex, headingFor, locateComment, toCommentItems } from "../src/comments.ts";
 import type { Comment } from "../src/manifest.ts";
 
 const locate = (src: string, c: Comment) => locateComment(buildIndex(src), c);
@@ -90,4 +90,43 @@ test("content above a heading still reports its nearest heading for orientation"
   expect(r.matched).toBe(true);
   expect(r.heading).toBe("Title");
   expect(r.context).toBe("Intro paragraph.");
+});
+
+// toCommentItems is the shared flattener behind `scratch comments --json` AND the
+// viewer's copy-comments shortcut — the shape both must emit identically.
+test("toCommentItems flattens a matched comment into the CLI/viewer item shape", () => {
+  const items = toCommentItems("notes.md", DOC, [cmt("renderer uses a pinned CDN for hljs")]);
+  expect(items).toEqual([
+    {
+      id: "c1",
+      file: "notes.md",
+      comment: "note",
+      quote: "renderer uses a pinned CDN for hljs",
+      matched: true,
+      line: 7,
+      section_heading: "Design",
+      context: "The **renderer** uses a [pinned CDN](https://x.com) for hljs.\nWhitespace collapses across lines.",
+      context_lines: "7-8",
+    },
+  ]);
+});
+
+test("toCommentItems reports an orphaned comment with null locate fields", () => {
+  const items = toCommentItems("notes.md", DOC, [cmt("this text never appears anywhere")]);
+  expect(items[0]).toMatchObject({
+    matched: false,
+    line: null,
+    section_heading: null,
+    context: null,
+    context_lines: null,
+  });
+});
+
+test("toCommentItems collapses quote whitespace and preserves manifest order", () => {
+  const items = toCommentItems("notes.md", DOC, [
+    cmt("Risks"),
+    { ...cmt("Intro\n   paragraph."), id: "c2" },
+  ]);
+  expect(items.map((i) => i.id)).toEqual(["c1", "c2"]);
+  expect(items[1]!.quote).toBe("Intro paragraph."); // inner whitespace run collapsed
 });

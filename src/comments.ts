@@ -165,6 +165,42 @@ function findQuote(text: string, q: string, prefix: string, suffix: string): num
   return best;
 }
 
+/** One comment flattened for an agent: the human comment + quoted text + where it
+ * anchors in the source. The shape `scratch comments --json` emits and the viewer
+ * copies (Ctrl+Alt+C), so both stay byte-identical. */
+export interface CommentItem {
+  id: string;
+  file: string;
+  comment: string;
+  quote: string;
+  matched: boolean;
+  line: number | null;
+  section_heading: string | null;
+  context: string | null;
+  context_lines: string | null;
+}
+
+/** Resolve a file's comments into agent-friendly items: parse the source once,
+ * locate each comment's quote, and flatten. Shared by the CLI (`cmdComments`) and
+ * the viewer's copy-comments shortcut so their output matches exactly. */
+export function toCommentItems(filePath: string, source: string, comments: Comment[]): CommentItem[] {
+  const index = buildIndex(source); // parse once, reuse for all the file's comments
+  return comments.map((c) => {
+    const r = locateComment(index, c);
+    return {
+      id: c.id,
+      file: filePath,
+      comment: c.body,
+      quote: c.anchor.quote.replace(/\s+/g, " ").trim(),
+      matched: r.matched,
+      line: r.line,
+      section_heading: r.heading,
+      context: r.context,
+      context_lines: r.contextLines ? `${r.contextLines[0]}-${r.contextLines[1]}` : null,
+    };
+  });
+}
+
 const UNMATCHED = { matched: false, line: null, endLine: null, heading: null, context: null, contextLines: null } as const;
 
 /** Locate a comment's quote in a parsed source and resolve its enclosing block. */
