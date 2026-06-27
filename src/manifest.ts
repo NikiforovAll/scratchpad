@@ -53,6 +53,9 @@ export interface FileEntry {
   /** Optional visual group — files sharing a group are listed together under a
    * group header in the viewer. Absent = ungrouped (listed under "FILES"). */
   group?: string;
+  /** When true, the viewer omits this file from its list. The entry stays
+   * registered (still in the manifest, still shown by `scratch ls`). */
+  hidden?: boolean;
   /** Inline comments anchored to the file's rendered preview. "Orphaned" is
    * computed at render time when the quote can't be re-found — never stored. */
   comments?: Comment[];
@@ -135,6 +138,7 @@ export function parseManifest(raw: unknown, source: string): Manifest {
     if (Array.isArray(e.tags)) entry.tags = e.tags.filter((t): t is string => typeof t === "string");
     if (isFileType(e.type)) entry.type = e.type;
     if (typeof e.group === "string" && e.group.length > 0) entry.group = e.group;
+    if (e.hidden === true) entry.hidden = true;
     const comments = sanitizeComments(e.comments);
     if (comments.length > 0) entry.comments = comments;
     return entry;

@@ -155,7 +155,8 @@ function classify(ext: string): Kind {
 async function scanPadFiles(pad: Pad): Promise<FileView[]> {
   // Files are independent, so read them concurrently; Promise.all keeps the
   // result in manifest.files[] order — the author's deliberate reading order.
-  const views = pad.manifest.files.map(async (meta): Promise<FileView> => {
+  // `hidden` entries stay registered in the manifest but never reach the viewer.
+  const views = pad.manifest.files.filter((meta) => !meta.hidden).map(async (meta): Promise<FileView> => {
     const path = meta.path;
     // Linked entries carry a label in `path`; classify by the real source filename
     // (its extension) so external files preview by kind, not as "binary/missing".
