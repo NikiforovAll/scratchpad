@@ -27,7 +27,7 @@ import {
   MERMAID_CDN,
 } from "./vendor-manifest.ts";
 
-const MAX_EMBED_BYTES = 512 * 1024; // skip embedding text/code content above this
+const MAX_EMBED_BYTES = 5 * 1024 * 1024; // skip embedding text/code content above this
 // Images get a far larger budget than text — a single screenshot routinely
 // exceeds 512KB, and embedding it is the only way it survives an export over
 // file://. Base64 inflates bytes ~33%, so this is the on-disk source ceiling.
@@ -1224,9 +1224,9 @@ function renderPreview(pad, f, nav) {
     : '<div class="md">' + renderMarkdown(f.content) + '</div>';
   else if (f.kind === 'html' && f.content != null) bodyHtml = rawMode
     ? '<pre class="code"><code class="language-html">' + esc(f.content) + '</code></pre>'
-    // Sandboxed with scripts disabled: static HTML renders, no script/form/popup
-    // can escape. srcdoc value is attribute-escaped by esc().
-    : '<iframe class="htmlframe" sandbox="" srcdoc="' + esc(f.content) + '"></iframe>';
+    // Sandboxed with allow-scripts so interactive author pages run their own JS;
+    // opaque-origin iframe still blocks host/parent access. srcdoc is attr-escaped.
+    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(f.content) + '"></iframe>';
   else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
     const cls = f.lang ? ' class="language-' + esc(normLang(f.lang)) + '"' : '';
     bodyHtml = '<pre class="code"><code' + cls + '>' + esc(f.content) + '</code></pre>';
