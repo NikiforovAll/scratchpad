@@ -485,6 +485,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy comments (JSON)</dd></div>
         <div class="sc-live"><dt><kbd>Shift</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy active file path</dd></div>
         <div class="sc-live"><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>P</kbd></dt><dd>Copy manifest path</dd></div>
+        <div class="sc-live"><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>H</kbd></dt><dd>Hide file from viewer</dd></div>
         <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
         <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
         <div><dt><kbd>]</kbd></dt><dd>Toggle top bar</dd></div>
@@ -769,7 +770,14 @@ function mdInline(s) {
     if (!n) { FN.order.push(id); n = FN.order.length; FN.seen[id] = n; }
     return '<sup class="fnref" id="fnref-' + esc(id) + '"><a href="#fn-' + esc(id) + '">' + n + '</a></sup>';
   });
-  if (stash.length) s = s.replace(/\x00S(\d+)\x00/g, (_, n) => stash[+n]);
+  // Loop until stable: a stashed construct can nest inside another (a code span
+  // as link text → the link stashes a token containing the code-span token). A
+  // single pass leaves the inner token un-restored, and its NUL sentinels render
+  // invisibly — surfacing the bare "S0"/"S1" placeholder body.
+  if (stash.length) {
+    let prev;
+    do { prev = s; s = s.replace(/\x00S(\d+)\x00/g, (_, n) => stash[+n]); } while (s !== prev);
+  }
   return s;
 }
 // Map a fence/extension language token to highlight.js's canonical grammar name.
@@ -1111,6 +1119,25 @@ function copyPageComments() {
   copyText(json)
     .then(() => showToast(items.length + (items.length === 1 ? ' comment copied' : ' comments copied'), 'success'))
     .catch(() => showToast('Copy failed'));
+}
+
+// Hide the active file from the viewer (Ctrl+Alt+H). One-way: the host sets the
+// entry's hidden flag in scratchpad.json (no unhide in the UI — edit the
+// manifest by hand to restore). We drop it from the in-memory model and rebuild
+// the tree so the change shows immediately, with NO reload (a reload would
+// re-read disk and drop it anyway — this just skips the blink). Lands on the
+// neighbouring file. No-op in the file:// export, where no host listens.
+function hideCurrentFile() {
+  const ref = currentRef;
+  if (!ref || !ref.f) return;
+  const sent = postToHost('__scratch_hide', '/hide', { padDir: ref.pad.dir, filePath: ref.f.path });
+  if (!sent) { showToast('Hiding is unavailable in exports'); return; }
+  // Pick a neighbour to land on BEFORE the file leaves ITEMS.
+  const idx = ITEMS.findIndex(it => it.pad === ref.pad && it.f === ref.f);
+  const nb = idx >= 0 ? (ITEMS[idx + 1] || ITEMS[idx - 1]) : null;
+  ref.pad.files = ref.pad.files.filter(f => f !== ref.f);
+  buildTree(nb ? nb.pad.dir + '::' + nb.f.path : null); // rebuilds ITEMS + selects the neighbour (or empty state)
+  showToast('File hidden', 'info');
 }
 
 // ---------------------------------------------------------------------------
@@ -2029,6 +2056,9 @@ document.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'p' || e.key === 'P')) {
     e.preventDefault(); copyManifestPath(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'h' || e.key === 'H')) {
+    e.preventDefault(); hideCurrentFile(); return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const t = e.target;

@@ -169,6 +169,27 @@ test("table of contents: off by default, 'o' reveals the full H1–H6 hierarchy"
   }
 });
 
+test("code-span link text renders <code> inside <a>, not a leaked stash placeholder", async () => {
+  // Regression: a stashed construct (code span) nested inside another stashed
+  // one (the link) needs a fixpoint restore. A single pass left the inner
+  // \x00S0\x00 token intact; its NUL sentinels are invisible, so it surfaced as
+  // bare "S0"/"S1" in the rendered link.
+  const html = await renderPadWithContent("- [`design.md`](design.md)\n");
+  await boot(html);
+  try {
+    const link = document.querySelector('#preview .md a[href="design.md"]') as any;
+    expect(link).not.toBeNull();
+    const code = link.querySelector("code");
+    expect(code).not.toBeNull();
+    expect(code.textContent).toBe("design.md");
+    // No leaked placeholder body or NUL sentinel bleeding into the text.
+    expect(link.textContent).toBe("design.md");
+    expect(link.textContent).not.toMatch(/\x00|^S\d/);
+  } finally {
+    await teardown();
+  }
+});
+
 test("in-page anchor link [x](#heading) scrolls to the matching heading", async () => {
   // A single H1 below the body heading: too few for a TOC, but the anchor must
   // still resolve — id assignment is independent of whether the TOC renders.
@@ -1049,6 +1070,38 @@ test("j/k, d/u, g/G scroll the preview; arrows still switch files", async () => 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
     expect(activeTitle()).not.toBe(before);
     expect(activeTitle()).toContain("B");
+  } finally {
+    await teardown();
+  }
+});
+
+test("Ctrl+Alt+H posts __scratch_hide and drops the file from the tree without reload", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  for (const n of ["a.md", "b.md"]) await writeFile(join(dir, n), "# " + n + "\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "a.md", title: "A", type: "note" });
+  m.files.push({ path: "b.md", title: "B", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  const html = await renderHtml(await buildView([pad]), "P");
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    // "A" is the active file at boot; hide it.
+    expect(document.querySelector(".frow.active")?.textContent).toContain("A");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "h", ctrlKey: true, altKey: true }));
+
+    const msg = posted.find((p) => p && p.__scratch_hide);
+    expect(msg).toBeDefined();
+    expect(msg.__scratch_hide.filePath).toBe("a.md");
+
+    // Its row is gone and the neighbour ("B") is now selected — no reload.
+    const titles = Array.from(document.querySelectorAll(".frow .fttl")).map((e) => e.textContent);
+    expect(titles).toEqual(["B"]);
+    expect(document.querySelector(".frow.active")?.textContent).toContain("B");
   } finally {
     await teardown();
   }

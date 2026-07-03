@@ -73,6 +73,29 @@ export async function persistFileComments(pads: Pad[], payload: unknown, io: IO)
   }
 }
 
+// Mark a file hidden in its pad manifest, posted by the viewer page (WebView2
+// __scratch_hide / POST /hide) — metadata-only, the mirror of
+// persistFileComments. A hidden entry stays registered but never reaches the
+// viewer (render.ts filters it). This is one-way by design: the viewer offers no
+// "unhide", so undo means editing scratchpad.json by hand. The manifest is
+// re-read from disk first so concurrent metadata edits aren't clobbered.
+export async function persistFileHidden(pads: Pad[], payload: unknown, io: IO): Promise<void> {
+  if (!payload || typeof payload !== "object") return;
+  const p = payload as { padDir?: unknown; filePath?: unknown };
+  if (typeof p.padDir !== "string" || typeof p.filePath !== "string") return;
+  const pad = pads.find((x) => x.dir === p.padDir);
+  if (!pad) return;
+  try {
+    const m = await readManifest(pad.dir);
+    const entry = m.files.find((f) => f.path === p.filePath);
+    if (!entry) return;
+    entry.hidden = true;
+    await writeManifest(pad.dir, m);
+  } catch (e) {
+    note(io, `hiding file failed (${(e as Error).message.split("\n")[0]}).`);
+  }
+}
+
 // Toggle a GFM task checkbox in a file's CONTENT, posted by the viewer page
 // (WebView2 __scratch_checkbox / POST /checkbox). This is the ONE place the CLI
 // writes file content rather than just metadata — a deliberate exception to the
@@ -200,18 +223,19 @@ export async function launchViewer(
   // Writeback handlers shared by both transports.
   const persistComments = (payload: unknown) => persistFileComments(pads, payload, io);
   const persistCheckbox = (payload: unknown) => persistFileCheckbox(pads, payload, io);
+  const persistHidden = (payload: unknown) => persistFileHidden(pads, payload, io);
 
   // Native glimpse is the default; --browser forces the browser viewer. When the
   // native host isn't built, tryGlimpse prints how to install it and we fall back.
   if (!opts.forceBrowser) {
     const ok = await tryGlimpse(
       snap.html, opts.title, io, reloader, opts.frameless !== false, !!opts.installNative,
-      persistComments, persistCheckbox,
+      persistComments, persistCheckbox, persistHidden,
     );
     if (ok) return 0;
     io.err("falling back to the browser viewer.");
   }
-  return serveBrowser(snap.html, opts.title, io, reloader, persistComments, persistCheckbox);
+  return serveBrowser(snap.html, opts.title, io, reloader, persistComments, persistCheckbox, persistHidden);
 }
 
 // glimpse's WebView2 host is a compiled .NET binary. On a global `bun add -g`
@@ -273,6 +297,7 @@ async function tryGlimpse(
   install: boolean,
   persistComments: (payload: unknown) => Promise<void>,
   persistCheckbox: (payload: unknown) => Promise<void>,
+  persistHidden: (payload: unknown) => Promise<void>,
 ): Promise<boolean> {
   // glimpseui resolves its native host relative to its own module file. Inside a
   // `bun build --compile` standalone that module lives in the virtual `B:\~BUN\`
@@ -402,6 +427,11 @@ async function tryGlimpse(
         await persistCheckbox(d.__scratch_checkbox);
         return;
       }
+      // File hidden from the page (Ctrl+Alt+H) — set the entry's hidden flag.
+      if (d && d.__scratch_hide) {
+        await persistHidden(d.__scratch_hide);
+        return;
+      }
       // Save-a-copy: the page can't open its own save dialog (non-secure origin),
       // so it asks us to. Echo the result back so it can clear its dirty flag.
       if (d && d.__scratch_save) {
@@ -476,6 +506,7 @@ async function serveBrowser(
   reloader: Reloader,
   persistComments: (payload: unknown) => Promise<void>,
   persistCheckbox: (payload: unknown) => Promise<void>,
+  persistHidden: (payload: unknown) => Promise<void>,
 ): Promise<number> {
   // Reload is on-demand (the page's reload button / 'r' just does location.reload),
   // so we rebuild from disk on each page request — every load is fresh, no SSE.
@@ -495,6 +526,11 @@ async function serveBrowser(
       // Checkbox toggle write-back — browser mirror of __scratch_checkbox.
       if (req.method === "POST" && new URL(req.url).pathname === "/checkbox") {
         await persistCheckbox(await req.json().catch(() => null));
+        return new Response(null, { status: 204 });
+      }
+      // Hide-file write-back — browser mirror of __scratch_hide.
+      if (req.method === "POST" && new URL(req.url).pathname === "/hide") {
+        await persistHidden(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
       }
       let body = html; // first paint uses the prebuilt page; reloads rebuild
