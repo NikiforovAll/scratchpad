@@ -1172,7 +1172,9 @@ function copyPageComments() {
         };
   });
   if (!items.length) { showToast('No comments on this page'); return; }
-  const json = JSON.stringify({ pad: ref.pad.name, comments: items }, null, 2);
+  // Drop null-valued keys (unmatched comments carry line/heading/context = null)
+  // so the copied JSON stays compact — absent key reads the same as null downstream.
+  const json = JSON.stringify({ pad: ref.pad.name, comments: items }, (_k, v) => v === null ? undefined : v, 2);
   copyText(json)
     .then(() => showToast(items.length + (items.length === 1 ? ' comment copied' : ' comments copied'), 'success'))
     .catch(() => showToast('Copy failed'));
