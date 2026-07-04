@@ -607,6 +607,41 @@ test("backslash escapes: \\$ \\* \\_ render the literal punctuation (GFM), witho
   }
 });
 
+test("nested emphasis: italic inside bold (**a *b* c**) renders without leaking ** markers", async () => {
+  const html = await renderPadWithContent(
+    [
+      "**Greptile — verified success *and* failure story.** Rest of the line.",
+      "",
+      "***all three*** stars still work.",
+      "",
+      "__uses snake_case inside _bold_ body__",
+      "",
+    ].join("\n"),
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    // The bold span wraps the whole lead-in, with the italic nested inside it.
+    const strongs = [...md.querySelectorAll("strong")];
+    const lead = strongs.find((s) => s.textContent!.startsWith("Greptile"))!;
+    expect(lead.textContent).toBe("Greptile — verified success and failure story.");
+    expect(lead.querySelector("em")?.textContent).toBe("and");
+    // No raw markers survive anywhere on the page.
+    expect(md.textContent).not.toContain("**");
+    expect(md.textContent).not.toContain("__");
+    // ***…*** is bold+italic (no stranded star).
+    const triple = strongs.find((s) => s.textContent === "all three")!;
+    expect(triple.querySelector("em")).not.toBeNull();
+    expect(md.textContent).not.toContain("*");
+    // Underscore bold nests italics too, and intraword snake_case stays literal.
+    const under = strongs.find((s) => s.textContent!.includes("snake_case"))!;
+    expect(under.textContent).toBe("uses snake_case inside bold body");
+    expect(under.querySelector("em")?.textContent).toBe("bold");
+  } finally {
+    await teardown();
+  }
+});
+
 test("![](file.html) transcludes a local html file as a sandboxed iframe; missing/remote refs don't", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });

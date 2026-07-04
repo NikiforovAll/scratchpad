@@ -720,12 +720,19 @@ function mdInline(s) {
     return hold('<a href="' + esc(href) + '">' + esc(url) + '</a>');
   });
   s = esc(s);
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Triple-star first: the nested-aware bold rule below would otherwise eat
+  // one edge star of a ***bold italic*** run and strand the leftover.
+  s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+  // Bold may nest italics (GFM: bold with *italic* inside) — allow lone stars
+  // in the body, just never ** (that closes). The italic pass right after
+  // converts the nested single-star run inside the strong body.
+  s = s.replace(/\*\*((?:[^*]|\*(?!\*))+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
   // Underscore emphasis (__bold__ / _italic_). Per GFM, underscores inside a
   // word don't open/close emphasis (snake_case stays literal), so require a
-  // non-word char on the outer side of each delimiter.
-  s = s.replace(/(^|[^\w])__([^_]+)__(?!\w)/g, '$1<strong>$2</strong>');
+  // non-word char on the outer side of each delimiter. Same nesting rule as
+  // the star form: lone underscores may appear in the bold body.
+  s = s.replace(/(^|[^\w])__((?:[^_]|_(?!_))+)__(?!\w)/g, '$1<strong>$2</strong>');
   s = s.replace(/(^|[^\w])_([^_]+)_(?!\w)/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   // Images BEFORE links — else the link rule eats the [alt](src) tail. Local
