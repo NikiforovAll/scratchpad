@@ -80,6 +80,35 @@ A `<marker id="arrow">` is injected into every embed — end any line with
 </svg>
 ```
 
+### Component classes — for non-SVG layout
+
+For structured HTML (not SVG diagrams) — status boards, dependency trees, PR/CI
+rollups, comparison cards — reach for these baked-in classes instead of
+hand-rolling CSS. Every one resolves against the theme tokens, so it re-themes
+with the viewer. They are inert until used; ignore any that don't fit.
+
+- **Layout / text**: `.stack` (`.sm`/`.lg` gap) · `.row` (`.sm`) · `.between` ·
+  `.grow` · `.title` · `.dim` · `.faint` · `.mono` · `.num` (tabular figures) ·
+  `.hr` · `.kbd`.
+- **Cards & status**: `.card` (`.soft`) · `.badge` (`.ok`/`.info`/`.warn`/`.danger`) ·
+  `.chip` (mono ref) · `.dot` (same status modifiers) · `.bar > i` (a rollup
+  progress bar) · `.tree` (nest a `.tree` inside a `.tree` to indent a row).
+
+```html
+<ul class="tree">
+  <li class="between">
+    <span class="row"><span class="dot ok"></span> auth refactor</span>
+    <span class="badge ok">done</span>
+  </li>
+  <li>
+    <span class="row"><span class="dot warn"></span> token rotation</span>
+    <ul class="tree">
+      <li class="between"><span class="dim">revoke old keys</span><span class="chip">#412</span></li>
+    </ul>
+  </li>
+</ul>
+```
+
 ## Theming — dark mode is mandatory
 
 For anything the kit doesn't cover, use the pre-defined CSS variables — they

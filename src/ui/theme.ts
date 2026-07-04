@@ -340,6 +340,13 @@ const BASE_CSS = `
   --ink-3: #9a9da5;
   --ink-muted: #7d808a;
   --accent-text: var(--ember-glow);
+  /* semantic success (task-done tint) — deliberately kept green (not the accent)
+     since a ticked box reads as "done" universally; tokenized so light mode can
+     darken it for contrast. Defined here in the base block so every color theme
+     inherits it (themes override only the 12 accent/surface/ink vars). */
+  --ok: #2ea043;
+  --ok-strong: #3fb950;
+  --ok-on: #fff;
   --serif: 'Playfair Display', Georgia, serif;
   --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
 }
@@ -357,6 +364,9 @@ const BASE_CSS = `
   --ink-3: #565656;
   --ink-muted: #767676;
   --accent-text: var(--ember-glow);
+  --ok: #1a7f37;
+  --ok-strong: #2ea043;
+  --ok-on: #fff;
 }
 
 * { box-sizing: border-box; }
@@ -467,7 +477,6 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
   display: flex; flex-direction: column;
   background: var(--surface); border-right: 1px solid var(--border);
   overflow: hidden; position: relative;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* Collapse control rides the pane's top-right corner, next to what it collapses.
    It overlays the tree's first line — a short small-caps group header — so a
@@ -481,12 +490,10 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
   width: 28px; height: 28px; background: var(--surface); }
 #sidebarOpen svg { width: 14px; height: 14px; }
 .sidebar.collapsed ~ #sidebarOpen { display: flex; }
-/* Collapse slides the pane shut instead of popping it away. Rows are
-   nowrap+ellipsis, so the shrinking width clips cleanly. */
+/* Collapse zeroes the width instantly (no transition). Rows are
+   nowrap+ellipsis, so the clipped width never reflows mid-collapse. */
 .sidebar.collapsed { width: 0; border-right: none; }
 .sidebar.collapsed + .resizer { display: none; }
-/* Manual drag must track the pointer 1:1 — no easing while resizing. */
-.sidebar.resizing { transition: none; }
 .tree { flex: 1; overflow-y: auto; padding: 14px 10px; }
 /* App version, pinned to the sidebar foot (bottom-left). */
 .appver { flex: 0 0 auto; padding: 6px 12px; border-top: 1px solid var(--border);
@@ -597,8 +604,15 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 .frow.active { color: var(--ink-1); background: var(--hover);
   box-shadow: inset 2px 0 0 var(--ember); border-radius: 0 5px 5px 0; }
 .frow.unreg { color: var(--ink-muted); font-style: italic; }
-.frow .fttl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.frow .ftag { color: var(--ink-muted); font-size: 11px; }
+/* file-kind glyph: currentColor so it dims with the row and lights up on the
+   active row (ember), sitting a step muted at rest. align-self:center since the
+   row baseline-aligns its text. */
+.frow .ficon { flex: none; width: 15px; height: 15px; align-self: center;
+  color: var(--ink-muted); opacity: 0.85; }
+.frow:hover .ficon, .frow.active .ficon { opacity: 1; }
+.frow.active .ficon { color: var(--ember); }
+.frow .fttl { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow .ftag { flex: none; color: var(--ink-muted); font-size: 8.5px; letter-spacing: 0.02em; }
 
 /* preview */
 /* header strip: filename crumb (left) + rendered/raw controls (right), with a
@@ -647,9 +661,9 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
   width: 1.05em; height: 1.05em;
   border: 1.5px solid var(--ink-muted); border-radius: 3px; font-size: 0.8em; color: transparent;
   cursor: pointer; transition: border-color 0.12s, background 0.12s; }
-.md li.task .chk:hover { border-color: #2ea043; }
-.md li.task.done .chk { background: #2ea043; border-color: #2ea043; color: #fff; }
-.md li.task.done .chk:hover { background: #3fb950; border-color: #3fb950; }
+.md li.task .chk:hover { border-color: var(--ok); }
+.md li.task.done .chk { background: var(--ok); border-color: var(--ok); color: var(--ok-on); }
+.md li.task.done .chk:hover { background: var(--ok-strong); border-color: var(--ok-strong); }
 .md li.task.done { color: var(--ink-3); }
 .md blockquote { border-left: 2px solid var(--border); margin: 0.8em 0; padding: 0 0 0 14px; color: var(--ink-3); }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.4em 0; }
@@ -676,6 +690,35 @@ pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
   /* wrap long lines instead of truncating; break only at whitespace so words/
      tokens stay intact, with overflow-wrap as the last resort for unbreakable runs */
   white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; tab-size: 2; }
+
+/* code-block chrome (decorateCodeBlocks): a header strip (language badge +
+   hover-reveal Copy) wraps every <pre><code>; the figure carries the border +
+   recessed surface and the inner <pre> goes flat so head + body read as one panel. */
+.cb { margin: 0.9em 0; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--ink-muted) 8%, transparent); }
+.cb > pre { margin: 0; border: 0; border-radius: 0; background: transparent; }
+.cb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 8px 4px 14px;
+  background: color-mix(in srgb, var(--ink-muted) 7%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+.cb-lang { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+  text-transform: lowercase; color: var(--ink-muted); }
+.cb-copy { flex: none; font-family: var(--mono); font-size: 10.5px; line-height: 1;
+  color: var(--ink-muted); background: transparent; border: 1px solid transparent;
+  border-radius: 4px; padding: 3px 7px; cursor: pointer; opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease, border-color 0.12s ease; }
+.cb:hover .cb-copy, .cb-copy:focus-visible { opacity: 1; }
+.cb-copy:hover { color: var(--ink-1); background: var(--hover); border-color: var(--border); }
+.cb-copy.copied { opacity: 1; color: var(--ok); background: transparent; border-color: transparent; }
+/* line-number gutter: lives inside <pre> so it inherits that context's exact
+   font metrics and aligns for free; <code> becomes the scroll box so the gutter
+   stays fixed while long lines scroll under it. */
+pre.has-nos { display: flex; overflow: hidden; }
+pre.has-nos > .cb-nos { flex: none; user-select: none; text-align: right;
+  padding-right: 12px; margin-right: 12px; color: var(--ink-muted); opacity: 0.5;
+  border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+pre.has-nos > code { flex: 1 1 auto; min-width: 0; display: block; overflow-x: auto; white-space: pre; }
+
 .imgwrap { display: flex; justify-content: center; padding: 12px 0; }
 .imgwrap img { max-width: 100%; max-height: 80vh; object-fit: contain;
   border: 1px solid var(--border); border-radius: 6px; background: var(--elevated); }

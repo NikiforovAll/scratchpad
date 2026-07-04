@@ -86,6 +86,25 @@ report the URL. Native glimpse window with automatic browser+server fallback
 renders markdown/code/`mermaid`, TeX math, embeds HTML diagrams (below),
 raw↔rendered toggle, auto light/dark.
 
+## Diagrams (mermaid)
+
+A fenced ` ```mermaid ` block renders to an SVG in the viewer (flowcharts,
+sequence, state, ER, gantt, class). Reach for it when the *shape* of a system is
+the point and you'd rather describe the relationship than draw it — it's the
+default for architecture, data-flow, and state diagrams in a note, and reads far
+better than an ASCII sketch. The viewer themes the diagram for light/dark
+automatically, so don't hardcode colors.
+
+    ```mermaid
+    graph TD
+      A[Request] --> B{Cache hit?}
+      B -->|yes| C[Return cached]
+      B -->|no| D[Fetch + store]
+    ```
+
+When mermaid can't express it (bespoke layout, a chart, interactivity), embed an
+HTML diagram instead (below).
+
 ## Math notation (TeX)
 
 Markdown docs may use TeX/LaTeX math — inline `$…$` and display `$$…$$` — rendered

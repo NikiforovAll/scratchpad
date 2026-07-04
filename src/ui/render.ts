@@ -1022,6 +1022,63 @@ function enhance(container) {
       catch (e) {}
     });
   }
+  // Runs LAST so it also catches the pre.code the mermaid fallback just created.
+  decorateCodeBlocks(container);
+}
+
+// Code-block chrome: wrap each <pre><code> in a figure with a header (language
+// badge + hover-reveal Copy button) and, for real code (a language- class, not
+// the raw-markdown source view / plain text / untagged fences), a line-number
+// gutter. The gutter lives INSIDE the <pre> so it inherits that context's exact
+// font metrics (.md fenced blocks are 14px/1.7, full-file pre.code is 15px/1.75)
+// and aligns for free; the <code> becomes the horizontal scroll box so the gutter
+// stays put while long lines scroll under it. Copy reuses copyText — the same
+// execCommand fallback the rest of the page relies on under file://.
+function decorateCodeBlocks(container) {
+  container.querySelectorAll('pre > code').forEach(code => {
+    const pre = code.parentElement;
+    if (!pre || pre.closest('.cb')) return; // already wrapped
+    const m = (code.className || '').match(/language-([\w-]+)/);
+    const lang = m ? m[1] : '';
+    const isMdSrc = code.classList.contains('mdsrc');
+    const text = code.textContent.replace(/\n$/, ''); // shared by gutter + copy
+
+    const fig = document.createElement('figure');
+    fig.className = 'cb';
+    const head = document.createElement('div');
+    head.className = 'cb-head';
+    head.innerHTML = '<span class="cb-lang">' + esc(lang) + '</span>';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cb-copy';
+    btn.setAttribute('aria-label', 'Copy code');
+    btn.textContent = 'Copy';
+    head.appendChild(btn);
+
+    pre.replaceWith(fig);
+    fig.appendChild(head);
+    fig.appendChild(pre);
+
+    if (lang && !isMdSrc) {
+      const lines = text.split('\n');
+      if (lines.length > 1) {
+        const g = document.createElement('span');
+        g.className = 'cb-nos';
+        g.setAttribute('aria-hidden', 'true');
+        g.textContent = lines.map((_, i) => i + 1).join('\n');
+        pre.insertBefore(g, code);
+        pre.classList.add('has-nos');
+      }
+    }
+
+    btn.addEventListener('click', () => {
+      copyText(text).then(() => {
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1200);
+      }).catch(() => showToast('Copy failed'));
+    });
+  });
 }
 
 // Compact "when": relative while it reads naturally (today), then a short date,
@@ -1355,6 +1412,22 @@ function renderPreview(pad, f, nav) {
   }
 }
 
+// Sidebar file-kind glyphs (Lucide-style, currentColor so they track the theme
+// and the active-row accent). Purely visual, driven by f.kind; unknown kinds
+// (binary/toolarge/missing) fall back to a generic file. Trusted static markup —
+// never interpolates file data.
+const FILE_ICON_PATHS = {
+  markdown: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h6"/>',
+  code: '<path d="M14 9l3 3-3 3"/><path d="M10 9l-3 3 3 3"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+  html: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M9 10l-2 2 2 2"/><path d="M15 10l2 2-2 2"/>',
+  text: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/>',
+};
+const FILE_ICON_DEFAULT = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>';
+function fileIcon(kind) {
+  const p = FILE_ICON_PATHS[kind] || FILE_ICON_DEFAULT;
+  return '<svg class="ficon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
+}
 function buildTree(preferKey, prevSelJson) {
   const tree = document.getElementById('tree');
   // Single-pad focus: the viewer shows the current pad's files as a flat list —
@@ -1394,6 +1467,7 @@ function buildTree(preferKey, prevSelJson) {
       const ttl = f.title || f.path;
       const tag = f.registered ? (f.type || 'note') : '·';
       html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '">' +
+        fileIcon(f.kind) +
         '<span class="fttl" title="' + esc(ttl) + '">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
     });
   });
@@ -1654,6 +1728,13 @@ function setWideMode(on) {
 function setTocVisible(on) {
   SETTINGS.tocVisible = on;
   applyTheme(); // re-syncs the segment + calls updateToc(); session-only, not persisted
+  // Turning it on but nothing appears (see tocShouldShow) reads as broken — say
+  // why. Lives here so both entry points ('o' key + settings segment) get it;
+  // the on && guard keeps it off the init/toggle-off paths.
+  if (on && !tocShouldShow()) {
+    const isRenderedMd = currentRef && currentRef.f.kind === 'markdown' && !rawMode;
+    showToast(isRenderedMd ? 'No headings to outline on this page' : 'Outline is only for rendered markdown', 'info');
+  }
 }
 // The table of contents is an opaque on-demand panel: off by default, shown only
 // when the user asks for it ('o' / settings) AND the file has ≥2 headings. Being

@@ -110,6 +110,51 @@ svg { font-family: var(--font-sans); fill: var(--color-text-primary); }
 .c-red text, text.c-red { fill: var(--color-text-danger); stroke: none; }
 .c-gray, .c-gray .box { fill: var(--color-background-secondary); stroke: var(--color-border-secondary); }
 .c-gray text, text.c-gray { fill: var(--color-text-secondary); stroke: none; }
+
+/* Component vocabulary — ported from sideshow's opt-in "issues" kit (server/kits.ts).
+   sideshow ships these per-surface (kits:[...]); scratch has no per-embed opt-in
+   channel (embeds are loose files referenced by path), so — consistent with the
+   rest of this kit — they are baked in unconditionally. They are inert class
+   definitions: an embed pays nothing until it writes the classes. Documented in
+   skills/scratch/references/HTML_DESIGN_GUIDE.md — keep in sync.
+   Layout + text helpers. */
+.stack { display: flex; flex-direction: column; gap: 8px; }
+.stack.sm { gap: 4px; } .stack.lg { gap: 16px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row.sm { gap: 4px; }
+.between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.grow { flex: 1; min-width: 0; }
+.title { font: 500 15px/1.35 var(--font-sans); color: var(--color-text-primary); }
+.dim { color: var(--color-text-secondary); } .faint { color: var(--color-text-tertiary); }
+.mono { font-family: var(--font-mono); } .num { font-variant-numeric: tabular-nums; }
+.hr { height: 1px; border: 0; margin: 2px 0; background: var(--color-border-secondary); }
+.kbd { font: 400 12px/1 var(--font-mono); padding: 2px 6px;
+  border: 1px solid var(--color-border-secondary); border-bottom-width: 2px; border-radius: 6px;
+  background: var(--color-background-secondary); color: var(--color-text-secondary); }
+/* Cards, status badges/dots, mono ref chips, rollup bars, nesting tree rail
+   (.tree → nest another .tree to indent) — composes an issue/PR/CI tree,
+   a status board, or a dependency tree. */
+.card { background: var(--color-background-primary); border: 1px solid var(--color-border-secondary);
+  border-radius: var(--border-radius-lg); padding: 14px 16px; }
+.card.soft { background: var(--color-background-secondary); }
+.badge { display: inline-flex; align-items: center; gap: 5px; font: 500 12px/1.4 var(--font-sans);
+  padding: 2px 9px; border-radius: 999px;
+  background: var(--color-background-secondary); color: var(--color-text-secondary); }
+.badge.ok { background: var(--color-background-success); color: var(--color-text-success); }
+.badge.info { background: var(--color-background-info); color: var(--color-text-info); }
+.badge.warn { background: var(--color-background-warning); color: var(--color-text-warning); }
+.badge.danger { background: var(--color-background-danger); color: var(--color-text-danger); }
+.chip { display: inline-flex; align-items: center; gap: 4px; font: 400 12px/1.4 var(--font-mono);
+  padding: 1px 7px; border-radius: var(--border-radius-md);
+  border: 1px solid var(--color-border-secondary); color: var(--color-text-secondary); }
+.dot { width: 8px; height: 8px; border-radius: 999px; background: var(--color-text-tertiary); flex: none; }
+.dot.ok { background: var(--color-text-success); } .dot.info { background: var(--color-text-info); }
+.dot.warn { background: var(--color-text-warning); } .dot.danger { background: var(--color-text-danger); }
+.bar { height: 6px; border-radius: 999px; background: var(--color-background-secondary); overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: inherit; background: var(--color-text-success); }
+.tree { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.tree .tree { margin-top: 7px; margin-left: 9px; padding-left: 14px;
+  border-left: 1px solid var(--color-border-secondary); }
 `;
 
 // Shared SVG defs — inline SVGs reference #arrow by id; the arrowhead inherits
