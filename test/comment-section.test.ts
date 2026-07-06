@@ -64,6 +64,22 @@ test("does not treat a '#' inside a fenced code block as a heading", () => {
   expect(headingFor(buildIndex(DOC), 16).heading).toBe("Risks");
 });
 
+test("wikilinks strip to their display text, matching what mdInline would render", () => {
+  // [[name]] projects to "name"; [[name|Display]] projects to just "Display" —
+  // so a viewer comment anchored across either form still re-finds its quote.
+  const doc = "# H\n\nSee [[other-note]] and [[other-note|the other note]] here.\n";
+  const bare: Comment = {
+    id: "x", body: "n",
+    anchor: { quote: "See other-note and", prefix: "", suffix: "" },
+    created: "2026-06-12T00:00:00Z", updated: "2026-06-12T00:00:00Z",
+  };
+  expect(locate(doc, bare).matched).toBe(true);
+  expect(locate(doc, bare).line).toBe(3);
+  const aliased = { ...bare, anchor: { quote: "the other note here", prefix: "", suffix: "" } };
+  expect(locate(doc, aliased).matched).toBe(true);
+  expect(locate(doc, aliased).line).toBe(3);
+});
+
 test("prefix/suffix disambiguate a quote that occurs more than once", () => {
   // "cat" appears on line 3 and line 5; suffix " ran" must pick the line-5 one.
   const doc = "# H\n\nThe cat sat here.\n\nThe cat ran fast.\n";

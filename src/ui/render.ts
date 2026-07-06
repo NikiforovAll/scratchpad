@@ -651,6 +651,9 @@ let DATA = JSON.parse(document.getElementById('data').textContent);
 const EXPORT_MODE = document.documentElement.hasAttribute('data-export');
 const PRISTINE = '<!doctype html>\n' + document.documentElement.outerHTML;
 const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// A pad path stripped to its basename without extension — how a wikilink [[name]]
+// refers to a file (matched case-insensitively in mdInline).
+const baseNoExt = (p) => p.replace(/^.*\//, '').replace(/\.[^./]+$/, '');
 
 // Wrap an author HTML doc/fragment as srcdoc for a sandboxed iframe (used by
 // ![](file.html) embeds). color-scheme follows the host theme; a ResizeObserver
@@ -751,6 +754,30 @@ function mdInline(s) {
     // almost nothing — and a lazy image that loads mid-scroll reflows the doc and
     // drifts an anchor/TOC jump off its target. Loading up front fixes heights early.
     return hold('<img class="mdimg" src="' + ((a && a[src]) || src) + '" alt="' + alt + '"/>');
+  });
+  // Wikilinks [[name]] / [[name|Display]] (Obsidian/Logseq-style). Stashed BEFORE
+  // the plain-link rule below — that rule's [text](url) only matches when a (
+  // immediately follows the closing ], which a bare [[name]] never has, but
+  // resolving here first keeps the two forms from ever being able to interact.
+  // name is looked up against the current pad's file list — basename (no ext,
+  // case-insensitive) first, then title — the same two ways a person would refer
+  // to a note. currentRef is already escaped text at this point (esc() ran above),
+  // same as the plain-link text/href handled next.
+  s = s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, name, alias) => {
+    name = name.trim();
+    const files = currentRef && currentRef.pad && currentRef.pad.files;
+    const key = name.toLowerCase();
+    // Basename wins over title: ANY basename hit beats every title hit, so the two
+    // scans stay separate (a single ||-predicate pass would let an earlier file's
+    // title outrank a later file's basename).
+    const f = files && (files.find(x => baseNoExt(x.path).toLowerCase() === key)
+      || files.find(x => (x.title || '').toLowerCase() === key));
+    const disp = alias != null ? alias.trim() : (f && f.title || name);
+    if (!f) return hold('<span class="wikilink-broken">' + disp + '</span>');
+    // Leading '/' makes resolveRel treat this as pad-root-absolute (see its
+    // startsWith('/') branch) — the wikilink target is already the exact pad
+    // path, not something relative to the current file's directory.
+    return hold('<a href="/' + esc(f.path) + '">' + disp + '</a>');
   });
   // Links are stashed, not left inline: their generated markup (and any URL in an
   // href or an embedded iframe srcdoc above) must be invisible to the bare-URL
@@ -962,6 +989,9 @@ let lastTreeHtml = null;  // last tree markup rendered — skip DOM swap when un
 // Resolve a relative link target against the current file's directory → a pad
 // path. Pads are usually flat, but handle ./ and ../ segments anyway.
 function resolveRel(from, rel) {
+  // Leading '/' = pad-root-absolute (skip relative resolution). Author-written
+  // /links use it; mdInline's wikilinks also rely on it — they emit href="/<path>"
+  // to hand the click handler an already-exact pad path.
   if (rel.startsWith('/')) return rel.replace(/^\/+/, '');
   const base = from.split('/').slice(0, -1);
   rel.split('/').forEach(p => { if (p === '..') base.pop(); else if (p !== '.' && p !== '') base.push(p); });

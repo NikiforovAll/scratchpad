@@ -772,6 +772,12 @@ sup.fnref a:hover { text-decoration: underline; }
 }
 .anchor-flash { animation: anchor-flash 10s ease-out forwards; border-radius: 4px; }
 
+/* Wikilink ([[name]]) that didn't resolve to a pad file — visible but inert (not
+   a real <a>), dotted-underline in muted ink so it reads as "referenced but
+   absent" rather than a plain typo, echoing the dashed .cmt-orphans language
+   used for the same idea elsewhere in the viewer. */
+.wikilink-broken { color: var(--ink-muted); border-bottom: 1px dotted var(--ink-muted); }
+
 /* live html embeds (![](file.html)) inside rendered markdown — sandboxed iframe,
    height set from content. Scoped to .md so it doesn't clobber the full-file html
    preview (bare .htmlframe, above). max-width keeps diagrams compact. */

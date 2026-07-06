@@ -314,6 +314,56 @@ test("cross-file anchor [x](other.md#heading) opens the doc and scrolls to the h
   }
 });
 
+test("wikilinks: [[basename]] and [[Title]] resolve to a working cross-file link; [[name|alias]] uses the alias", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    dir + "/doc.md",
+    "See [[other]] and [[Other Doc]] and [[other|a custom name]].\n",
+    "utf8",
+  );
+  await writeFile(dir + "/other.md", "# Other\n\nbody\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+  m.files.push({ path: "other.md", title: "Other Doc", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  await boot(await renderHtml(await buildView([pad]), "P"));
+  try {
+    const md = document.querySelector("#preview .md")!;
+    const links = md.querySelectorAll('a[href="/other.md"]');
+    // basename match, title-fallback match, and the aliased form all resolve to
+    // the same file.
+    expect(links.length).toBe(3);
+    expect(links[0]!.textContent).toBe("Other Doc"); // display = resolved title
+    expect(links[2]!.textContent).toBe("a custom name"); // display = alias
+    // Clicking one navigates via the existing cross-file click handler (no new
+    // click-handling code — the leading '/' makes resolveRel treat it as
+    // pad-root-absolute).
+    (links[0] as any).click();
+    expect(document.querySelector("#preview .pfile")!.textContent).toBe("other.md");
+  } finally {
+    await teardown();
+  }
+});
+
+test("an unresolved wikilink [[nonexistent]] renders as a broken-link span, not a clickable anchor", async () => {
+  const html = await renderPadWithContent("Refers to [[nonexistent]] and [[missing|Missing Thing]].\n");
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    const spans = md.querySelectorAll("span.wikilink-broken");
+    expect(spans.length).toBe(2);
+    expect(spans[0]!.textContent).toBe("nonexistent");
+    expect(spans[1]!.textContent).toBe("Missing Thing");
+    // Not real anchors — no href to click through.
+    expect(spans[0]!.closest("a")).toBeNull();
+    expect(md.querySelectorAll("a").length).toBe(0);
+  } finally {
+    await teardown();
+  }
+});
+
 test("a plain link opens at the top; the left nav restores the remembered scroll", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });

@@ -32,6 +32,7 @@ const HEADING_RE = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 /** Strip inline markdown the renderer collapses to plain text. */
 function stripInline(s: string): string {
   return s
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, name, alias) => (alias ?? name).trim()) // wikilinks → display text
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1") // images → alt
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // links → text
     .replace(/`([^`]+)`/g, "$1") // inline code
