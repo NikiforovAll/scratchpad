@@ -446,7 +446,7 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
   }
 });
 
-test("clicking a rendered mermaid SVG opens the diagram lightbox; Esc closes it", async () => {
+test("double-clicking a rendered mermaid SVG opens the diagram lightbox; Esc closes it", async () => {
   const html = await renderPad();
   await boot(html);
   try {
@@ -458,7 +458,7 @@ test("clicking a rendered mermaid SVG opens the diagram lightbox; Esc closes it"
 
     const modal = document.getElementById("diagramModal")!;
     expect(modal.style.display).toBe("none");
-    svg.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    svg.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     expect(modal.style.display).toBe("flex");
     const cloned = document.querySelector("#diagramStage svg") as SVGElement;
     expect(cloned).not.toBeNull();

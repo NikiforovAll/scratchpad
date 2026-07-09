@@ -1979,7 +1979,7 @@ document.getElementById('helpBtn').addEventListener('click', () => showHelp(true
 document.getElementById('helpClose').addEventListener('click', () => showHelp(false));
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal) showHelp(false); });
 
-// Diagram lightbox: click a rendered mermaid SVG to enlarge it (fit-to-viewport).
+// Diagram lightbox: double-click a rendered mermaid SVG to enlarge it (fit-to-viewport).
 // The SVG is CLONED into the stage — moving it would break the in-page layout and
 // mermaid's own sizing. Mermaid stamps an inline max-width on the svg that caps it
 // at its layout width; strip it so the lightbox CSS can scale it up.
@@ -2290,9 +2290,11 @@ function flashTarget(el) {
   flashEl = el;
   flashTimer = setTimeout(() => { el.classList.remove('anchor-flash'); flashEl = flashTimer = null; }, 10000);
 }
-previewEl.addEventListener('click', (e) => {
+previewEl.addEventListener('dblclick', (e) => {
   const svg = e.target.closest && e.target.closest('.mermaid svg');
-  if (svg) { openDiagram(svg); return; }
+  if (svg) openDiagram(svg);
+});
+previewEl.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a');
   if (!a) return;
   e.preventDefault();
