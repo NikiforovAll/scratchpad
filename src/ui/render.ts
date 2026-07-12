@@ -480,7 +480,8 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <div class="modal-head"><span>Keyboard shortcuts</span><button class="icon-btn" id="helpClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
       <dl class="shortcuts">
         <div class="sc-group">Navigate</div>
-        <div><dt><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></dt><dd>Next / previous file</dd></div>
+        <div><dt><kbd>↑</kbd><kbd>↓</kbd></dt><dd>Next / previous file</dd></div>
+        <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Collapse / expand group</dd></div>
         <div class="sc-group">Scroll</div>
         <div><dt><kbd>j</kbd><kbd>k</kbd></dt><dd>Down / up</dd></div>
         <div><dt><kbd>d</kbd><kbd>u</kbd></dt><dd>Half page down / up</dd></div>
@@ -1521,20 +1522,30 @@ function layoutCollapsedSet(layout) {
   return s;
 }
 
-function toggleGroup(headerEl) {
-  const box = headerEl.closest('.ggroup');
+// Single write-through for a group's collapse state: DOM class, the header's
+// aria-expanded, and the in-session override map (never persisted — see buildTree).
+function setGroupCollapsed(box, collapsed) {
   if (!box) return;
-  const collapsed = box.classList.toggle('collapsed');
-  headerEl.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  box.classList.toggle('collapsed', collapsed);
+  box.querySelector('.glabel')?.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   groupCollapseState[box.dataset.group] = collapsed;
 }
 
+function toggleGroup(headerEl) {
+  const box = headerEl.closest('.ggroup');
+  if (box) setGroupCollapsed(box, !box.classList.contains('collapsed'));
+}
+
+// Collapse/expand the group holding the active file — bound to ←/→ (a dedicated
+// designation, distinct from ↑/↓ file nav).
+function setActiveGroupCollapsed(collapsed) {
+  setGroupCollapsed(document.querySelector('.frow.active')?.closest('.ggroup'), collapsed);
+}
+
 // Selecting a file inside a collapsed group auto-expands it so the active row is
-// visible (nav order spans collapsed groups — see ITEMS). The box is collapsed by
-// selector, so toggling it always expands (reuses toggleGroup's write-through).
+// visible (nav order spans collapsed groups — see ITEMS).
 function expandActiveGroup() {
-  const h = document.querySelector('.frow.active')?.closest('.ggroup.collapsed')?.querySelector('.glabel');
-  if (h) toggleGroup(h);
+  setGroupCollapsed(document.querySelector('.frow.active')?.closest('.ggroup.collapsed'), false);
 }
 
 function buildTree(preferKey, prevSelJson) {
@@ -2341,8 +2352,13 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'g' || e.key === 'G') {
     e.preventDefault(); previewEl.scrollTo(0, e.key === 'g' ? 0 : previewEl.scrollHeight); return;
   }
-  const next = e.key === 'ArrowDown' || e.key === 'ArrowRight';
-  const prev = e.key === 'ArrowUp' || e.key === 'ArrowLeft';
+  // ←/→ collapse/expand the active file's group (dedicated designation); ↑/↓ move
+  // between files. Nav auto-expands a collapsed target group (see expandActiveGroup).
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault(); setActiveGroupCollapsed(e.key === 'ArrowLeft'); return;
+  }
+  const next = e.key === 'ArrowDown';
+  const prev = e.key === 'ArrowUp';
   if ((next || prev) && ITEMS.length) {
     e.preventDefault();
     const n = curIdx + (next ? 1 : -1);

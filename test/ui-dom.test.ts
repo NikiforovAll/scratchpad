@@ -832,6 +832,27 @@ test("client orderGroups mirrors orderGroupKeys (drift guard)", async () => {
   }
 });
 
+test("ArrowLeft/ArrowRight collapse/expand the active file's group (no nav)", async () => {
+  await boot(await renderLayoutPad());
+  try {
+    // Initial selection is A (alpha, expanded by default).
+    const alpha = document.querySelector('.ggroup[data-group="alpha"]') as any;
+    expect(document.querySelector(".frow.active")?.textContent).toContain("A");
+    expect(alpha.classList.contains("collapsed")).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+    expect(alpha.classList.contains("collapsed")).toBe(true); // collapsed, not navigated
+    expect(document.querySelector(".frow.active")?.textContent).toContain("A"); // selection unchanged
+    expect(alpha.querySelector(".glabel")?.getAttribute("aria-expanded")).toBe("false");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    expect(alpha.classList.contains("collapsed")).toBe(false); // expanded
+    expect(document.querySelector(".frow.active")?.textContent).toContain("A");
+  } finally {
+    await teardown();
+  }
+});
+
 test("group matching is case/space-insensitive; first-seen casing labels the group", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });
