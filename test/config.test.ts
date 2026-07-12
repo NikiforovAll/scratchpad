@@ -120,6 +120,17 @@ describe("loadConfig", () => {
     expect((await loadConfig()).ui.starredThemes).toEqual(["nord", "dracula", "vitesse"]);
   });
 
+  test("autoReload: defaults to true; reads valid value; rejects garbage", async () => {
+    process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
+    expect((await loadConfig()).ui.autoReload).toBe(true);
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { autoReload: false } }), "utf8");
+    expect((await loadConfig()).ui.autoReload).toBe(false);
+    await writeFile(f, JSON.stringify({ ui: { autoReload: "no" } }), "utf8");
+    expect((await loadConfig()).ui.autoReload).toBe(true); // non-boolean → default
+  });
+
   test("zoom: defaults to 1; reads valid value; rejects out-of-range/garbage", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     expect((await loadConfig()).ui.zoom).toBe(1);
@@ -179,6 +190,15 @@ describe("saveConfig", () => {
     expect((await loadConfig()).ui.starredThemes).toEqual(["solarized", "kanagawa"]);
     await saveConfig({ starredThemes: "all" as any });
     expect((await loadConfig()).ui.starredThemes).toEqual(["solarized", "kanagawa"]); // bad patch leaves last good value
+  });
+
+  test("autoReload round-trips; non-boolean is dropped", async () => {
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await saveConfig({ autoReload: false });
+    expect((await loadConfig()).ui.autoReload).toBe(false);
+    await saveConfig({ autoReload: "yes" as any });
+    expect((await loadConfig()).ui.autoReload).toBe(false); // bad patch leaves last good value
   });
 
   test("zoom round-trips; invalid zoom is dropped", async () => {

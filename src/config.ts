@@ -38,6 +38,10 @@ export interface ScratchConfig {
     /** Viewer zoom factor (CSS zoom on the root), 0.5–2. Neither WebView2 nor a
      * random-port browser origin remembers zoom across launches, so we own it. */
     zoom: number;
+    /** Auto hot-reload: watch the open pads' files and refresh the viewer when
+     * they change on disk. Default true; the watcher is launch-scoped (toggling
+     * it in the settings panel applies on the next launch). */
+    autoReload: boolean;
   };
 }
 
@@ -50,6 +54,7 @@ const DEFAULTS: ScratchConfig = {
     gridStyle: "dots",
     wideMode: false,
     zoom: 1,
+    autoReload: true,
   },
 };
 
@@ -106,6 +111,8 @@ export async function loadConfig(): Promise<ScratchConfig> {
         wideMode:
           typeof raw?.ui?.wideMode === "boolean" ? raw.ui.wideMode : DEFAULTS.ui.wideMode,
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
+        autoReload:
+          typeof raw?.ui?.autoReload === "boolean" ? raw.ui.autoReload : DEFAULTS.ui.autoReload,
       },
     };
   } catch {
@@ -138,6 +145,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (validGridStyle(patch.gridStyle)) ui.gridStyle = patch.gridStyle;
   if (typeof patch.wideMode === "boolean") ui.wideMode = patch.wideMode;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;
+  if (typeof patch.autoReload === "boolean") ui.autoReload = patch.autoReload;
   raw.ui = ui;
   await mkdir(dirname(file), { recursive: true });
   await Bun.write(file, JSON.stringify(raw, null, 2) + "\n");

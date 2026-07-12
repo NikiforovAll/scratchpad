@@ -18,6 +18,7 @@ import { bold, cyan, dim, note, ok } from "../colors.ts";
 import { loadConfig, saveConfig } from "../config.ts";
 import { readManifest, sanitizeComments, writeManifest } from "../manifest.ts";
 import { createReloader, type Reloader } from "./reload.ts";
+import type { Watcher } from "./watch.ts";
 
 // Persist a settings payload posted by the viewer page (WebView2 postMessage or
 // POST /settings). saveConfig sanitizes field-by-field, so untrusted/extra keys
@@ -32,6 +33,7 @@ async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
       gridStyle?: unknown;
       wideMode?: unknown;
       zoom?: unknown;
+      autoReload?: unknown;
     };
     await saveConfig({
       themeMode: p.themeMode as any,
@@ -40,6 +42,7 @@ async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
       gridStyle: p.gridStyle as any,
       wideMode: p.wideMode as any,
       zoom: p.zoom as any,
+      autoReload: p.autoReload as any,
     });
   } catch (e) {
     note(io, `saving settings failed (${(e as Error).message.split("\n")[0]}).`);
@@ -208,6 +211,8 @@ export interface LaunchOpts {
   installNative?: boolean;
   /** Native window without OS chrome (title bar/border). Default true. */
   frameless?: boolean;
+  /** Auto hot-reload the viewer when watched pad files change. Default true. */
+  autoReload?: boolean;
 }
 
 export async function launchViewer(
@@ -230,12 +235,15 @@ export async function launchViewer(
   if (!opts.forceBrowser) {
     const ok = await tryGlimpse(
       snap.html, opts.title, io, reloader, opts.frameless !== false, !!opts.installNative,
-      persistComments, persistCheckbox, persistHidden,
+      persistComments, persistCheckbox, persistHidden, opts.autoReload !== false,
     );
     if (ok) return 0;
     io.err("falling back to the browser viewer.");
   }
-  return serveBrowser(snap.html, opts.title, io, reloader, persistComments, persistCheckbox, persistHidden);
+  return serveBrowser(
+    snap.html, opts.title, io, reloader, persistComments, persistCheckbox, persistHidden,
+    opts.autoReload !== false,
+  );
 }
 
 // glimpse's WebView2 host is a compiled .NET binary. On a global `bun add -g`
@@ -298,6 +306,7 @@ async function tryGlimpse(
   persistComments: (payload: unknown) => Promise<void>,
   persistCheckbox: (payload: unknown) => Promise<void>,
   persistHidden: (payload: unknown) => Promise<void>,
+  autoReload: boolean,
 ): Promise<boolean> {
   // glimpseui resolves its native host relative to its own module file. Inside a
   // `bun build --compile` standalone that module lives in the virtual `B:\~BUN\`
@@ -351,7 +360,11 @@ async function tryGlimpse(
   // The native window has no address bar / terminal output of its own, so echo
   // what was opened — otherwise `scratch ui` looks like it did nothing.
   io.out(bold(title));
-  io.out(dim("  opened in a native window — press 'r' or the ⟳ button to reload; 'q' here (or close the window) to exit."));
+  io.out(dim(
+    "  opened in a native window — " +
+      (autoReload ? "edits reload automatically; " : "") +
+      "press 'r' or the ⟳ button to reload; 'q' here (or close the window) to exit.",
+  ));
 
   // A temp file is only needed for the loadFile fallback below, so stage it
   // lazily — most pages (CDN-vendored) go the setHTML path and never touch disk.
@@ -479,10 +492,22 @@ async function tryGlimpse(
       }
     });
 
+    // Auto hot-reload: watch the open pads and push a quiet in-place patch when a
+    // file changes on disk (debounced in the watcher). pushReload already routes
+    // vendor growth through a full re-present, so this reuses the manual path.
+    const watcher: Watcher | null = autoReload
+      ? reloader.watch(() => {
+          void pushReload(true).catch((e) =>
+            note(io, `auto-reload failed (${(e as Error).message.split("\n")[0]}).`),
+          );
+        })
+      : null;
+
     win.on("error", (e: Error) => {
       if (!settled) {
         settled = true;
         stopKeys();
+        watcher?.close();
         cleanupTmp();
         note(io, `native window failed (${e.message.split("\n")[0]}); using browser.`);
         resolve(false);
@@ -492,6 +517,7 @@ async function tryGlimpse(
       if (!settled) {
         settled = true;
         stopKeys();
+        watcher?.close();
         cleanupTmp();
         resolve(true);
       }
@@ -506,32 +532,88 @@ async function serveBrowser(
   reloader: Reloader,
   persistComments: (payload: unknown) => Promise<void>,
   persistCheckbox: (payload: unknown) => Promise<void>,
-  persistHidden: (payload: unknown) => Promise<void>,
+  autoReload: boolean,
 ): Promise<number> {
-  // Reload is on-demand (the page's reload button / 'r' just does location.reload),
-  // so we rebuild from disk on each page request — every load is fresh, no SSE.
+  // The browser transport is request/response: a manual reload rebuilds from disk
+  // on the next GET. Auto hot-reload adds the missing push channel — an SSE stream
+  // (/events) the page listens on, plus /data for an in-place patch — since the
+  // server otherwise has no way to tell an open page to refresh.
+  const encoder = new TextEncoder();
+  const clients = new Set<ReadableStreamDefaultController>();
+  const broadcast = (full: boolean) => {
+    const msg = encoder.encode(`data: ${JSON.stringify({ full })}\n\n`);
+    for (const c of clients) {
+      try {
+        c.enqueue(msg);
+      } catch {}
+    }
+  };
+  // The watcher already rebuilds to learn `full`; cache that snapshot's payload so
+  // the follow-up GET /data serves it instead of rebuilding the view a second time.
+  let lastPayload: string | null = null;
   const server = Bun.serve({
     port: 0,
     async fetch(req) {
+      const url = new URL(req.url);
       // Settings write-back from the page's settings panel (no webview here).
-      if (req.method === "POST" && new URL(req.url).pathname === "/settings") {
+      if (req.method === "POST" && url.pathname === "/settings") {
         await persistViewerSettings(await req.json().catch(() => null), io);
         return new Response(null, { status: 204 });
       }
       // Comment write-back — browser mirror of the WebView2 __scratch_comments path.
-      if (req.method === "POST" && new URL(req.url).pathname === "/comments") {
+      if (req.method === "POST" && url.pathname === "/comments") {
         await persistComments(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
       }
       // Checkbox toggle write-back — browser mirror of __scratch_checkbox.
-      if (req.method === "POST" && new URL(req.url).pathname === "/checkbox") {
+      if (req.method === "POST" && url.pathname === "/checkbox") {
         await persistCheckbox(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
       }
       // Hide-file write-back — browser mirror of __scratch_hide.
-      if (req.method === "POST" && new URL(req.url).pathname === "/hide") {
+      if (req.method === "POST" && url.pathname === "/hide") {
         await persistHidden(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
+      }
+      // Auto-reload event stream. The page opens EventSource('/events'); on a
+      // watched change we push {full}: full=true (a new vendor bundle became
+      // necessary) → the page hard-reloads; else it fetches /data and patches in
+      // place. The controller is tracked so broadcast() can reach every client.
+      if (req.method === "GET" && url.pathname === "/events") {
+        let self: ReadableStreamDefaultController | null = null;
+        const stream = new ReadableStream({
+          start(controller) {
+            self = controller;
+            clients.add(controller);
+            controller.enqueue(encoder.encode(": ok\n\n"));
+          },
+          cancel() {
+            if (self) clients.delete(self);
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+          },
+        });
+      }
+      // Fresh data island for an in-place patch (no whole-document re-fetch). The
+      // watcher stashes the payload it just rebuilt; fall back to a rebuild only if
+      // asked before any change (e.g. a client reconnecting).
+      if (req.method === "GET" && url.pathname === "/data") {
+        let payload = lastPayload;
+        if (payload == null) {
+          try {
+            payload = (await reloader.rebuild()).payloadJson;
+          } catch (e) {
+            note(io, `data sync failed (${(e as Error).message.split("\n")[0]}).`);
+          }
+        }
+        return new Response(payload ?? "null", {
+          headers: { "content-type": "application/json", "cache-control": "no-store" },
+        });
       }
       let body = html; // first paint uses the prebuilt page; reloads rebuild
       try {
@@ -550,10 +632,26 @@ async function serveBrowser(
       });
     },
   });
+  // Auto hot-reload: on a watched change, rebuild once and broadcast {full} to
+  // every open page (debounced in the watcher). The client fetches /data (or
+  // hard-reloads on vendor growth) — the browser mirror of the native push.
+  const watcher: Watcher | null = autoReload
+    ? reloader.watch(() => {
+        void reloader
+          .rebuild()
+          .then((s) => {
+            lastPayload = s.payloadJson;
+            broadcast(s.full);
+          })
+          .catch((e) => note(io, `auto-reload failed (${(e as Error).message.split("\n")[0]}).`));
+      })
+    : null;
   const url = `http://localhost:${server.port}/`;
   io.out(bold(title));
   io.out(`  serving viewer at ${cyan(url)}`);
-  io.out(dim(`  (reload the page to refresh from disk; 'q' or Ctrl+C to stop)`));
+  io.out(dim(
+    `  (${autoReload ? "edits reload automatically; " : ""}reload the page to refresh from disk; 'q' or Ctrl+C to stop)`,
+  ));
   openBrowser(url);
   // Keep alive until quit from the terminal ('q'/Ctrl+C via watchQuitKey when
   // stdin is a TTY, plain SIGINT otherwise).
@@ -562,6 +660,12 @@ async function serveBrowser(
     // forward reference is safe; the cleanup itself is idempotent.
     const stop = () => {
       stopKeys();
+      watcher?.close();
+      for (const c of clients) {
+        try {
+          c.close();
+        } catch {}
+      }
       io.out("\nstopped.");
       server.stop();
       resolve();

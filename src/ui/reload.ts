@@ -8,6 +8,7 @@ import { loadConfig } from "../config.ts";
 import type { Pad } from "../discovery.ts";
 import { readManifest } from "../manifest.ts";
 import { bundleNeeds, buildView, payloadJson, renderHtml } from "./render.ts";
+import { createWatcher, type Watcher } from "./watch.ts";
 
 export interface Snapshot {
   /** Full self-contained page (fresh vendor bundles). */
@@ -20,6 +21,8 @@ export interface Snapshot {
 
 export interface Reloader {
   rebuild(): Promise<Snapshot>;
+  /** Watch the open pads for on-disk changes, firing onChange (debounced). */
+  watch(onChange: () => void): Watcher;
 }
 
 export function createReloader(pads: Pad[], rootLabel: string): Reloader {
@@ -61,5 +64,8 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
     };
   }
 
-  return { rebuild };
+  // The reloader already owns `pads`, so it owns watching them too — transports
+  // just supply what to do on a change (push a patch / broadcast) without
+  // re-threading the pad list through their own signatures.
+  return { rebuild, watch: (onChange) => createWatcher(pads, onChange) };
 }

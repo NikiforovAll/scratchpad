@@ -475,6 +475,7 @@ export async function cmdUi(
     forceBrowser: args.browser,
     installNative: args.installNative,
     frameless: cfg.ui.frameless,
+    autoReload: cfg.ui.autoReload,
   });
 }
 

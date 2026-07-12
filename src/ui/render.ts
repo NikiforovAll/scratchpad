@@ -292,9 +292,11 @@ function needsMath(view: PadView[]): boolean {
  * call sites keep working. */
 export type UiSettings = Omit<
   ScratchConfig["ui"],
-  "frameless" | "zoom" | "starredThemes" | "gridStyle" | "wideMode"
+  "frameless" | "zoom" | "starredThemes" | "gridStyle" | "wideMode" | "autoReload"
 > &
-  Partial<Pick<ScratchConfig["ui"], "zoom" | "starredThemes" | "gridStyle" | "wideMode">>;
+  Partial<
+    Pick<ScratchConfig["ui"], "zoom" | "starredThemes" | "gridStyle" | "wideMode" | "autoReload">
+  >;
 
 const DEFAULT_UI: UiSettings = {
   themeMode: "system",
@@ -302,6 +304,7 @@ const DEFAULT_UI: UiSettings = {
   starredThemes: [],
   gridStyle: "dots",
   wideMode: false,
+  autoReload: true,
 };
 
 export async function renderHtml(
@@ -342,6 +345,7 @@ export async function renderHtml(
     gridStyle,
     wideMode,
     zoom,
+    autoReload: ui.autoReload ?? true,
   }).replace(/</g, "\\u003c");
 
   let vendor = "";
@@ -569,6 +573,13 @@ function settingsModalHtml(): string {
           <div class="seg" id="widthSeg">
             <button data-wide="off">Normal</button>
             <button data-wide="on">Wide</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label" title="Refresh the viewer when files change on disk (applies on next launch)">Auto reload</div>
+          <div class="seg" id="autoReloadSeg">
+            <button data-auto="on">On</button>
+            <button data-auto="off">Off</button>
           </div>
         </div>
         <div class="settings-section">
@@ -1611,7 +1622,7 @@ const SETTINGS = (function () {
   // tocVisible is deliberately NOT persisted — the TOC is on-demand and always
   // boots hidden, toggled ('o' / settings) for the current session only. So it's
   // absent from the embedded snapshot / localStorage / saveConfig, unlike the rest.
-  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, tocVisible: false, zoom: 1 };
+  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, tocVisible: false, zoom: 1, autoReload: true };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // Over file:// (export) the embedded snapshot is whatever the exporting machine
   // had saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -1656,7 +1667,7 @@ function postToHost(key, path, payload, onFail) {
   return false;
 }
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, zoom: SETTINGS.zoom };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
   if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
@@ -1740,6 +1751,7 @@ function applyTheme() {
   syncThemeCards();
   document.querySelectorAll('#gridSeg button').forEach((b) => b.classList.toggle('on', b.dataset.grid === SETTINGS.gridStyle));
   document.querySelectorAll('#widthSeg button').forEach((b) => b.classList.toggle('on', b.dataset.wide === (SETTINGS.wideMode ? 'on' : 'off')));
+  document.querySelectorAll('#autoReloadSeg button').forEach((b) => b.classList.toggle('on', b.dataset.auto === (SETTINGS.autoReload ? 'on' : 'off')));
   document.querySelectorAll('#tocSeg button').forEach((b) => b.classList.toggle('on', b.dataset.toc === (SETTINGS.tocVisible ? 'on' : 'off')));
   updateToc();
 }
@@ -1766,6 +1778,14 @@ function setGridStyle(g) {
 function setWideMode(on) {
   SETTINGS.wideMode = on;
   applyTheme();
+  persistSettings();
+}
+// The watcher is launch-scoped (created by the host at launch), so flipping this
+// persists the choice for the next launch rather than starting/stopping the live
+// watcher — the tooltip on the settings label says so.
+function setAutoReload(on) {
+  SETTINGS.autoReload = on;
+  applyTheme(); // re-syncs the segment
   persistSettings();
 }
 function setTocVisible(on) {
@@ -1887,6 +1907,7 @@ settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal)
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));
 document.querySelectorAll('#gridSeg button').forEach((b) => b.addEventListener('click', () => setGridStyle(b.dataset.grid)));
 document.querySelectorAll('#widthSeg button').forEach((b) => b.addEventListener('click', () => setWideMode(b.dataset.wide === 'on')));
+document.querySelectorAll('#autoReloadSeg button').forEach((b) => b.addEventListener('click', () => setAutoReload(b.dataset.auto === 'on')));
 document.querySelectorAll('#tocSeg button').forEach((b) => b.addEventListener('click', () => setTocVisible(b.dataset.toc === 'on')));
 
 // Theme grids use delegation — the starred strip re-renders its cards, so
@@ -1955,6 +1976,7 @@ window.__scratchSettings = function (cfg) {
   if (starred && JSON.stringify(starred) !== JSON.stringify(SETTINGS.starredThemes)) { SETTINGS.starredThemes = starred; drift = true; }
   if ((cfg.gridStyle === 'off' || cfg.gridStyle === 'dots' || cfg.gridStyle === 'lines') && cfg.gridStyle !== SETTINGS.gridStyle) { SETTINGS.gridStyle = cfg.gridStyle; drift = true; }
   if (typeof cfg.wideMode === 'boolean' && cfg.wideMode !== SETTINGS.wideMode) { SETTINGS.wideMode = cfg.wideMode; drift = true; }
+  if (typeof cfg.autoReload === 'boolean' && cfg.autoReload !== SETTINGS.autoReload) { SETTINGS.autoReload = cfg.autoReload; drift = true; }
   if (typeof cfg.zoom === 'number' && cfg.zoom >= 0.5 && cfg.zoom <= 2 && cfg.zoom !== SETTINGS.zoom) { SETTINGS.zoom = cfg.zoom; drift = true; }
   if (!drift) return;
   renderStarredGrid();
@@ -2067,6 +2089,25 @@ function requestReload() {
 document.getElementById('reloadBtn').addEventListener('click', requestReload);
 // Browser reload just happened → show the toast the pre-reload page couldn't.
 try { if (sessionStorage.getItem('scratch_reloaded')) { sessionStorage.removeItem('scratch_reloaded'); showToast('Reloaded from disk', 'success'); } } catch (_) {}
+
+// Auto hot-reload (browser transport). The server pushes an SSE event when a
+// watched file changes: full → a new vendor bundle is needed, so hard-reload;
+// otherwise fetch the fresh data island and patch in place (quiet — the same
+// no-op/scroll-preserving path 'r' uses). The native window gets its push through
+// the host (__scratchReload) instead, and an export has no server to listen to.
+(function () {
+  if (EXPORT_MODE || webview || !SETTINGS.autoReload) return;
+  if (!/^https?:$/.test(location.protocol) || typeof EventSource === 'undefined') return;
+  try {
+    const es = new EventSource('/events');
+    es.onmessage = function (e) {
+      let full = false;
+      try { full = !!JSON.parse(e.data).full; } catch (_) {}
+      if (full) { try { sessionStorage.setItem('scratch_reloaded', '1'); } catch (_) {} location.reload(); return; }
+      fetch('/data').then((r) => r.json()).then((payload) => { window.__scratchReload(payload, true); }).catch(() => {});
+    };
+  } catch (_) {}
+})();
 (function () {
   const btn = document.getElementById('closeBtn');
   if (closeWindow && btn) { btn.style.display = ''; btn.addEventListener('click', closeWindow); }
