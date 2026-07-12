@@ -591,8 +591,16 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 .label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--ink-muted); padding: 6px 10px 10px; }
 /* Stacked group headers: separate each group from the rows above it. The first
-   header sits flush at the top; only subsequent ones get the gap + hairline. */
-.label ~ .label { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+   group sits flush at the top; only subsequent ones get the gap + hairline. */
+.ggroup + .ggroup .glabel { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+/* Collapsible group header: caret + label, click/Enter toggles its rows. */
+.glabel { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.glabel:hover { color: var(--ink-2); }
+.gcaret { flex: none; width: 0; height: 0;
+  border-left: 4px solid currentColor; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
+  opacity: 0.7; transform: rotate(90deg); transition: transform 0.12s ease; }
+.ggroup.collapsed .gcaret { transform: rotate(0deg); }
+.ggroup.collapsed .grows { display: none; }
 .frow {
   display: flex; align-items: baseline; gap: 9px; cursor: pointer;
   padding: 6px 12px; border-radius: 5px;

@@ -2,6 +2,12 @@
 
 > Layouts below omit the `scratchpad.json` manifest each pad carries. Create the pad with `scratch new "<task>" --dir _plans`, write the files, then `scratch add` each one.
 
+> **Ordering groups.** Once a pad has several groups, add a top-level `layout` to its `scratchpad.json` to control the order they appear (viewer + `scratch ls`). Groups you omit trail the listed ones; the ungrouped bucket (`{ "name": "" }`) sorts last unless placed. `"collapsed": true` folds a group by default:
+>
+> ```json
+> "layout": { "groups": [{ "name": "plan" }, { "name": "research" }, { "name": "decisions", "collapsed": true }] }
+> ```
+
 ## Example 1: Bug Fix (Minimal - plan.md only)
 
 **User Request:** "Fix the login bug in the authentication module"

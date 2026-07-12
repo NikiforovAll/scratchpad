@@ -10,7 +10,7 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildView, renderHtml } from "../src/ui/render.ts";
-import { type Comment, newManifest, writeManifest, readManifest } from "../src/manifest.ts";
+import { type Comment, type Layout, newManifest, writeManifest, readManifest, orderGroupKeys } from "../src/manifest.ts";
 import type { Pad } from "../src/discovery.ts";
 
 let root: string;
@@ -750,6 +750,85 @@ test("groups files under group headers, keeping ungrouped under FILES", async ()
     expect(rows).toEqual(["A", "B", "C"]);
   } finally {
     await teardown();
+  }
+});
+
+async function renderLayoutPad(): Promise<string> {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  for (const n of ["a.md", "b.md", "c.md"]) await writeFile(join(dir, n), "# " + n + "\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "a.md", title: "A", type: "note", group: "alpha" });
+  m.files.push({ path: "b.md", title: "B", type: "note", group: "beta" });
+  m.files.push({ path: "c.md", title: "C", type: "note" }); // ungrouped
+  // Layout: beta before alpha (reorders vs first-appearance), beta collapsed; no ""
+  // token so the ungrouped bucket falls last.
+  m.layout = { groups: [{ name: "beta", collapsed: true }, { name: "alpha" }] };
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  return renderHtml(await buildView([pad]), "P");
+}
+
+test("layout controls group order + collapsed default; header click toggles", async () => {
+  await boot(await renderLayoutPad());
+  try {
+    const labels = Array.from(document.querySelectorAll(".tree .label")).map((l) => l.textContent);
+    expect(labels).toEqual(["beta", "alpha", "FILES"]); // laid-out first, ungrouped last
+    const beta = document.querySelector('.ggroup[data-group="beta"]') as any;
+    const alpha = document.querySelector('.ggroup[data-group="alpha"]') as any;
+    expect(beta.classList.contains("collapsed")).toBe(true); // manifest default
+    expect(alpha.classList.contains("collapsed")).toBe(false);
+    const betaHead = beta.querySelector(".glabel");
+    betaHead.click();
+    expect(beta.classList.contains("collapsed")).toBe(false);
+    expect(betaHead.getAttribute("aria-expanded")).toBe("true");
+    betaHead.click();
+    expect(beta.classList.contains("collapsed")).toBe(true);
+  } finally {
+    await teardown();
+  }
+});
+
+test("arrow-key nav reaches a file in a collapsed group and auto-expands it", async () => {
+  await boot(await renderLayoutPad());
+  try {
+    const beta = document.querySelector('.ggroup[data-group="beta"]') as any;
+    expect(beta.classList.contains("collapsed")).toBe(true);
+    // Initial selection is A (alpha). ITEMS order is [B(beta), A(alpha), C], so
+    // ArrowUp from A lands on B inside the collapsed beta group.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
+    expect(document.querySelector(".frow.active")?.textContent).toContain("B");
+    expect(beta.classList.contains("collapsed")).toBe(false); // auto-expanded
+  } finally {
+    await teardown();
+  }
+});
+
+// The viewer re-implements orderGroupKeys() as a client-side orderGroups() (client
+// JS can't import TS). A "KEEP IN SYNC" comment isn't enough — pin the two by
+// EXECUTION: extract the client copy from the bundle and run the same edge-case
+// table against both. If either drifts, this fails.
+test("client orderGroups mirrors orderGroupKeys (drift guard)", async () => {
+  const html = await renderPadWithContent("# x\n");
+  const grab = (name: string) => {
+    const m = html.match(new RegExp("function " + name + "\\([^)]*\\) \\{[\\s\\S]*?\\n\\}"));
+    if (!m) throw new Error("could not extract " + name + " from client bundle");
+    return m[0];
+  };
+  const clientOrder = eval(
+    "(function(){ " + grab("groupKey") + "\n" + grab("orderGroups") + "\n return orderGroups; })()",
+  ) as (present: string[], layout?: Layout) => string[];
+  const L = (...names: string[]): Layout => ({ groups: names.map((name) => ({ name })) });
+  const cases: [string[], Layout | undefined][] = [
+    [["b", "a", ""], undefined], // no layout → identity (ungrouped stays put)
+    [["a", "b", "c", ""], L("c", "a")], // reorder; unlisted "b" then ungrouped last
+    [["a", "b", ""], L("", "b")], // explicit "" token positions ungrouped
+    [["a", "b"], L("ghost", "b")], // ghost group not present → skipped
+    [["a", "b", "c"], L("b", "b", "a")], // duplicate name → first occurrence only
+    [["api", "impl"], L(" API ")], // case/trim folding
+  ];
+  for (const [present, layout] of cases) {
+    expect(clientOrder(present, layout)).toEqual(orderGroupKeys(present, layout));
   }
 });
 

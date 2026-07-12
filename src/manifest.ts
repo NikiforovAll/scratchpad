@@ -61,6 +61,25 @@ export interface FileEntry {
   comments?: Comment[];
 }
 
+/** One entry in `layout.groups`. Declares a group's display order (array index)
+ * and optional default collapse state. */
+export interface LayoutGroup {
+  /** Group identity, matched case-insensitively against `FileEntry.group`
+   * (`trim().toLowerCase()`). The empty string `""` is the reserved token for the
+   * ungrouped "FILES" bucket. */
+  name: string;
+  /** Viewer-only: render this group collapsed by default (default expanded). */
+  collapsed?: boolean;
+}
+
+/** Optional top-level display hint. Declares the order (and collapse) of groups in
+ * the viewer sidebar and `scratch ls`. Groups not listed here sort after the listed
+ * ones in first-appearance order; the ungrouped bucket sorts last unless positioned
+ * via a `{ name: "" }` entry. Absent = today's first-appearance order everywhere. */
+export interface Layout {
+  groups: LayoutGroup[];
+}
+
 export interface Manifest {
   version: number;
   name: string;
@@ -70,6 +89,7 @@ export interface Manifest {
   /** ISO-8601 UTC. */
   updated: string;
   files: FileEntry[];
+  layout?: Layout;
 }
 
 export function nowIso(): string {
@@ -116,6 +136,59 @@ export function sanitizeComments(raw: unknown): Comment[] {
   return out;
 }
 
+/** Normalize a group name to its comparison key (case-insensitive, trimmed).
+ * Shared so layout matching and grouping agree. `""` = the ungrouped bucket. */
+export function groupKey(raw: string | undefined | null): string {
+  return (raw ?? "").trim().toLowerCase();
+}
+
+/** Validate a raw `layout` value defensively (malformed input is non-fatal, matching
+ * how the rest of the manifest tolerates bad data). Returns undefined when `layout`
+ * is absent or unusable — callers then fall back to first-appearance order. */
+export function sanitizeLayout(raw: unknown): Layout | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const groupsRaw = (raw as Record<string, unknown>).groups;
+  if (!Array.isArray(groupsRaw)) return undefined;
+  const groups: LayoutGroup[] = [];
+  for (const g of groupsRaw) {
+    if (typeof g !== "object" || g === null) continue;
+    const o = g as Record<string, unknown>;
+    if (typeof o.name !== "string") continue;
+    const entry: LayoutGroup = { name: o.name };
+    if (o.collapsed === true) entry.collapsed = true;
+    groups.push(entry);
+  }
+  return { groups };
+}
+
+/** Order group keys for display. `present` = normalized group keys in first-appearance
+ * order (may include `""` for the ungrouped bucket). Returns the ordered subset of
+ * `present`. Kept in sync with the client-side copy in `src/ui/render.ts` (buildTree).
+ *
+ * No layout → `present` unchanged (today's behavior). With a layout: laid-out groups
+ * first (deduped first-wins, only if present), then leftover named groups in
+ * first-appearance order, then the ungrouped `""` bucket last unless the layout
+ * positioned it. */
+export function orderGroupKeys(present: string[], layout?: Layout): string[] {
+  if (!layout) return present;
+  const presentSet = new Set(present);
+  const emitted = new Set<string>();
+  const out: string[] = [];
+  for (const g of layout.groups) {
+    const key = groupKey(g.name);
+    if (!presentSet.has(key) || emitted.has(key)) continue;
+    out.push(key);
+    emitted.add(key);
+  }
+  for (const key of present) {
+    if (key === "" || emitted.has(key)) continue;
+    out.push(key);
+    emitted.add(key);
+  }
+  if (presentSet.has("") && !emitted.has("")) out.push("");
+  return out;
+}
+
 /** Validate + normalize a parsed object into a Manifest. Throws on hard errors. */
 export function parseManifest(raw: unknown, source: string): Manifest {
   if (typeof raw !== "object" || raw === null) {
@@ -144,6 +217,7 @@ export function parseManifest(raw: unknown, source: string): Manifest {
     return entry;
   });
   const ts = nowIso();
+  const layout = sanitizeLayout(o.layout);
   return {
     version: typeof o.version === "number" ? o.version : SCHEMA_VERSION,
     name: o.name,
@@ -151,6 +225,7 @@ export function parseManifest(raw: unknown, source: string): Manifest {
     created: typeof o.created === "string" ? o.created : ts,
     updated: typeof o.updated === "string" ? o.updated : ts,
     files,
+    ...(layout ? { layout } : {}),
   };
 }
 

@@ -9,7 +9,7 @@ import { dirname, extname, isAbsolute, resolve } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath } from "../discovery.ts";
-import { type Comment, DEFAULT_TYPE, type FileEntry, MANIFEST_NAME } from "../manifest.ts";
+import { type Comment, DEFAULT_TYPE, type FileEntry, type Layout, MANIFEST_NAME } from "../manifest.ts";
 import { type CommentItem, toCommentItems } from "../comments.ts";
 import { KIT_CSS, KIT_SVG_DEFS } from "./kit.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
@@ -90,6 +90,8 @@ interface PadView {
   id?: string;
   dir: string;
   files: FileView[];
+  /** Optional group ordering/collapse hint from the manifest (see manifest.ts). */
+  layout?: Layout;
 }
 
 /** Base64 data URI for an embedded image's bytes (shared by the registered-file
@@ -243,6 +245,7 @@ export async function buildView(pads: Pad[]): Promise<PadView[]> {
       id: p.manifest.id,
       dir: p.dir,
       files: await scanPadFiles(p),
+      ...(p.manifest.layout ? { layout: p.manifest.layout } : {}),
     })),
   );
 }
@@ -1434,6 +1437,7 @@ function renderPreview(pad, f, nav) {
   applyComments();
   buildToc();
   document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
+  expandActiveGroup();
   const wantKey = current;
   // A link with a #fragment lands on the heading — beating the rAF re-apply below,
   // so the scroll-restore is skipped entirely when an anchor target resolves.
@@ -1478,6 +1482,61 @@ function fileIcon(kind) {
   const p = FILE_ICON_PATHS[kind] || FILE_ICON_DEFAULT;
   return '<svg class="ficon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
 }
+// Session-only group collapse overrides: group key -> collapsed bool. Set when the
+// user toggles a group header; consulted on every rebuild so a toggle survives a
+// hot-reload. Never persisted — a fresh page load starts empty, restoring the
+// layout-authored default (see decision: collapse toggles are ephemeral).
+const groupCollapseState = {};
+
+// Client mirror of groupKey() in manifest.ts — normalize a group name to its
+// comparison key ('' = ungrouped). Guards against non-strings since the layout
+// reaches the client as raw JSON (not necessarily via sanitizeLayout).
+function groupKey(raw) {
+  return (typeof raw === 'string' ? raw : '').trim().toLowerCase();
+}
+
+// Mirror of orderGroupKeys() in manifest.ts — KEEP IN SYNC. present = group keys in
+// first-appearance order; returns the ordered subset per the layout hint. (The
+// layout.groups guard is intentionally stronger than the TS copy — client input
+// isn't guaranteed to have passed through sanitizeLayout.)
+function orderGroups(present, layout) {
+  if (!layout || !Array.isArray(layout.groups)) return present;
+  const presentSet = new Set(present), emitted = new Set(), out = [];
+  layout.groups.forEach((gr) => {
+    const key = groupKey(gr && gr.name);
+    if (!presentSet.has(key) || emitted.has(key)) return;
+    out.push(key); emitted.add(key);
+  });
+  present.forEach((key) => { if (key !== '' && !emitted.has(key)) { out.push(key); emitted.add(key); } });
+  if (presentSet.has('') && !emitted.has('')) out.push('');
+  return out;
+}
+
+// Keys of groups the layout marks collapsed-by-default.
+function layoutCollapsedSet(layout) {
+  const s = new Set();
+  if (layout && Array.isArray(layout.groups)) layout.groups.forEach((gr) => {
+    if (gr && gr.collapsed === true) s.add(groupKey(gr.name));
+  });
+  return s;
+}
+
+function toggleGroup(headerEl) {
+  const box = headerEl.closest('.ggroup');
+  if (!box) return;
+  const collapsed = box.classList.toggle('collapsed');
+  headerEl.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  groupCollapseState[box.dataset.group] = collapsed;
+}
+
+// Selecting a file inside a collapsed group auto-expands it so the active row is
+// visible (nav order spans collapsed groups — see ITEMS). The box is collapsed by
+// selector, so toggling it always expands (reuses toggleGroup's write-through).
+function expandActiveGroup() {
+  const h = document.querySelector('.frow.active')?.closest('.ggroup.collapsed')?.querySelector('.glabel');
+  if (h) toggleGroup(h);
+}
+
 function buildTree(preferKey, prevSelJson) {
   const tree = document.getElementById('tree');
   // Single-pad focus: the viewer shows the current pad's files as a flat list —
@@ -1488,16 +1547,21 @@ function buildTree(preferKey, prevSelJson) {
   // Group files by their (optional) group, preserving first-appearance order of
   // both the groups and the files within each. Ungrouped files share the '' key,
   // rendered under the default "FILES" header. ITEMS (j/k nav order) is rebuilt in
-  // this grouped order so keyboard navigation matches the visible layout.
+  // the final grouped order so keyboard navigation matches the visible layout.
   // Grouping is case-insensitive (headers render uppercase, so "Resolved" and
   // "RESOLVED" are the same group); the first-seen casing wins as the label.
-  const groupOrder = [], groups = new Map(), groupLabels = new Map();
+  const groups = new Map();
   items.forEach((it) => {
-    const raw = it.f.group || '';
-    const g = raw.trim().toLowerCase();
-    if (!groups.has(g)) { groups.set(g, []); groupOrder.push(g); groupLabels.set(g, raw); }
+    const g = groupKey(it.f.group);
+    if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(it);
   });
+  // Group DISPLAY order honors the pad's optional layout (mirror of orderGroupKeys
+  // in manifest.ts). Layout is a per-pad hint, so only apply it in the single-pad
+  // view; multi-pad falls back to first-appearance (the Map preserves it).
+  const layout = DATA.pads.length === 1 ? DATA.pads[0].layout : null;
+  const groupOrder = orderGroups([...groups.keys()], layout);
+  const collapsedDefault = layoutCollapsedSet(layout);
   ITEMS = groupOrder.flatMap((g) => groups.get(g));
 
   document.getElementById('padname').textContent = DATA.pads.length === 1 ? DATA.pads[0].name : DATA.rootLabel;
@@ -1513,8 +1577,16 @@ function buildTree(preferKey, prevSelJson) {
 
   let html = '';
   groupOrder.forEach((g) => {
-    const label = groupLabels.get(g);
-    html += '<div class="label">' + (label ? esc(label) : 'FILES') + '</div>';
+    // First-seen casing labels the group (headers render uppercase); '' → "FILES".
+    const label = groups.get(g)[0].f.group || '';
+    // Collapse state: a user's in-session toggle (groupCollapseState) wins; otherwise
+    // the layout default. Toggles are DOM-only and never persisted — relaunch (a fresh
+    // page, empty groupCollapseState) restores the layout default.
+    const isCollapsed = g in groupCollapseState ? groupCollapseState[g] : collapsedDefault.has(g);
+    html += '<div class="ggroup' + (isCollapsed ? ' collapsed' : '') + '" data-group="' + esc(g) + '">';
+    html += '<div class="label glabel" role="button" tabindex="0" aria-expanded="' + (isCollapsed ? 'false' : 'true') + '">' +
+      '<span class="gcaret" aria-hidden="true"></span>' + (label ? esc(label) : 'FILES') + '</div>';
+    html += '<div class="grows">';
     groups.get(g).forEach(({ pad, f, pi, fi }) => {
       const key = pad.dir + '::' + f.path;
       const cls = 'frow' + (f.registered ? '' : ' unreg');
@@ -1524,6 +1596,7 @@ function buildTree(preferKey, prevSelJson) {
         fileIcon(f.kind) +
         '<span class="fttl" title="' + esc(ttl) + '">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
     });
+    html += '</div></div>';
   });
   // Only swap the tree DOM when the markup actually changed — otherwise reloading
   // (or re-selecting) needlessly destroys/recreates the sidebar = a visible flash.
@@ -1535,6 +1608,12 @@ function buildTree(preferKey, prevSelJson) {
     tree.querySelectorAll('.frow[data-fi]').forEach(row => row.addEventListener('click', () => {
       const pad = DATA.pads[+row.dataset.pi]; renderPreview(pad, pad.files[+row.dataset.fi]);
     }));
+    tree.querySelectorAll('.glabel').forEach(h => {
+      h.addEventListener('click', () => toggleGroup(h));
+      h.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(h); }
+      });
+    });
   }
 
   updateCommentsCount();
@@ -1553,6 +1632,7 @@ function buildTree(preferKey, prevSelJson) {
   const selKey = sel.pad.dir + '::' + sel.f.path;
   if (prevSelJson != null && selKey === current && JSON.stringify(sel.f) === prevSelJson) {
     document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
+    expandActiveGroup();
     return;
   }
   renderPreview(sel.pad, sel.f);

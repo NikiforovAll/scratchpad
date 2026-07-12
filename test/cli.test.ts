@@ -9,7 +9,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run } from "../src/cli.ts";
 import { slugify } from "../src/discovery.ts";
-import { parseManifest, MANIFEST_NAME } from "../src/manifest.ts";
+import {
+  parseManifest,
+  MANIFEST_NAME,
+  sanitizeLayout,
+  orderGroupKeys,
+  writeManifest,
+  readManifest,
+  type Layout,
+} from "../src/manifest.ts";
 import type { IO } from "../src/commands.ts";
 
 let root: string;
@@ -51,6 +59,69 @@ describe("parseManifest", () => {
     expect(m.name).toBe("p");
     expect(m.files[0]!.path).toBe("a.md");
     expect(m.files[0]!.type).toBeUndefined(); // invalid type dropped
+  });
+});
+
+describe("sanitizeLayout", () => {
+  test("parses a valid layout, keeping order and collapsed flag", () => {
+    const l = sanitizeLayout({ groups: [{ name: "b" }, { name: "a", collapsed: true }] });
+    expect(l?.groups.map((g) => g.name)).toEqual(["b", "a"]);
+    expect(l?.groups[0]!.collapsed).toBeUndefined();
+    expect(l?.groups[1]!.collapsed).toBe(true);
+  });
+  test("non-object or groups-not-array → undefined (fall back to first-appearance)", () => {
+    expect(sanitizeLayout(null)).toBeUndefined();
+    expect(sanitizeLayout(42)).toBeUndefined();
+    expect(sanitizeLayout({})).toBeUndefined();
+    expect(sanitizeLayout({ groups: "nope" })).toBeUndefined();
+  });
+  test("drops entries missing a string name; coerces non-boolean collapsed", () => {
+    const l = sanitizeLayout({
+      groups: [{ name: "ok" }, { name: 1 }, {}, null, { name: "c", collapsed: "yes" }],
+    });
+    expect(l?.groups.map((g) => g.name)).toEqual(["ok", "c"]);
+    expect(l?.groups[1]!.collapsed).toBeUndefined(); // "yes" is not true
+  });
+  test("round-trips through parseManifest + writeManifest", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "scratch-layout-"));
+    try {
+      const m = parseManifest(
+        { name: "P", files: [], layout: { groups: [{ name: "x", collapsed: true }] } },
+        "t",
+      );
+      await writeManifest(dir, m);
+      const back = await readManifest(dir);
+      expect(back.layout?.groups).toEqual([{ name: "x", collapsed: true }]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+  test("malformed layout never throws in parseManifest", () => {
+    const m = parseManifest({ name: "P", files: [], layout: { groups: [{}, 3] } }, "t");
+    expect(m.layout?.groups).toEqual([]); // present but empty → ungrouped-last still applies
+  });
+});
+
+describe("orderGroupKeys", () => {
+  const L = (names: string[]): Layout => ({ groups: names.map((name) => ({ name })) });
+  test("no layout → present order unchanged", () => {
+    expect(orderGroupKeys(["b", "a", ""])).toEqual(["b", "a", ""]);
+  });
+  test("laid-out groups first, leftover in first-appearance, ungrouped last", () => {
+    // present (first-appearance): a, b, c, ungrouped
+    expect(orderGroupKeys(["a", "b", "c", ""], L(["c", "a"]))).toEqual(["c", "a", "b", ""]);
+  });
+  test("ungrouped token positions the '' bucket", () => {
+    expect(orderGroupKeys(["a", "b", ""], L(["", "b"]))).toEqual(["", "b", "a"]);
+  });
+  test("layout entry with no matching group is skipped", () => {
+    expect(orderGroupKeys(["a", "b"], L(["ghost", "b"]))).toEqual(["b", "a"]);
+  });
+  test("duplicate name uses first occurrence", () => {
+    expect(orderGroupKeys(["a", "b", "c"], L(["b", "b", "a"]))).toEqual(["b", "a", "c"]);
+  });
+  test("name match is case-insensitive/trimmed (keys already normalized)", () => {
+    expect(orderGroupKeys(["api", "impl"], { groups: [{ name: " API " }] })).toEqual(["api", "impl"]);
   });
 });
 
@@ -187,6 +258,24 @@ describe("full loop: add / ls / show / rm", () => {
     expect(out).toContain("FINDINGS");
     expect(out).toContain("FILES"); // ungrouped header
     expect(out.indexOf("FINDINGS")).toBeLessThan(out.indexOf("FILES")); // named groups first
+  });
+
+  test("ls <pad> honors manifest layout order (laid-out first, ungrouped last)", async () => {
+    const padDir = await seed();
+    await writeFile(join(padDir, "b.md"), "x", "utf8");
+    await writeFile(join(padDir, "c.md"), "x", "utf8");
+    await run(["add", "Notes", "a.md", "--dir", root, "--group", "alpha"], io);
+    await run(["add", "Notes", "b.md", "--dir", root, "--group", "beta"], io);
+    await run(["add", "Notes", "c.md", "--dir", root], io); // ungrouped
+    // Reorder via layout: beta before alpha; ungrouped stays last (no "" token).
+    const m = await readManifest(padDir);
+    m.layout = { groups: [{ name: "beta" }, { name: "alpha" }] };
+    await writeManifest(padDir, m);
+    log = []; errs = [];
+    expect(await run(["ls", "Notes", "--dir", root], io)).toBe(0);
+    const out = all();
+    expect(out.indexOf("BETA")).toBeLessThan(out.indexOf("ALPHA"));
+    expect(out.indexOf("ALPHA")).toBeLessThan(out.indexOf("FILES")); // ungrouped last
   });
 
   test("show <pad> prints manifest; show <pad> <file> prints content", async () => {

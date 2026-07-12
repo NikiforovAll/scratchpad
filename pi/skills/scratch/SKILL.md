@@ -71,6 +71,23 @@ without `--force`.
 Write the file first, then `add`. Re-running `add` on the same path updates its
 metadata. `add` warns (doesn't fail) if the file is missing or outside the pad dir.
 
+### Group order (`layout`)
+
+Groups list in first-appearance order by default. To control the order, add a
+top-level `layout` to `scratchpad.json` — an ordered list of groups (edit the file
+directly; there's no CLI flag):
+
+```json
+"layout": { "groups": [{ "name": "plan" }, { "name": "research", "collapsed": true }, { "name": "" }] }
+```
+
+- Order follows the array. Names match the `group` field case-insensitively.
+- Groups you omit sort **after** the listed ones (first-appearance order); the
+  ungrouped bucket is `{ "name": "" }` and sorts **last** unless you position it.
+- `"collapsed": true` folds that group by default in the viewer.
+- Applies to both the viewer sidebar and `scratch ls`. A layout entry with no
+  matching files is skipped.
+
 ## Addressing & roots
 
 Pads resolve by **name** (within a scanned root) or by **path**. Root order:

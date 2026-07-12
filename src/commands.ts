@@ -8,10 +8,12 @@ import { bold, cyan, dim, fail, note, ok, warn } from "./colors.ts";
 import { exportFileSlug, findPads, resolvePad, resolveRoot, slugify, validateName, type Pad } from "./discovery.ts";
 import {
   DEFAULT_TYPE,
+  groupKey,
   hasManifest,
   isFileType,
   manifestPath,
   newManifest,
+  orderGroupKeys,
   readManifest,
   writeManifest,
   type FileEntry,
@@ -231,18 +233,23 @@ export async function cmdLs(args: { pad?: string; dir?: string; json?: boolean }
   if (m.files.length === 0) {
     io.out("  (no files registered yet)");
   }
-  // Group by the `group` field under uppercased headers, mirroring the viewer's
-  // sidebar: the Map preserves first-appearance order of both groups and files
-  // within each; ungrouped files share the '' key, shown under a "FILES" header.
+  // Group by the (case-insensitive) `group` field under uppercased headers,
+  // mirroring the viewer's sidebar: files within a group keep first-appearance
+  // order; ungrouped files share the '' key, shown under a "FILES" header. The
+  // group ORDER honors the manifest's optional `layout` (see orderGroupKeys) —
+  // laid-out groups first, then leftover in first-appearance order, ungrouped last.
   const groups = new Map<string, typeof m.files>();
   for (const f of m.files) {
-    const g = f.group ?? "";
+    const g = groupKey(f.group);
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g)!.push(f);
   }
-  for (const [g, files] of groups) {
+  for (const g of orderGroupKeys([...groups.keys()], m.layout)) {
+    const files = groups.get(g)!;
+    // First-seen casing labels the group; ungrouped ('') → "FILES".
+    const label = (files[0]!.group ?? "").trim();
     io.out("");
-    io.out(`  ${bold((g || "FILES").toUpperCase())}`);
+    io.out(`  ${bold((label || "FILES").toUpperCase())}`);
     for (const f of files) {
       const meta = [f.type ?? DEFAULT_TYPE, ...(f.tags ?? []).map((t) => "#" + t)].join(" ");
       const link = f.src ? cyan(`  → ${f.src}`) : "";
