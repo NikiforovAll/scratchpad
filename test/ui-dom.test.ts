@@ -753,6 +753,30 @@ test("groups files under group headers, keeping ungrouped under FILES", async ()
   }
 });
 
+test("group matching is case/space-insensitive; first-seen casing labels the group", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  for (const n of ["a.md", "b.md", "c.md"]) await writeFile(join(dir, n), "# " + n + "\n", "utf8");
+  const m = newManifest("P");
+  // "Resolved" / "RESOLVED" / " resolved " must collapse into ONE group (headers
+  // render uppercase, so distinct casings looked like duplicate sections).
+  m.files.push({ path: "a.md", title: "A", type: "note", group: "Resolved" });
+  m.files.push({ path: "b.md", title: "B", type: "note", group: "RESOLVED" });
+  m.files.push({ path: "c.md", title: "C", type: "note", group: " resolved " });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  const html = await renderHtml(await buildView([pad]), "P");
+  await boot(html);
+  try {
+    const labels = Array.from(document.querySelectorAll(".tree .label")).map((l) => l.textContent);
+    expect(labels).toEqual(["Resolved"]); // one header, first-seen casing
+    const rows = Array.from(document.querySelectorAll(".frow")).map((r) => r.querySelector(".fttl")?.textContent);
+    expect(rows).toEqual(["A", "B", "C"]);
+  } finally {
+    await teardown();
+  }
+});
+
 test("fence languages with special chars normalize to hljs grammar names", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });

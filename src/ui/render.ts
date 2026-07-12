@@ -1478,10 +1478,13 @@ function buildTree(preferKey, prevSelJson) {
   // both the groups and the files within each. Ungrouped files share the '' key,
   // rendered under the default "FILES" header. ITEMS (j/k nav order) is rebuilt in
   // this grouped order so keyboard navigation matches the visible layout.
-  const groupOrder = [], groups = new Map();
+  // Grouping is case-insensitive (headers render uppercase, so "Resolved" and
+  // "RESOLVED" are the same group); the first-seen casing wins as the label.
+  const groupOrder = [], groups = new Map(), groupLabels = new Map();
   items.forEach((it) => {
-    const g = it.f.group || '';
-    if (!groups.has(g)) { groups.set(g, []); groupOrder.push(g); }
+    const raw = it.f.group || '';
+    const g = raw.trim().toLowerCase();
+    if (!groups.has(g)) { groups.set(g, []); groupOrder.push(g); groupLabels.set(g, raw); }
     groups.get(g).push(it);
   });
   ITEMS = groupOrder.flatMap((g) => groups.get(g));
@@ -1499,7 +1502,8 @@ function buildTree(preferKey, prevSelJson) {
 
   let html = '';
   groupOrder.forEach((g) => {
-    html += '<div class="label">' + (g ? esc(g) : 'FILES') + '</div>';
+    const label = groupLabels.get(g);
+    html += '<div class="label">' + (label ? esc(label) : 'FILES') + '</div>';
     groups.get(g).forEach(({ pad, f, pi, fi }) => {
       const key = pad.dir + '::' + f.path;
       const cls = 'frow' + (f.registered ? '' : ' unreg');
