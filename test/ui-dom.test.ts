@@ -446,7 +446,7 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
   }
 });
 
-test("double-clicking a rendered mermaid SVG opens the diagram lightbox; Esc closes it", async () => {
+test("a rendered mermaid SVG expands into the diagram lightbox via its chip / 'f'; Esc closes it", async () => {
   const html = await renderPad();
   await boot(html);
   try {
@@ -455,11 +455,18 @@ test("double-clicking a rendered mermaid SVG opens the diagram lightbox; Esc clo
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.style.maxWidth = "320px";
     md.appendChild(svg);
+    // One affordance for both embed kinds: the ⛶ chip and 'f'. Double-click is gone —
+    // it was undiscoverable and had no html-embed counterpart.
+    const chip = document.createElement("button");
+    chip.className = "embed-full";
+    md.appendChild(chip);
 
     const modal = document.getElementById("diagramModal")!;
     expect(modal.style.display).toBe("none");
-    svg.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    chip.click();
     expect(modal.style.display).toBe("flex");
+    // An expanded mermaid uses the lightbox, never the html full-window mode.
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(false);
     const cloned = document.querySelector("#diagramStage svg") as SVGElement;
     expect(cloned).not.toBeNull();
     // mermaid's inline max-width cap is stripped so the lightbox CSS can scale up.
@@ -475,6 +482,23 @@ test("double-clicking a rendered mermaid SVG opens the diagram lightbox; Esc clo
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(modal.style.display).toBe("none");
     expect(document.querySelector("#diagramStage svg")).toBeNull();
+
+    // 'f' over the hovered diagram is the keyboard route to the same lightbox.
+    svg.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(modal.style.display).toBe("flex");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(modal.style.display).toBe("none");
+
+    // ...and only while hovering: moving the pointer off the diagram clears the target,
+    // so a bare 'f' elsewhere on the page must not re-open it.
+    document.body.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(modal.style.display).toBe("none");
+
+    // Double-click no longer opens it (the stage keeps its own dblclick = zoom reset).
+    svg.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(modal.style.display).toBe("none");
   } finally {
     await teardown();
   }
@@ -696,6 +720,7 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "diagram.html"), "<!doctype html><b id=x>hi</b>", "utf8");
+  await writeFile(join(dir, "page.html"), "<!doctype html><title>T</title><h1>page</h1>", "utf8");
   await writeFile(
     join(dir, "doc.md"),
     "# D\n\n![Cache](diagram.html)\n\n![Gone](missing.html)\n\n![Remote](https://e.com/x.html)\n",
@@ -703,6 +728,7 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
   );
   const m = newManifest("P");
   m.files.push({ path: "doc.md", title: "D", type: "note" });
+  m.files.push({ path: "page.html", title: "Page", type: "artifact" });
   await writeManifest(dir, m);
   const pad: Pad = { dir, manifest: await readManifest(dir) };
   await boot(await renderHtml(await buildView([pad]), "P"));
@@ -724,6 +750,65 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     expect(srcdoc).toContain("__scratchKey");
     // the doc.md is not bloated — the diagram never appears as a registered file row
     expect(document.querySelector(".frow")?.textContent).not.toContain("diagram");
+
+    // --- full-window mode ('f'), for both embed shapes. Folded into this test
+    // rather than its own: each boot() is a happy-dom window and this file sits at
+    // the ceiling described on teardown().
+    const wrap = document.querySelector("#preview .md .htmlembed") as any;
+    const embed = wrap.querySelector("iframe.htmlframe") as any;
+    document.getElementById("zoomIn")!.click(); // the real writer: applyZoom via setZoom
+    expect(document.documentElement.style.zoom).toBe("1.1");
+    (wrap.querySelector("button.embed-full") as any).click();
+    // Reader zoom is dropped while focused (it mis-sizes the fixed full-window box)
+    // and restored on exit.
+    expect(document.documentElement.style.zoom).toBe("");
+    // Focus mode is attribute-driven: the frame is never reparented (that would
+    // reload it and lose the author page's state), so it stays the SAME node.
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(true);
+    expect(embed.hasAttribute("data-focused")).toBe(true);
+    expect(wrap.querySelector("iframe.htmlframe")).toBe(embed);
+
+    // While focused, other shortcuts are inert — no chrome-less dead end.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "[" }));
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(true);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(false);
+    expect(embed.hasAttribute("data-focused")).toBe(false);
+    expect(document.documentElement.style.zoom).toBe("1.1");
+    // A settings sync mid-focus can't resurrect the zoom: applyZoom reads data-focus.
+    (wrap.querySelector("button.embed-full") as any).click();
+    document.getElementById("zoomIn")!.click();
+    expect(document.documentElement.style.zoom).toBe("");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.documentElement.style.zoom).toBe("1.2");
+
+    // --- a standalone .html file as the active preview ---
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
+    const frame = document.querySelector("#preview > .pbody > iframe.htmlframe") as any;
+    // The author's own document, plus the key relay — without it, clicking into a
+    // full-window page would trap the keyboard with no way to send Esc back out.
+    expect(frame.getAttribute("srcdoc")).toContain("<h1>page</h1>");
+    expect(frame.getAttribute("srcdoc")).toContain("__scratchKey");
+
+    (document.getElementById("vFull") as any).click();
+    expect(frame.hasAttribute("data-focused")).toBe(true);
+    (document.getElementById("focusClose") as any).click();
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(false);
+
+    // Bare 'f' with the pointer nowhere near the frame is a no-op (it used to expand
+    // the page's only embed regardless), and expands it once hovered.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(false);
+    frame.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(false);
+
+    // raw view has no frame to expand
+    (document.getElementById("vRaw") as any).click();
+    expect(document.getElementById("vFull")).toBeNull();
   } finally {
     await teardown();
   }

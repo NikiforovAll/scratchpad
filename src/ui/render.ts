@@ -488,6 +488,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div><dt><kbd>g</kbd><kbd>G</kbd></dt><dd>Top / bottom</dd></div>
         <div class="sc-group">View</div>
         <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
+        <div><dt><kbd>f</kbd></dt><dd>Expand the embed under the cursor (html / mermaid) · <kbd>Esc</kbd> exits</dd></div>
         <div><dt><kbd>o</kbd></dt><dd>Toggle table of contents</dd></div>
         <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy comments (JSON)</dd></div>
@@ -514,6 +515,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
     <button class="icon-btn diagram-close" id="diagramClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     <div class="diagram-stage" id="diagramStage"></div>
   </div>
+  <button class="icon-btn focus-close" id="focusClose" title="Exit full window (Esc)" aria-label="Exit full window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="data" type="application/json">${data}</script>
@@ -688,7 +690,12 @@ const KIT = (function () {
 // scaffolding. The script tags are built as '<' + 'script>' so no literal script-tag
 // (least of all a closing one) appears in this source — this whole block is itself
 // emitted inside the host page's own script element, where a closing tag would end it.
-const FRAME_SCRIPT = '<' + 'script>(function(){function p(){var d=document.documentElement,b=document.body,h=Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0);parent.postMessage({__scratchFrame:1,h:h},"*");}var o=new ResizeObserver(p);o.observe(document.documentElement);if(document.body)o.observe(document.body);addEventListener("load",p);p();addEventListener("keydown",function(e){var x=e.target;if(x&&(x.tagName==="INPUT"||x.tagName==="TEXTAREA"||x.isContentEditable))return;parent.postMessage({__scratchKey:1,key:e.key,ctrlKey:e.ctrlKey,metaKey:e.metaKey,altKey:e.altKey,shiftKey:e.shiftKey},"*");});})();' + '<' + '/script>';
+const KEY_RELAY = 'addEventListener("keydown",function(e){var x=e.target;if(x&&(x.tagName==="INPUT"||x.tagName==="TEXTAREA"||x.isContentEditable))return;parent.postMessage({__scratchKey:1,key:e.key,ctrlKey:e.ctrlKey,metaKey:e.metaKey,altKey:e.altKey,shiftKey:e.shiftKey},"*");});';
+const FRAME_SCRIPT = '<' + 'script>(function(){function p(){var d=document.documentElement,b=document.body,h=Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0);parent.postMessage({__scratchFrame:1,h:h},"*");}var o=new ResizeObserver(p);o.observe(document.documentElement);if(document.body)o.observe(document.body);addEventListener("load",p);p();' + KEY_RELAY + '})();' + '<' + '/script>';
+// The relay alone, for a STANDALONE .html preview: that frame is the author's own
+// document (no kit, no auto-sizing), but it must not trap the keyboard — without
+// this, clicking into a full-window page leaves Esc with nowhere to go.
+const KEY_RELAY_SCRIPT = '<' + 'script>(function(){' + KEY_RELAY + '})();' + '<' + '/script>';
 function htmlFrameDoc(fragment) {
   // Force color-scheme to the RESOLVED viewer theme (not the OS) so the kit's
   // light-dark() tokens track the toggle. data-theme is absent in system mode →
@@ -763,8 +770,12 @@ function mdInline(s) {
     const a = currentRef && currentRef.f && currentRef.f.assets;
     // A local .html ref embeds as raw markup (server-side) → render it live in a
     // sandboxed iframe. Keeps the md as prose; the diagram is its own loose file.
+    // Wrapped so the expand-to-full-window chip has a positioning context; the
+    // chip is wired in enhance (the html here is a string, not live nodes yet).
     if (/\.html?$/i.test(src) && a && a[src] != null)
-      return hold('<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(htmlFrameDoc(a[src])) + '" title="' + alt + '"></iframe>');
+      return hold('<span class="htmlembed"><iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' +
+        esc(htmlFrameDoc(a[src])) + '" title="' + alt + '"></iframe>' +
+        EMBED_CHIP + '</span>');
     // Eager (not lazy): this is a local, self-contained viewer, so lazy buys
     // almost nothing — and a lazy image that loads mid-scroll reflows the doc and
     // drifts an anchor/TOC jump off its target. Loading up front fixes heights early.
@@ -1018,13 +1029,19 @@ function mermaidTheme() { return document.documentElement.dataset.theme === 'lig
 // Size each rendered html-frame to its content. Added once; matches the posting
 // frame by contentWindow so multiple frames on a page resize independently.
 function armHtmlFrames() {
-  if (window.__scratchFrameListener) return;
-  window.__scratchFrameListener = true;
+  // Guard on the DOCUMENT, not window: these listeners live exactly as long as the
+  // document does, and a window-scoped flag outlives it under the DOM test harness
+  // (globalThis survives happy-dom's unregister) — the second page then wires none.
+  if (document.__scratchFrameListener) return;
+  document.__scratchFrameListener = true;
   addEventListener('message', (e) => {
     if (!e.data) return;
     // Keystroke forwarded out of an embed iframe (which would otherwise swallow
     // it) — replay it on the host document so the global shortcut handler runs.
     if (e.data.__scratchKey === 1) {
+      // Remember which frame the key came out of: the synthetic event below can't
+      // carry e.source, and 'f' needs to know WHICH embed to expand.
+      keySource = e.source;
       document.dispatchEvent(new KeyboardEvent('keydown', {
         key: e.data.key, ctrlKey: e.data.ctrlKey, metaKey: e.data.metaKey,
         altKey: e.data.altKey, shiftKey: e.data.shiftKey, bubbles: true,
@@ -1032,10 +1049,115 @@ function armHtmlFrames() {
       return;
     }
     if (e.data.__scratchFrame !== 1) return;
-    document.querySelectorAll('iframe.htmlframe').forEach(f => {
-      if (f.contentWindow === e.source) f.style.height = (e.data.h + 1) + 'px';
-    });
+    // A focused frame is sized by CSS — don't fight it with content height. Bail
+    // before the lookup: going full window resizes the frame's document, so its
+    // in-frame observer turns chatty exactly where the work is wasted.
+    if (focusedFrame && focusedFrame.contentWindow === e.source) return;
+    const f = frameByWindow(e.source);
+    if (f) f.style.height = (e.data.h + 1) + 'px';
   });
+  // Delegated (frames are re-created on every render): track the frame under the
+  // pointer so a bare 'f' knows which embed you mean, and wire the expand chips.
+  // Once the pointer is INSIDE a frame the parent sees no more mouse events, so the
+  // crossing-the-boundary mouseover (target = the iframe element) is the signal.
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target;
+    if (!t || !t.closest) return;
+    // A mouseover anywhere OFF an embed clears it: 'f' must expand only what the
+    // pointer is on right now, and a hoverTarget that was only ever set (never
+    // cleared) kept re-opening the last diagram from anywhere on the page. Match the
+    // wrapper, not just the svg — the chip is a sibling inside it. The full-file html
+    // preview is a bare frame with no wrapper, so it is its own host.
+    const host = (t.tagName === 'IFRAME' && t.classList.contains('htmlframe'))
+      ? t : t.closest('.htmlembed, .mermaid');
+    if (!host) { hoverHost = hoverTarget = null; return; }
+    // mouseover bubbles at every child boundary the pointer crosses and a mermaid svg
+    // has hundreds of children — while the pointer stays inside one host, bail before
+    // re-walking the tree for an answer that cannot have changed.
+    if (host === hoverHost) return;
+    hoverHost = host;
+    hoverTarget = host.tagName === 'IFRAME' ? host : host.querySelector('iframe.htmlframe, svg');
+  });
+  // Leaving the window fires no further mouseover, so clear on the way out (a null
+  // relatedTarget is the pointer exiting the document, not moving between elements).
+  document.addEventListener('mouseout', (e) => {
+    if (!e.relatedTarget) hoverHost = hoverTarget = null;
+  });
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest ? e.target.closest('.embed-full') : null;
+    if (!btn) return;
+    e.preventDefault();
+    const host = btn.closest('.htmlembed, .mermaid');
+    expandEmbed(host && host.querySelector('iframe.htmlframe, svg'));
+  });
+}
+
+// --- Full-window mode for html embeds ('f') ------------------------------------
+// Transient by design (no config key): a viewer that reopened with all its chrome
+// gone would be alarming. Purely additive CSS on <html> + the frame — the iframe
+// node is never touched, so the author page keeps its scroll and in-page state.
+let keySource = null;      // contentWindow of the frame that forwarded the last key
+let hoverTarget = null;    // embed under the pointer (html frame OR mermaid svg)
+let hoverHost = null;      // its wrapper — the mouseover fast path compares against this
+let focusedFrame = null;
+let focusHinted = false;   // the Esc hint is once per session, not once per open
+
+// 'f' expands either kind of embed. The PRESENTATION differs on purpose: an SVG has
+// no state to lose and wants pan/zoom, so it clones into the lightbox; an iframe must
+// never be reparented (that reloads the author page), so it goes full-window in place.
+const EMBED_SEL = 'iframe.htmlframe, .mermaid svg';
+// Both embed kinds get the SAME chip: the md path emits it as markup, mermaid injects
+// it after run() settles. Authored once so relabeling stays one edit.
+const EMBED_CHIP = '<button class="embed-full" title="Full window (f)">⛶</button>';
+function frameByWindow(w) {
+  if (!w) return null;
+  return [...document.querySelectorAll('iframe.htmlframe')].find(f => f.contentWindow === w) || null;
+}
+// Which embed does a bare 'f' mean? The frame you were typing inside, else the one
+// under the pointer. No "it's the only one on the page" fallback: that fired with the
+// pointer nowhere near it, so 'f' anywhere in a doc with one diagram opened it.
+function pickTarget() {
+  const typed = frameByWindow(keySource);
+  if (typed) return typed;
+  // contains(), not a fresh querySelectorAll of every embed: hoverTarget can only ever
+  // have come from EMBED_SEL, so the only thing left to check is that a re-render
+  // hasn't detached it since.
+  return hoverTarget && document.contains(hoverTarget) ? hoverTarget : null;
+}
+function enterFocus(frame) {
+  if (!frame || focusedFrame) return;
+  // Nothing else may be layered over a full-window frame.
+  showDiagram(false); showGallery(false); showSettings(false); showHelp(false);
+  focusedFrame = frame;
+  frame.setAttribute('data-focused', '');
+  document.documentElement.setAttribute('data-focus', '');
+  applyZoom();   // reads data-focus: full window is unzoomed, see applyZoom
+  if (!focusHinted) { focusHinted = true; showToast('Esc to exit full window', 'info'); }
+}
+function exitFocus() {
+  if (!focusedFrame) return;
+  focusedFrame.removeAttribute('data-focused');
+  focusedFrame.style.height = '';  // let the ResizeObserver re-size the md embed
+  focusedFrame = null;
+  document.documentElement.removeAttribute('data-focus');
+  applyZoom();   // restores the reader zoom
+  keySource = null;
+  const p = document.getElementById('preview');
+  if (p) p.focus({ preventScroll: true });
+}
+// The one entry point for 'f' / the ⛶ chips, over both embed kinds.
+// (No focusedFrame branch: while focused, the keydown handler intercepts every key
+// and the chrome that could call this is hidden behind the frame.)
+function expandEmbed(target) {
+  if (diagramModal.style.display !== 'none') { showDiagram(false); return; }
+  const t = target || pickTarget();
+  if (!t) {
+    // Ambiguous ('f' with several embeds and no pointer/focus hint) reads as a broken
+    // key otherwise — say what would disambiguate it.
+    if (document.querySelector(EMBED_SEL)) showToast('Hover an embed, then press f', 'info');
+    return;
+  }
+  if (t.tagName === 'IFRAME') enterFocus(t); else openDiagram(t);
 }
 
 function enhance(container) {
@@ -1048,7 +1170,17 @@ function enhance(container) {
     if (nodes.length) {
       try {
         window.mermaid.initialize({ startOnLoad: false, theme: mermaidTheme(), securityLevel: 'strict' });
-        window.mermaid.run({ nodes });
+        // Same expand affordance as an html embed — one hover chip, one 'f' key for
+        // both. run() is ASYNC and replaces the div's content, so the chips can only
+        // go on after its promise settles (settled, not resolved: a diagram that
+        // fails to parse still leaves the others rendered). Both handlers, not
+        // finally(): finally re-throws, and a parse error is already reported by
+        // mermaid's own error node — it must not also surface as an unhandled reject.
+        const chips = () => nodes.forEach(el => {
+          if (!el.querySelector('svg') || el.querySelector('.embed-full')) return;
+          el.insertAdjacentHTML('beforeend', EMBED_CHIP);
+        });
+        Promise.resolve(window.mermaid.run({ nodes })).then(chips, chips);
       } catch (e) {}
     }
   } else if (!window.__vendorPending) {
@@ -1317,6 +1449,13 @@ function renderPreview(pad, f, nav) {
   // Remember the outgoing file's scroll so returning to it lands where you left
   // off (session-only — not persisted across launches).
   if (current && previewEl) scrollMem[current] = previewEl.scrollTop;
+  // A render replaces the frames, so a focused one is about to become a detached
+  // node — drop out first rather than leave the chrome hidden with nothing over it.
+  exitFocus();
+  // Both point at nodes this render is about to detach — holding either would keep a
+  // whole discarded iframe document (or SVG subtree) reachable until the next
+  // hover/keystroke.
+  hoverHost = hoverTarget = keySource = null;
   cancelPin(); // a re-render invalidates any in-flight anchor re-pin (stale element)
   current = pad.dir + '::' + f.path; currentRef = { pad, f };
   navRecord(current);
@@ -1327,6 +1466,7 @@ function renderPreview(pad, f, nav) {
   (f.tags || []).forEach(t => metaBits.push('#' + esc(t)));
   const metaLine = metaBits.join(' · ');
   const canRaw = (f.kind === 'markdown' || f.kind === 'html') && f.content != null;
+  const canFull = f.kind === 'html' && f.content != null && !rawMode;
   const canCopyContent = f.content != null && (f.kind === 'markdown' || f.kind === 'html' || f.kind === 'code' || f.kind === 'text');
   const hasComments = !!(f.comments && f.comments.length);
   const ctrls = '<span class="pctrls">' +
@@ -1335,6 +1475,7 @@ function renderPreview(pad, f, nav) {
     (EXPORT_MODE ? '' : '<button class="pbtn" id="copyPath">🔗 path</button>') +
     (canCopyContent ? '<button class="pbtn" id="copyContent">⧉ copy</button>' : '') +
     (hasComments ? '<button class="pbtn" id="clearComments" title="Delete all comments on this file">🗑 ' + nComments(f.comments.length) + '</button>' : '') +
+    (canFull ? '<button class="pbtn" id="vFull" title="Full window (f)">⛶ full</button>' : '') +
     (canRaw
       ? '<button class="pbtn ' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
         '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button>'
@@ -1364,7 +1505,7 @@ function renderPreview(pad, f, nav) {
     ? '<pre class="code"><code class="language-html">' + esc(f.content) + '</code></pre>'
     // Sandboxed with allow-scripts so interactive author pages run their own JS;
     // opaque-origin iframe still blocks host/parent access. srcdoc is attr-escaped.
-    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(f.content) + '"></iframe>';
+    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(f.content + KEY_RELAY_SCRIPT) + '"></iframe>';
   else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
     const cls = f.lang ? ' class="language-' + esc(normLang(f.lang)) + '"' : '';
     bodyHtml = '<pre class="code"><code' + cls + '>' + esc(f.content) + '</code></pre>';
@@ -1388,6 +1529,12 @@ function renderPreview(pad, f, nav) {
   // preventScroll so this never fights the reload scroll-position restore.
   preview.focus({ preventScroll: true });
 
+  if (canFull) {
+    document.getElementById('vFull').addEventListener('click', () => {
+      // Through expandEmbed like every other trigger, so all three doors stay one door.
+      expandEmbed(preview.querySelector('iframe.htmlframe'));
+    });
+  }
   if (canRaw) {
     const rd = document.getElementById('vRendered'), rw = document.getElementById('vRaw');
     rd.addEventListener('click', () => { if (rawMode) { setRaw(false); renderPreview(pad, f); } });
@@ -2027,7 +2174,12 @@ galleryModal.addEventListener('click', (e) => { if (e.target === galleryModal) s
 // browser server binds a random port so the per-origin zoom memory never matches.
 // Persisted as ui.zoom through the same settings channel.
 function applyZoom() {
-  document.documentElement.style.zoom = SETTINGS.zoom;
+  // Full-window mode runs UNZOOMED: CSS zoom on :root reflows the fixed full-window
+  // box against a viewport that no longer matches the window, so the frame landed
+  // offset with page content showing around it. Deriving it from the focus attribute
+  // here keeps one writer of style.zoom — a settings sync mid-focus can't resurrect it.
+  document.documentElement.style.zoom =
+    document.documentElement.hasAttribute('data-focus') ? '' : SETTINGS.zoom;
   const r = document.getElementById('zoomReset');
   if (r) r.textContent = Math.round(SETTINGS.zoom * 100) + '%';
 }
@@ -2096,7 +2248,8 @@ document.getElementById('helpBtn').addEventListener('click', () => showHelp(true
 document.getElementById('helpClose').addEventListener('click', () => showHelp(false));
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal) showHelp(false); });
 
-// Diagram lightbox: double-click a rendered mermaid SVG to enlarge it (fit-to-viewport).
+// Diagram lightbox: the ⛶ chip or 'f' over a rendered mermaid SVG enlarges it
+// (fit-to-viewport) — the same affordance an html embed uses, see expandEmbed.
 // The SVG is CLONED into the stage — moving it would break the in-page layout and
 // mermaid's own sizing. Mermaid stamps an inline max-width on the svg that caps it
 // at its layout width; strip it so the lightbox CSS can scale it up.
@@ -2128,6 +2281,7 @@ function openDiagram(svg) {
   dgReset();
   showDiagram(true);
 }
+document.getElementById('focusClose').addEventListener('click', exitFocus);
 document.getElementById('diagramClose').addEventListener('click', () => showDiagram(false));
 diagramModal.addEventListener('click', (e) => { if (e.target === diagramModal) showDiagram(false); });
 // Zoom toward the cursor: keep the point under the pointer fixed as scale changes.
@@ -2296,6 +2450,10 @@ try {
 // Keyboard shortcuts (see the help modal). Ignored while typing in a field.
 const previewEl = document.getElementById('preview');
 document.addEventListener('keydown', (e) => {
+  // A trusted event came from the host page, so any frame recorded by the relay
+  // (which dispatches an UNtrusted synthetic event) is stale — don't let it decide
+  // which embed 'f' expands.
+  if (e.isTrusted) keySource = null;
   if ((e.ctrlKey || e.metaKey) && !e.altKey) {
     // Take over the host's zoom accelerators so OUR (persisted) zoom is the one
     // that moves, instead of Chromium's forgotten-on-relaunch page zoom.
@@ -2319,6 +2477,17 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  // Full-window mode owns the viewport, so only exit / quit / theme act here. Every
+  // other shortcut would change something invisible behind the frame; ignore it so
+  // you can never end up chrome-less with no way back. (Keys typed inside the frame
+  // reach us via the postMessage relay in armHtmlFrames, so Esc always works.)
+  if (focusedFrame) {
+    if (e.key === 'Escape' || e.key === 'f') { e.preventDefault(); exitFocus(); return; }
+    if (e.key === 'q' && closeWindow) { closeWindow(); return; }
+    if (e.key === 't') { toggleTheme(); return; }
+    return;
+  }
+  if (e.key === 'f') { expandEmbed(); return; }
   if (e.key === 'Escape') {
     // Esc only dismisses open overlays — never closes the window ('q' does that).
     if (diagramModal.style.display !== 'none') showDiagram(false);
@@ -2431,10 +2600,6 @@ function flashTarget(el) {
   flashEl = el;
   flashTimer = setTimeout(() => { el.classList.remove('anchor-flash'); flashEl = flashTimer = null; }, 10000);
 }
-previewEl.addEventListener('dblclick', (e) => {
-  const svg = e.target.closest && e.target.closest('.mermaid svg');
-  if (svg) openDiagram(svg);
-});
 previewEl.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a');
   if (!a) return;

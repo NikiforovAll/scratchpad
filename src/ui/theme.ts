@@ -438,9 +438,11 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 .modal { background: var(--elevated); border: 1px solid var(--border); border-radius: 10px;
   min-width: 340px; max-width: 440px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
 /* diagram lightbox: enlarged mermaid SVG, fit to viewport */
-.mermaid svg { cursor: zoom-in; }
 #diagramModal { background: rgba(0,0,0,0.45); }
-.diagram-stage { box-sizing: border-box; width: 92vw; height: 90vh; padding: 24px;
+/* % of the fixed inset:0 scrim, not 92vw/90vh: CSS zoom on :root makes vw/vh
+   resolve against the UNZOOMED window (see .app), so the stage came out
+   mis-sized — short of the window below zoom 1, overflowing it above. */
+.diagram-stage { box-sizing: border-box; width: 92%; height: 90%; padding: 24px;
   background: var(--elevated); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.5);
   overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
@@ -736,6 +738,31 @@ pre.has-nos > code { flex: 1 1 auto; min-width: 0; display: block; overflow-x: a
 .htmlframe { width: 100%; height: 75vh; border: 1px solid var(--border);
   border-radius: 6px; background: #fff; }
 
+/* Full-window mode for an html embed ('f'). The frame is NEVER reparented — a
+   moved/cloned iframe reloads, losing the author page's scroll and in-page state
+   — so this is pure CSS: the chrome hides and the one [data-focused] frame goes
+   position:fixed over everything. Its .pbody ancestor stays displayed (display:none
+   on an ancestor would kill the fixed child too); the frame simply covers it. */
+:root[data-focus] .topbar, :root[data-focus] .sidebar, :root[data-focus] .resizer,
+:root[data-focus] .toc, :root[data-focus] #sidebarOpen { display: none !important; }
+:root[data-focus] .preview { overflow: hidden; padding: 0; }
+/* 100% (of the fixed box's containing block = the viewport), NOT 100vw/100vh and NOT
+   auto: vw/vh resolve against the UNZOOMED window under CSS zoom on :root (see .app),
+   and an iframe is a REPLACED element, so auto means its intrinsic 300x150 — inset:0
+   does not stretch it. !important to beat .md .htmlframe's width and the inline height
+   the ResizeObserver sets. enterFocus also drops the zoom while focused. */
+:root[data-focus] .htmlframe[data-focused] {
+  position: fixed; inset: 0; z-index: 60; margin: 0;
+  width: 100% !important; height: 100% !important; max-width: none;
+  border: 0; border-radius: 0; }
+/* Exit affordance for mouse users (the topbar is gone). Quiet until hovered so it
+   doesn't sit on top of the author page's own top-right corner. */
+.focus-close { position: fixed; top: 12px; right: 12px; z-index: 61; display: none;
+  background: var(--elevated); border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3); opacity: 0.35; transition: opacity 0.15s ease; }
+.focus-close:hover { opacity: 1; }
+:root[data-focus] .focus-close { display: inline-flex; }
+
 /* preview header controls */
 .pctrls { display: inline-flex; gap: 6px; margin-left: 8px; }
 .pbtn { display: inline-flex; align-items: center; gap: 4px; line-height: 1;
@@ -746,7 +773,8 @@ pre.has-nos > code { flex: 1 1 auto; min-width: 0; display: block; overflow-x: a
 .pbtn.on { color: var(--accent-text); border-color: var(--ember-dim); }
 
 /* mermaid */
-.mermaid { margin: 1em 0; text-align: center; }
+/* relative: the expand chip (.embed-full) parks in the diagram's corner. */
+.mermaid { margin: 1em 0; text-align: center; position: relative; }
 .mermaid svg { max-width: 100%; height: auto; }
 
 /* KaTeX math. Display blocks scroll horizontally rather than overflow the card;
@@ -788,8 +816,21 @@ sup.fnref a:hover { text-decoration: underline; }
 
 /* live html embeds (![](file.html)) inside rendered markdown — sandboxed iframe,
    height set from content. Scoped to .md so it doesn't clobber the full-file html
-   preview (bare .htmlframe, above). max-width keeps diagrams compact. */
-.md .htmlframe { display: block; width: 100%; max-width: 760px; border: 0; margin: 1em auto; height: 150px; }
+   preview (bare .htmlframe, above). max-width keeps diagrams compact.
+   The wrapper owns the box (every md embed is wrapped) and gives the expand chip its
+   positioning context; a span, not a div, because the embed is emitted from inline
+   markdown, inside a p. */
+.md .htmlembed { display: block; position: relative; width: 100%; max-width: 760px; margin: 1em auto; }
+.md .htmlembed > .htmlframe { display: block; width: 100%; height: 150px; border: 0; margin: 0; }
+/* Hover-only: an always-on chip would cover the author page's own corner. */
+.embed-full { position: absolute; top: 6px; right: 6px; z-index: 1;
+  background: var(--elevated); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--ink-muted); font-family: var(--mono); font-size: 11px; line-height: 1;
+  padding: 4px 7px; cursor: pointer; opacity: 0; transition: opacity 0.15s ease; }
+/* The same chip on a mermaid diagram — one affordance for both embed kinds. */
+.md .htmlembed:hover > .embed-full, .md .mermaid:hover > .embed-full,
+.embed-full:focus-visible { opacity: 1; }
+.embed-full:hover { color: var(--ink-1); }
 
 /* highlight.js — CODE blocks get a full CDN theme (github-dark / github, loaded
    in <head>). We only strip the theme's own background + padding so blocks sit on

@@ -128,6 +128,14 @@ describe("renderHtml", () => {
     expect(html).toContain(':root[data-theme="light"]'); // light sibling tokens present
     expect(html).toContain("application/json"); // embedded data island
     expect(html).toContain("A note");
+    // One page-weight tripwire for the whole suite (a CDN page is ~210KB of mostly
+    // client script). Catches an accidentally inlined asset; not a style budget.
+    expect(html.length).toBeLessThan(280_000);
+    // The full-window frame must size with % — a DOM test can't catch this (happy-dom
+    // does no layout) and both alternatives fail in a real browser: vw/vh resolve
+    // against the unzoomed window under CSS zoom, and auto on a replaced element
+    // (an iframe) means its intrinsic 300x150.
+    expect(html).toMatch(/\[data-focused\]\s*\{[^}]*width:\s*100%\s*!important/);
   });
 
   test("links hljs via CDN (with SRI) when code present, not mermaid", async () => {
@@ -136,7 +144,10 @@ describe("renderHtml", () => {
     expect(html).toContain("hljs.highlightElement"); // highlight wiring present
     expect(html).toMatch(/<script src="https:\/\/cdnjs\.cloudflare\.com[^"]+highlight[^"]+" integrity="sha384-/);
     expect(html).not.toContain("mermaid@"); // no mermaid CDN tag
-    expect(html.length).toBeLessThan(200_000); // bundles no longer inlined (inlined hljs alone is >1MB)
+    // Linked, not inlined — an inlined bundle would ride the #vendor-gz island. Asserted
+    // exactly instead of via a byte budget: the budget grazed its ceiling on ordinary
+    // client-script growth, and raising it was tuning a number, not testing the invariant.
+    expect(html).not.toContain('id="vendor-gz"');
   });
 
   test("links mermaid via CDN only when a mermaid block exists", async () => {
@@ -149,7 +160,7 @@ describe("renderHtml", () => {
     const pad: Pad = { dir, manifest: await readManifest(dir) };
     const html = await renderHtml(await buildView([pad]), "Diagram");
     expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+mermaid@[^"]+" integrity="sha384-/);
-    expect(html.length).toBeLessThan(200_000); // mermaid bundle NOT inlined (inlined mermaid is >2MB)
+    expect(html).not.toContain('id="vendor-gz"'); // mermaid linked, not inlined
   });
 
   test("links KaTeX (JS + CSS, with SRI) only when a doc contains math", async () => {
@@ -166,7 +177,7 @@ describe("renderHtml", () => {
     const html = await renderHtml(await buildView([pad]), "Math");
     expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+katex@[^"]+" integrity="sha384-/);
     expect(html).toMatch(/<link id="katex-css"[^>]+katex@[^"]+\.css" integrity="sha384-/);
-    expect(html.length).toBeLessThan(200_000); // KaTeX NOT inlined (fonts/CSS load from CDN)
+    expect(html).not.toContain('id="vendor-gz"'); // KaTeX linked, not inlined (fonts/CSS from CDN)
   });
 
   test("data-export marks only exports; the Save-a-copy button ships in both modes", async () => {
