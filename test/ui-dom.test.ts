@@ -272,7 +272,7 @@ test("autolinks: angle-bracket <url>/<mailto>/<email>, bare URLs and www. all be
     // An existing markdown link is not double-wrapped.
     const kept = md.querySelectorAll('a[href="https://kept.example"]');
     expect(kept.length).toBe(1);
-    expect(kept[0].querySelector("a")).toBeNull();
+    expect(kept[0]!.querySelector("a")).toBeNull();
     // A remote image's src is not linkified into a broken nested anchor — the
     // bare-URL pass never sees stashed <img>/<a> markup.
     const img = md.querySelector('img[src="https://img.example/p.png"]')!;

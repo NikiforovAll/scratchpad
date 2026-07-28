@@ -323,7 +323,10 @@ export async function renderHtml(
   const titleName = view.length === 1 ? view[0]!.name : rootLabel;
   // Suggested filename for in-viewer save — the same slug `scratch export` writes.
   const exportName = exportFileSlug(view.length === 1 ? view[0]!.name : null, rootLabel);
-  const zoom = ui.zoom ?? 1;
+  // Zoom is a per-machine reading preference, not a property of the pad, so an
+  // export starts at 100% rather than at the exporting machine's factor. The
+  // in-page zoom controls still work (and persist to the reader's localStorage).
+  const zoom = opts.exportMode ? 1 : (ui.zoom ?? 1);
   const gridStyle = ui.gridStyle ?? "dots";
   const wideMode = ui.wideMode ?? false;
   // Persisted theme/zoom land on <html> server-side so the first paint is
@@ -667,6 +670,12 @@ let DATA = JSON.parse(document.getElementById('data').textContent);
 // in every mode: a live viewer's Ctrl+S exports a copy off this same snapshot.
 const EXPORT_MODE = document.documentElement.hasAttribute('data-export');
 const PRISTINE = '<!doctype html>\n' + document.documentElement.outerHTML;
+// Whether a host is listening for write-backs — the single answer every
+// persistence path consults (postToHost, and the settings seed below). Keyed off
+// EXPORT_MODE and not the protocol alone: an export is equally hostless over
+// file:// and over http (embedded in a page, on a static host), where it would
+// otherwise have a live viewer's protocol but no route behind it.
+const HAS_HOST = !EXPORT_MODE && ((window.chrome && window.chrome.webview) || /^https?:$/.test(location.protocol));
 const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // A pad path stripped to its basename without extension — how a wikilink [[name]]
 // refers to a file (matched case-insensitively in mdInline).
@@ -1862,11 +1871,10 @@ const SETTINGS = (function () {
   // absent from the embedded snapshot / localStorage / saveConfig, unlike the rest.
   let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, tocVisible: false, zoom: 1, autoReload: true };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
-  // Over file:// (export) the embedded snapshot is whatever the exporting machine
-  // had saved — the reader's own remembered choice wins ('scratch.theme' is the
+  // With no host the embedded snapshot is whatever the exporting machine had
+  // saved — the reader's own remembered choice wins ('scratch.theme' is the
   // pre-settings key, kept as a migration seed).
-  const hasChannel = (window.chrome && window.chrome.webview) || /^https?:$/.test(location.protocol);
-  if (!hasChannel) {
+  if (!HAS_HOST) {
     try {
       const m = localStorage.getItem('scratch.themeMode') || localStorage.getItem('scratch.theme');
       const c = localStorage.getItem('scratch.colorTheme');
@@ -1887,8 +1895,10 @@ const SETTINGS = (function () {
 })();
 // Push a payload to whichever host is listening: WebView2 postMessage (wrapped
 // under the given message key) or a POST to the browser server. Returns false
-// when neither channel exists (the file:// export) so callers can fall back.
+// when no host is listening (any export — the file itself is the store) so
+// callers can fall back.
 function postToHost(key, path, payload, onFail) {
+  if (!HAS_HOST) return false;
   const wv = window.chrome && window.chrome.webview;
   if (wv) {
     try { const m = {}; m[key] = payload; wv.postMessage(m); } catch (_) {}
