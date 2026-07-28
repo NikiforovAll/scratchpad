@@ -371,6 +371,9 @@ const BASE_CSS = `
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
+/* Inherited properties, so this one root rule themes every scrolling pane. */
+html { scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink-muted) 55%, transparent) transparent; }
 body {
   background: var(--field);
   color: var(--ink-1);

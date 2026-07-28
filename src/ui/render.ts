@@ -711,6 +711,11 @@ const FRAME_SCRIPT = '<' + 'script>(function(){function p(){var d=document.docum
 // document (no kit, no auto-sizing), but it must not trap the keyboard — without
 // this, clicking into a full-window page leaves Esc with nowhere to go.
 const KEY_RELAY_SCRIPT = '<' + 'script>(function(){' + KEY_RELAY + '})();' + '<' + '/script>';
+// Prepended, so an author's own scrollbar rule wins — a default, not an override (the
+// properties inherit, so this reaches their inner scrollers too). Theme-neutral gray
+// because, unlike htmlFrameDoc, we must not force color-scheme here: that would repaint
+// an author page that never opted into dark, and light-dark() would resolve light-only.
+const FRAME_SCROLLBAR = '<style>html{scrollbar-width:thin;scrollbar-color:rgba(136,136,136,0.55) transparent}</style>';
 function htmlFrameDoc(fragment) {
   // Force color-scheme to the RESOLVED viewer theme (not the OS) so the kit's
   // light-dark() tokens track the toggle. data-theme is absent in system mode →
@@ -1520,7 +1525,7 @@ function renderPreview(pad, f, nav) {
     ? '<pre class="code"><code class="language-html">' + esc(f.content) + '</code></pre>'
     // Sandboxed with allow-scripts so interactive author pages run their own JS;
     // opaque-origin iframe still blocks host/parent access. srcdoc is attr-escaped.
-    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(f.content + KEY_RELAY_SCRIPT) + '"></iframe>';
+    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(FRAME_SCROLLBAR + f.content + KEY_RELAY_SCRIPT) + '"></iframe>';
   else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
     const cls = f.lang ? ' class="language-' + esc(normLang(f.lang)) + '"' : '';
     bodyHtml = '<pre class="code"><code' + cls + '>' + esc(f.content) + '</code></pre>';

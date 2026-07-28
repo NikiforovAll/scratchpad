@@ -14,6 +14,11 @@
 // CSS rules override SVG presentation attributes, so bare element selectors must
 // never set properties diagrams commonly set via attributes (fill/font-size on
 // text) — that's why text styling is opt-in via .t/.ts/.th classes.
+//
+// Scrollbars use the standard scrollbar-width/-color: in Chromium, touching
+// ::-webkit-scrollbar opts the element out of the standard path entirely. Transparent
+// track so the bar overlays the author's background instead of painting a gutter. It
+// only ever shows in full-window mode — inline embeds are sized to their content.
 
 export const KIT_CSS = `
 :root {
@@ -51,8 +56,8 @@ export const KIT_CSS = `
   --c-coral-line: #e8835e;
   --c-coral-text: light-dark(#a44f28, #f0a987);
 }
-html { box-sizing: border-box; scrollbar-width: none; }
-html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+html { box-sizing: border-box; scrollbar-width: thin;
+  scrollbar-color: var(--color-border-secondary) transparent; }
 *, *::before, *::after { box-sizing: inherit; }
 body {
   margin: 0;
