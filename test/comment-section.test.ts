@@ -146,3 +146,67 @@ test("toCommentItems collapses quote whitespace and preserves manifest order", (
   expect(items.map((i) => i.id)).toEqual(["c1", "c2"]);
   expect(items[1]!.quote).toBe("Intro paragraph."); // inner whitespace run collapsed
 });
+
+// --- HTML sources -------------------------------------------------------------
+// A comment can also be anchored inside a standalone .html preview, where the
+// viewer captured the quote from the AUTHOR's own document. Same anchor shape,
+// different un-rendering: tags out, entities back to characters.
+
+const PAGE = `<!doctype html>
+<html><head><style>.a { content: "styled text"; }</style></head>
+<body>
+  <h2>Threat <em>model</em></h2>
+  <p>The <b>token</b> is short-lived &amp; rotated hourly.</p>
+  <!-- reviewer note: commented-out text -->
+  <script>var generated = "script text";</script>
+</body></html>
+`;
+
+test("locates an html-anchored quote with its element and nearest heading", () => {
+  const items = toCommentItems("guide.html", PAGE, [cmt("short-lived & rotated hourly")]);
+  expect(items[0]).toMatchObject({
+    matched: true,
+    line: 5,
+    section_heading: "Threat model", // inner <em> stripped
+    context: "<p>The <b>token</b> is short-lived &amp; rotated hourly.</p>",
+    context_lines: "5-5",
+  });
+});
+
+test("html quote matches across inline tags", () => {
+  // In the rendered page "The token is" is one text run; in the source a <b> splits it.
+  expect(toCommentItems("guide.html", PAGE, [cmt("The token is short-lived")])[0]!.matched).toBe(true);
+});
+
+test("html projection ignores script, style and comment text", () => {
+  // None of these are displayed, so a quote can never legitimately come from them —
+  // matching there would point an agent at the wrong line entirely.
+  for (const quote of ["script text", "styled text", "commented-out text"]) {
+    expect(toCommentItems("guide.html", PAGE, [cmt(quote)])[0]!.matched).toBe(false);
+  }
+});
+
+test("markdown syntax is literal text in an html page, not stripped", () => {
+  const src = "<body><p>use _snake_case_ and **stars**</p></body>";
+  expect(toCommentItems("page.html", src, [cmt("use _snake_case_ and **stars**")])[0]!.matched).toBe(true);
+});
+
+test("an out-of-range numeric entity is left as written, not thrown on", () => {
+  // fromCodePoint throws past 0x10FFFF, and this projection runs during `scratch ui`
+  // / `export` render — one bad reference must not take the command down.
+  const src = "<body><p>a &#1114112; b</p></body>";
+  expect(() => toCommentItems("p.html", src, [cmt("x")])).not.toThrow();
+  expect(toCommentItems("p.html", src, [cmt("a &#1114112; b")])[0]!.matched).toBe(true);
+});
+
+test("a heading pretty-printed across lines still orients its comments", () => {
+  const src = "<body>\n  <h2>\n    Overview\n  </h2>\n  <p>body text here</p>\n</body>";
+  const it = toCommentItems("p.html", src, [cmt("body text here")])[0]!;
+  expect(it.section_heading).toBe("Overview");
+  expect(it.line).toBe(5);
+});
+
+test("numeric and named entities decode to the rendered character", () => {
+  const src = "<body><p>caf&#233;s &lt;3 &quot;quotes&quot;</p></body>";
+  expect(toCommentItems("p.html", src, [cmt('cafés <3 "quotes"')])[0]!.matched).toBe(true);
+});

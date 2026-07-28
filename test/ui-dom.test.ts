@@ -1909,6 +1909,61 @@ test("hard-refresh data sync: page asks for data; quiet patch is silent when unc
   }
 });
 
+// The viewer's own comment write comes straight back through the watcher. Only
+// commentsExport differs (the host re-resolves it; the page never does), and treating
+// that as a change rebuilt the tree — reloading an .html preview's iframe and toasting.
+test("a re-resolved commentsExport alone is not a change", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  await boot(html);
+  try {
+    const toast = document.getElementById("toast")!;
+    const w = globalThis as any;
+    const data = JSON.parse(document.getElementById("data")!.textContent!);
+    const echo = JSON.parse(JSON.stringify(data));
+    echo.pads[0].files[0].commentsExport = [{ id: "x", file: "a.md", comment: "re-resolved", quote: "q", matched: true }];
+
+    w.__scratchReload(echo, true);
+    expect(toast.classList.contains("visible")).toBe(false);
+    // Still adopted, so the copy-comments shortcut reads the fresh resolution.
+    w.__scratchReload(echo);
+    expect(toast.textContent).toContain("No changes");
+  } finally {
+    await teardown();
+  }
+});
+
+// The visible symptom of the above on an .html file: rebuilding the tree replaces the
+// preview iframe, so the author's page reloads from scratch under the reader.
+test("the echo of a comment write leaves an html preview's iframe in place", async () => {
+  await boot(
+    await renderHtmlPad("HP", "<body><p>real text here</p></body>", {
+      comments: [cmt({ anchor: { quote: "real text", prefix: "", suffix: "" } })],
+    }),
+  );
+  try {
+    const before = document.querySelector("iframe.htmlframe");
+    expect(before).not.toBeNull();
+    const w = globalThis as any;
+    const echo = JSON.parse(document.getElementById("data")!.textContent!);
+    echo.pads[0].files[0].commentsExport = [{ id: "z", file: "page.html", comment: "re-resolved", quote: "q", matched: true }];
+    w.__scratchReload(echo, true);
+    expect(document.querySelector("iframe.htmlframe")).toBe(before);
+  } finally {
+    await teardown();
+  }
+});
+
+/** Render a page for a pad holding one standalone .html file (previewed as its own page). */
+async function renderHtmlPad(name: string, source: string, entry: object = {}): Promise<string> {
+  const dir = join(root, name.toLowerCase());
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "page.html"), source, "utf8");
+  const m = newManifest(name);
+  m.files.push({ path: "page.html", ...entry });
+  await writeManifest(dir, m);
+  return renderHtml(await buildView([{ dir, manifest: await readManifest(dir) } as Pad]), name);
+}
+
 // --- clickable task checkboxes ---
 
 async function renderPadWithTasks(content: string): Promise<string> {
@@ -1958,3 +2013,134 @@ test("clicking a task checkbox toggles it and posts __scratch_checkbox with the 
     await teardown();
   }
 });
+
+// The standalone .html preview marks comments INSIDE its sandboxed frame, so that
+// code never runs in the host document and the boot() harness above cannot reach
+// it (happy-dom does not execute iframe srcdoc). Evaluate the injected frame
+// script in a document of its own — which is precisely what the frame is — and
+// drive it over the postMessage contract the host uses.
+async function frameScript(): Promise<string> {
+  const html = await renderHtmlPad("H", "<body><p>x</p></body>");
+  const from = html.indexOf("const CMT_MATCH_SRC =");
+  const to = html.indexOf("const CMT_FRAME_SCRIPT =", from);
+  const block = html.slice(from, html.indexOf("\n", to));
+  return new Function(block + "; return CMT_FRAME_BODY;")() as string;
+}
+
+/** Run the frame script against author markup; returns the posted messages. */
+function runFrame(body: string, markup: string) {
+  const posts: any[] = [];
+  document.body.innerHTML = markup;
+  new Function("parent", body)({ postMessage: (m: any) => posts.push(m) });
+  return posts;
+}
+
+/** Drive the frame script against author markup in a DOM of its own.
+ * frameScript() renders a real pad off disk, so it must run BEFORE the global
+ * document is registered — hence the helper rather than a plain beforeEach. */
+async function inFrame(markup: string, run: (posts: any[]) => void) {
+  const body = await frameScript();
+  GlobalRegistrator.register();
+  try {
+    run(runFrame(body, markup));
+  } finally {
+    await GlobalRegistrator.unregister();
+  }
+}
+
+const anchor = (quote: string, prefix = "", suffix = ""): Comment =>
+  cmt({ id: "c-" + quote.length, body: "why " + quote, anchor: { quote, prefix, suffix } });
+
+function pushComments(comments: Comment[]) {
+  window.dispatchEvent(new MessageEvent("message", { data: { __scratchCmt: 1, comments } }));
+}
+
+test("frame script marks a comment in the author's own document", () =>
+  inFrame("<p>The <b>token</b> rotates hourly.</p>", (posts) => {
+    // Announces itself so the host knows to push the current file's comments.
+    expect(posts.some((p) => p.__scratchCmtReady === 1)).toBe(true);
+    pushComments([anchor("token rotates hourly")]);
+    const marks = document.querySelectorAll(".cmt-hl");
+    expect(marks.length).toBeGreaterThan(0);
+    // The body rides along as a tooltip: the frame has no room for note pills and
+    // no access to the host's popover.
+    expect(marks[0]!.getAttribute("title")).toBe("why token rotates hourly");
+    // Marking spans the <b>, so the quote is reassembled across elements.
+    expect(document.body.textContent).toContain("The token rotates hourly.");
+    const miss = posts.filter((p) => p.__scratchCmtMiss === 1).pop();
+    expect(miss.ids).toEqual([]);
+  }));
+
+test("frame script reports unfindable quotes to the host instead of dropping them", () =>
+  inFrame("<p>only this text exists</p>", (posts) => {
+    pushComments([anchor("nothing like this"), anchor("only this text exists")]);
+    const miss = posts.filter((p) => p.__scratchCmtMiss === 1).pop();
+    expect(miss.ids).toEqual(["c-17"]); // the orphan, and only it
+    expect(document.querySelectorAll(".cmt-hl").length).toBe(1);
+  }));
+
+test("a second push re-marks from scratch rather than nesting spans", () =>
+  inFrame("<p>alpha beta gamma</p>", (posts) => {
+    pushComments([anchor("beta")]);
+    pushComments([anchor("beta")]);
+    expect(document.querySelectorAll(".cmt-hl").length).toBe(1);
+    // Text is intact after the unwrap/rewrap cycle (no lost or duplicated chars).
+    expect(document.body.textContent).toBe("alpha beta gamma");
+  }));
+
+test("clicking a mark asks the host to open the popover for that comment", () =>
+  inFrame("<p>alpha beta gamma</p>", (posts) => {
+    pushComments([anchor("beta")]);
+    (document.querySelector(".cmt-hl") as any).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const click = posts.filter((p) => p.__scratchCmtClick === 1).pop();
+    expect(click.cid).toBe("c-4");
+  }));
+
+// buildHtmlIndex blanks script/style, so matching them here would resolve a quote
+// to text the CLI can never see — reported as found, but invisible and unreachable.
+test("script and style source is not matchable in the frame", () =>
+  inFrame('<script>var s="secret phrase";</script><style>.a{content:"styled bit"}</style><p>real text</p>', (posts) => {
+    pushComments([anchor("secret phrase"), anchor("styled bit")]);
+    expect(document.querySelectorAll(".cmt-hl").length).toBe(0);
+    const miss = posts.filter((p) => p.__scratchCmtMiss === 1).pop();
+    expect(miss.ids.length).toBe(2);
+  }));
+
+// An emptied list is how the host says "drop your marks" — used by clear-all and by
+// hiding comments, neither of which the frame's own CSS can be told about.
+test("an empty comment list clears the frame's marks", () =>
+  inFrame("<p>alpha beta gamma</p>", (posts) => {
+    pushComments([anchor("beta")]);
+    expect(document.querySelectorAll(".cmt-hl").length).toBe(1);
+    pushComments([]);
+    expect(document.querySelectorAll(".cmt-hl").length).toBe(0);
+    expect(document.body.textContent).toBe("alpha beta gamma");
+  }));
+
+test("clicking off any mark reports the host's dismiss gesture", () =>
+  inFrame("<p>alpha beta gamma</p>", (posts) => {
+    pushComments([anchor("beta")]);
+    (document.querySelector("p") as any).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(posts.some((p) => p.__scratchCmtBlur === 1)).toBe(true);
+  }));
+
+// The host summary list can't scroll to a mark it cannot see, so it names the id.
+test("a goto request reveals the mark and reports its landed rect", () =>
+  inFrame("<p>alpha beta gamma</p>", (posts) => {
+    pushComments([anchor("beta")]);
+    const before = posts.length;
+    window.dispatchEvent(Object.assign(new Event("message"), { data: { __scratchCmtGoto: 1, cid: "c-4" } }));
+    const back = posts.slice(before).filter((p) => p.__scratchCmtClick === 1).pop();
+    expect(back.cid).toBe("c-4");
+    // The reveal's own scroll must not dismiss the popover it just asked for.
+    window.dispatchEvent(new Event("scroll"));
+    expect(posts.some((p) => p.__scratchCmtScroll === 1)).toBe(false);
+  }));
+
+// The frame has a fixed height, so it scrolls internally — previewEl's scroll
+// handler (which dismisses the host's fixed-position popover) never fires.
+test("scrolling inside the frame reports up so the host can dismiss its popover", () =>
+  inFrame("<p>alpha beta gamma</p>", (posts) => {
+    window.dispatchEvent(new Event("scroll"));
+    expect(posts.some((p) => p.__scratchCmtScroll === 1)).toBe(true);
+  }));

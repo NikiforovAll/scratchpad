@@ -163,12 +163,15 @@ reference and the styling/structure contract.
 
 ## Reading viewer feedback (`scratch comments`)
 
-Reviewers attach inline comments to rendered text in the viewer.
+Reviewers attach inline comments to rendered text in the viewer — in a markdown
+preview, or in an `.html` file previewed as its own page.
 `scratch comments "<name>"` reads them back (`--file <path|glob|substring>` to
 narrow files; `--json` for agents)
 so you can act without opening the UI: each item gives the note, the quoted text,
-and the enclosing markdown `context` block to edit. `matched: false` = the quoted
-text was edited away (orphaned); reconcile manually.
+and the enclosing `context` block to edit (a markdown paragraph/list/quote, or the
+source element for an `.html` file). `matched: false` = the quoted text could not be
+found in the source (edited away, or generated at runtime by a script in an `.html`
+file); reconcile manually.
 
 ## Cleanup
 

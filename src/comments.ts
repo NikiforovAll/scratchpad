@@ -59,12 +59,21 @@ const normWs = (s: string) => collapseWs(s).trim();
  * whitespace-collapsed/syntax-stripped projection with a char→line map. Built
  * with `buildIndex` so a file with many comments pays the parse cost only once. */
 export interface SourceIndex {
+  /** Which projection built this — markdown and html strip different syntax and
+   * disagree on what a "block" is, so every consumer has to branch on it. */
+  kind: "markdown" | "html";
   lines: string[];
   /** Per-line "inside a fenced code block" flag (so `#` in code isn't a heading). */
   inFence: boolean[];
   /** Rendered-text projection: hit positions resolve to lines via `lineOf`. */
   text: string;
   lineOf: number[];
+}
+
+/** Pick the projection from the file's extension. The viewer anchors comments to
+ * whatever it rendered, so the CLI has to un-render the same language. */
+export function buildIndexFor(filePath: string, source: string): SourceIndex {
+  return /\.html?$/i.test(filePath) ? buildHtmlIndex(source) : buildIndex(source);
 }
 
 export function buildIndex(source: string): SourceIndex {
@@ -78,39 +87,116 @@ export function buildIndex(source: string): SourceIndex {
   // Project to rendered text + char→line map: strip markdown outside fences,
   // keep fenced lines verbatim, collapse all whitespace (paragraphs render as
   // one line, so a line/paragraph break becomes a single space between words).
+  return {
+    kind: "markdown",
+    lines,
+    inFence,
+    ...project(lines, (raw, i) =>
+      isFence(raw) ? null : inFence[i] ? raw : stripInline(stripBlock(raw)),
+    ),
+  };
+}
+
+/** Collapse a per-line render into the flat rendered text plus its char→line map.
+ * Both projections share it so locateComment's lineOf lookup can only ever mean one
+ * thing. `render` returns null for a line that renders to nothing (a fence marker). */
+function project(
+  lines: string[],
+  render: (raw: string, i: number) => string | null,
+): { text: string; lineOf: number[] } {
   const chars: string[] = [];
   const lineOf: number[] = [];
   let lastSpace = true;
-  const push = (str: string, ln: number) => {
+  lines.forEach((raw, idx) => {
+    const str = render(raw, idx);
+    if (str == null) return;
     for (const ch of str) {
       if (/\s/.test(ch)) {
         if (lastSpace) continue;
         chars.push(" ");
-        lineOf.push(ln);
+        lineOf.push(idx + 1);
         lastSpace = true;
       } else {
         chars.push(ch);
-        lineOf.push(ln);
+        lineOf.push(idx + 1);
         lastSpace = false;
       }
     }
-  };
-  lines.forEach((raw, idx) => {
-    if (isFence(raw)) return; // fence markers render to nothing
-    push(inFence[idx] ? raw : stripInline(stripBlock(raw)), idx + 1);
+    // A line end is a word boundary in the rendered text (so is a tag boundary,
+    // which the html projection has already turned into a space).
     if (!lastSpace) {
       chars.push(" ");
       lineOf.push(idx + 1);
       lastSpace = true;
     }
   });
-  return { lines, inFence, text: chars.join(""), lineOf };
+  return { text: chars.join(""), lineOf };
+}
+
+const HTML_HEADING_RE = /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i;
+const HTML_HEADING_OPEN = /<h([1-6])\b[^>]*>/i;
+/** How many lines a heading may span. Formatters and generated pages routinely put
+ * the text on its own line, so matching within one line misses those entirely. */
+const HTML_HEADING_SPAN = 8;
+const ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
+};
+/** Decode the entities a browser would have turned back into text — the anchor was
+ * captured from the RENDERED page, so its quote holds the character, not the entity. */
+function decodeEntities(s: string): string {
+  return s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, ref: string) => {
+    if (ref[0] === "#") {
+      const code = ref[1]?.toLowerCase() === "x" ? parseInt(ref.slice(2), 16) : parseInt(ref.slice(1), 10);
+      // Out-of-range is not merely un-decodable: fromCodePoint THROWS, and this
+      // runs during `scratch ui`/`export` render, so one bad reference would take
+      // the whole command down instead of leaving the entity as written.
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : m;
+    }
+    return ENTITIES[ref.toLowerCase()] ?? m;
+  });
+}
+
+/** Project an HTML source to the text a browser would render: drop script/style
+ * bodies and comments (never displayed), drop tags, decode entities, collapse
+ * whitespace. Line-accurate because the blanking is length-preserving per line —
+ * every kept char keeps the source line it came from.
+ *
+ * Limitation worth knowing: text a script GENERATES is not in the source, so a
+ * comment anchored to it cannot be located here and reports as unmatched. */
+export function buildHtmlIndex(source: string): SourceIndex {
+  const lines = source.split(/\r?\n/);
+  // Blank out non-rendered regions in the FULL text first (they span lines), keeping
+  // newlines so the line numbering below still lines up with the original.
+  const keepNewlines = (m: string) => m.replace(/[^\n]/g, " ");
+  const cleaned = source
+    .replace(/<!--[\s\S]*?-->/g, keepNewlines)
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, keepNewlines)
+    .replace(/<[^>]*>/g, keepNewlines);
+  return {
+    kind: "html",
+    lines,
+    inFence: lines.map(() => false),
+    ...project(cleaned.split(/\r?\n/), decodeEntities),
+  };
 }
 
 /** Nearest heading text at or above a 1-based source line (orientation only). */
 export function headingFor(idx: SourceIndex, line: number): { heading: string | null; level: number } {
   for (let i = Math.min(line, idx.lines.length) - 1; i >= 0; i--) {
     if (idx.inFence[i]) continue;
+    if (idx.kind === "html") {
+      const open = idx.lines[i]!.match(HTML_HEADING_OPEN);
+      if (open) {
+        // Match forward from the opening tag, not within its line — a closing tag
+        // on a later line is the common shape in generated markup.
+        const h = idx.lines.slice(i, i + HTML_HEADING_SPAN).join("\n").match(HTML_HEADING_RE);
+        const text = h ? normWs(decodeEntities(h[1]!.replace(/<[^>]*>/g, " "))) : "";
+        if (text) return { heading: text, level: Number(open[1]) };
+      }
+      continue;
+    }
     const m = idx.lines[i]!.match(HEADING_RE);
     if (m) return { heading: m[2]!.trim(), level: m[1]!.length };
   }
@@ -126,6 +212,14 @@ export function blockFor(
   endLine: number,
 ): { text: string; lines: [number, number] } {
   const { lines, inFence } = idx;
+  // HTML has no blank-line block structure — indentation and newlines are free —
+  // so the matched lines ARE the unit. In practice a text run sits inside one
+  // element on one line, which is exactly what an agent needs to edit.
+  if (idx.kind === "html") {
+    const s = Math.max(0, startLine - 1);
+    const e = Math.min(endLine, lines.length) - 1;
+    return { text: lines.slice(s, e + 1).join("\n").trim(), lines: [s + 1, e + 1] };
+  }
   const blank = (i: number) => lines[i]!.trim() === "";
   const bound = (i: number) => !inFence[i] && (isFence(lines[i]!) || HEADING_RE.test(lines[i]!));
   let s = startLine - 1;
@@ -185,7 +279,7 @@ export interface CommentItem {
  * locate each comment's quote, and flatten. Shared by the CLI (`cmdComments`) and
  * the viewer's copy-comments shortcut so their output matches exactly. */
 export function toCommentItems(filePath: string, source: string, comments: Comment[]): CommentItem[] {
-  const index = buildIndex(source); // parse once, reuse for all the file's comments
+  const index = buildIndexFor(filePath, source); // parse once, reuse for all the file's comments
   return comments.map((c) => {
     const r = locateComment(index, c);
     return {
@@ -209,9 +303,13 @@ export function locateComment(idx: SourceIndex, comment: Comment): LocatedCommen
   const { text, lineOf } = idx;
   // Prefix/suffix keep their boundary whitespace (only inner runs collapse) — the
   // space adjacent to the quote is what disambiguates between occurrences.
-  const prefix = collapseWs(stripInline(comment.anchor.prefix ?? ""));
-  const suffix = collapseWs(stripInline(comment.anchor.suffix ?? ""));
-  let q = normWs(stripInline(comment.anchor.quote));
+  // An html projection already dropped every tag, so the markdown syntax-stripper
+  // would only corrupt the quote (underscores, asterisks and backticks are literal
+  // text in an author's page).
+  const strip = idx.kind === "html" ? (s: string) => s : stripInline;
+  const prefix = collapseWs(strip(comment.anchor.prefix ?? ""));
+  const suffix = collapseWs(strip(comment.anchor.suffix ?? ""));
+  let q = normWs(strip(comment.anchor.quote));
   let at = findQuote(text, q, prefix, suffix);
   if (at === -1 && comment.anchor.quote) {
     // Fallback: the quote may have already been plain (e.g. code) — try as-is.

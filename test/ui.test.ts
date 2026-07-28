@@ -375,3 +375,44 @@ describe("renderHtml --offline", () => {
     expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+mermaid@[^"]+" integrity="sha384-/);
   });
 });
+
+// Comments in a standalone .html preview run INSIDE the sandboxed frame — the host
+// page cannot reach across an opaque origin. These assert the frame gets what it
+// needs, and that the matcher exists as one source shared by both documents.
+describe("in-frame comment plumbing", () => {
+  async function page(): Promise<string> {
+    const dir = join(root, "pad");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "guide.html"), "<body><p>hello</p></body>", "utf8");
+    const m = newManifest("Pad", "s");
+    m.files.push({ path: "guide.html" });
+    await writeManifest(dir, m);
+    const view = await buildView([{ dir, manifest: await readManifest(dir) } as Pad]);
+    return renderHtml(view, "Pad");
+  }
+
+  test("the matcher is defined once and shipped to the frame as source", async () => {
+    const html = await page();
+    // Once as a real declaration for the host page...
+    expect(html.match(/^function cmtFindAnchor\(container, anchor\) \{$/gm)).toHaveLength(1);
+    // ...and once as a string the frame script evaluates, so they cannot drift.
+    expect(html).toContain("const CMT_MATCH_SRC =");
+    expect(html).toContain("function cmtAnchorFromRange");
+  });
+
+  test("the standalone preview frame is handed the comment script", async () => {
+    const html = await page();
+    expect(html).toContain("KEY_RELAY_SCRIPT + CMT_FRAME_SCRIPT");
+    expect(html).toContain("__scratchSel");
+    expect(html).toContain("__scratchCmtClick");
+    expect(html).toContain("__scratchCmtReady");
+  });
+
+  test("no literal closing script tag is emitted anywhere in the page", async () => {
+    // The frame script lives inside the host's own script element; a literal
+    // closing tag in it would end that element early and break the whole page.
+    const html = await page();
+    const body = html.slice(html.indexOf("let DATA"));
+    expect(body.slice(0, body.indexOf("</scr" + "ipt>"))).toContain("CMT_FRAME_SCRIPT");
+  });
+});

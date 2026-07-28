@@ -664,6 +664,118 @@ window.__vendorReady = (function () {
 })();
 `;
 
+// Comment-anchor matcher. Split out of CLIENT_JS because it has to run in TWO
+// documents: the host page (markdown previews) and, for a standalone .html
+// preview, inside the sandboxed frame — where an opaque origin means the host
+// cannot reach the text at all. CLIENT_JS interpolates this to define the
+// functions; CMT_FRAME_SCRIPT ships the same source into the frame as a string,
+// so the two documents can never drift into resolving different occurrences.
+const CMT_MATCH_JS = String.raw`
+// All text nodes under root, excluding SVG (mermaid output) subtrees — anchoring
+// inside a diagram is too brittle, so those comments render as orphaned instead.
+// script/style source is skipped for a different reason: it is not displayed, so a
+// quote can never legitimately come from it, and buildHtmlIndex (src/comments.ts)
+// blanks it too — matching it here would resolve to text the CLI cannot see.
+function cmtTextNodes(root) {
+  const out = [];
+  (function walk(n) {
+    if (n.nodeType === 3) { out.push(n); return; }
+    if (n.nodeType !== 1) return;
+    const tag = n.tagName ? n.tagName.toLowerCase() : '';
+    if (tag === 'script' || tag === 'style') return;
+    if (tag === 'svg' || (n.classList && n.classList.contains('mermaid'))) return;
+    for (let c = n.firstChild; c; c = c.nextSibling) walk(c);
+  })(root);
+  return out;
+}
+
+// Re-find a comment's quote in the container. Multiple occurrences are
+// disambiguated by how many chars of prefix/suffix match contiguously from the
+// quote's boundary outward; ties keep the first match (deterministic).
+function cmtFindAnchor(container, anchor) {
+  if (!anchor || !anchor.quote) return null;
+  const nodes = cmtTextNodes(container);
+  let text = '';
+  const starts = nodes.map(n => { const s = text.length; text += n.nodeValue; return s; });
+  const q = anchor.quote;
+  const hits = [];
+  let i = text.indexOf(q);
+  while (i !== -1) { hits.push(i); i = text.indexOf(q, i + 1); }
+  if (!hits.length) return null;
+  let best = hits[0];
+  if (hits.length > 1) {
+    const p = anchor.prefix || '', s = anchor.suffix || '';
+    let bestScore = -1;
+    hits.forEach(h => {
+      const before = text.slice(Math.max(0, h - p.length), h);
+      const after = text.slice(h + q.length, h + q.length + s.length);
+      let score = 0;
+      for (let k = 1; k <= before.length; k++) { if (p[p.length - k] === before[before.length - k]) score++; else break; }
+      for (let k = 0; k < after.length; k++) { if (s[k] === after[k]) score++; else break; }
+      if (score > bestScore) { bestScore = score; best = h; }
+    });
+  }
+  return { nodes, starts, start: best, end: best + q.length };
+}
+
+// Wrap the matched flat-text range in highlight spans. Markdown nests elements,
+// so the range may cross several text nodes — split each at the boundaries and
+// wrap the inner piece (find-and-highlight style). Returns the created spans.
+function cmtWrap(found, cid) {
+  const spans = [];
+  for (let ni = 0; ni < found.nodes.length; ni++) {
+    const node = found.nodes[ni];
+    const ns = found.starts[ni], ne = ns + node.nodeValue.length;
+    if (ne <= found.start || ns >= found.end) continue;
+    const from = Math.max(found.start, ns) - ns;
+    const to = Math.min(found.end, ne) - ns;
+    let target = node;
+    if (from > 0) target = target.splitText(from);
+    if (to - from < target.nodeValue.length) target.splitText(to - from);
+    const span = document.createElement('span');
+    span.className = 'cmt-hl';
+    span.dataset.cid = cid;
+    target.parentNode.replaceChild(span, target);
+    span.appendChild(target);
+    spans.push(span);
+  }
+  return spans;
+}
+
+// Undo cmtWrap: lift each mark's children back out and re-join the split text nodes.
+// cid null unwraps every mark. Shared because both documents wrap the same way, so
+// they must unwrap the same way — the host adds its own .cmt-note cleanup on top.
+function cmtUnwrapIn(root, cid) {
+  root.querySelectorAll('.cmt-hl').forEach(sp => {
+    if (cid != null && sp.dataset.cid !== cid) return;
+    const p = sp.parentNode;
+    while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
+    p.removeChild(sp);
+    if (p.normalize) p.normalize();
+  });
+}
+
+// Selection → anchor, against a container's flat text. Shared for the same reason
+// as the matcher: the frame captures its own selection, the host captures the
+// markdown pane's, and both must produce the prefix/suffix the matcher expects.
+function cmtAnchorFromRange(container, range) {
+  const quote = range.toString();
+  if (!quote || !quote.trim()) return null;
+  let prefix = '', suffix = '';
+  try {
+    const pre = container.ownerDocument.createRange();
+    pre.selectNodeContents(container);
+    pre.setEnd(range.startContainer, range.startOffset);
+    prefix = pre.toString().slice(-32);
+    const post = container.ownerDocument.createRange();
+    post.selectNodeContents(container);
+    post.setStart(range.endContainer, range.endOffset);
+    suffix = post.toString().slice(0, 32);
+  } catch (_) {}
+  return { quote, prefix, suffix };
+}
+`;
+
 // Client-side: tree nav, preview switching, minimal markdown renderer, raw/
 // rendered toggle, syntax highlighting (if hljs present), mermaid (if present),
 // and auto-detected theme. Kept dependency-free; vendored libs are optional.
@@ -716,6 +828,78 @@ const KEY_RELAY_SCRIPT = '<' + 'script>(function(){' + KEY_RELAY + '})();' + '<'
 // because, unlike htmlFrameDoc, we must not force color-scheme here: that would repaint
 // an author page that never opted into dark, and light-dark() would resolve light-only.
 const FRAME_SCROLLBAR = '<style>html{scrollbar-width:thin;scrollbar-color:rgba(136,136,136,0.55) transparent}</style>';
+// Comments inside a STANDALONE .html preview. The host cannot read that frame's
+// selection or text (opaque origin), so the frame does its own capture, matching
+// and marking, and talks to the host over postMessage — the same relay the key
+// and resize scripts already use. Only the frame's own document is touched: the
+// author's FILE is never rewritten, marks live in the DOM for the session.
+// The matcher arrives as source text so the host and the frame share one copy.
+const CMT_MATCH_SRC = ${JSON.stringify(CMT_MATCH_JS)};
+// currentColor at 22% so the highlight reads on whatever the author's background
+// is — we cannot know their palette, and must not repaint their page to find out.
+const CMT_FRAME_CSS = '<style>.cmt-hl{background:color-mix(in srgb, currentColor 22%, transparent);border-bottom:2px solid color-mix(in srgb, currentColor 55%, transparent);cursor:pointer}</style>';
+const CMT_FRAME_BODY = CMT_MATCH_SRC + ';(function(){' +
+  'function post(m){parent.postMessage(m,"*");}' +
+  // Selection is reported on mouseup only (not selectionchange): the host shows a
+  // click-to-comment button, so a half-dragged selection must not arm it.
+  'addEventListener("mouseup",function(e){' +
+    'var s=null;try{s=getSelection();}catch(_){}' +
+    'if(!s||s.isCollapsed||!s.rangeCount){post({__scratchSel:1,quote:""});return;}' +
+    'var r=s.getRangeAt(0),a=cmtAnchorFromRange(document.body,r);' +
+    'if(!a){post({__scratchSel:1,quote:""});return;}' +
+    'var b=r.getBoundingClientRect();' +
+    'post({__scratchSel:1,quote:a.quote,prefix:a.prefix,suffix:a.suffix,' +
+      'left:b.left,top:b.top,bottom:b.bottom,width:b.width,height:b.height});' +
+  '});' +
+  'function mark(cid){var t=null;[].forEach.call(document.querySelectorAll(".cmt-hl"),' +
+    'function(sp){if(!t&&sp.dataset.cid===cid)t=sp;});return t;}' +
+  // The host owns the popover (it has the pad data and the edit/delete actions), so
+  // a mark only reports which comment and where. Same payload whether the reader
+  // clicked it or the host asked us to reveal it.
+  'function postMark(t){var b=t.getBoundingClientRect();post({__scratchCmtClick:1,cid:t.dataset.cid,' +
+    'left:b.left,top:b.top,bottom:b.bottom,width:b.width,height:b.height});}' +
+  'addEventListener("click",function(e){' +
+    'var t=e.target&&e.target.closest?e.target.closest(".cmt-hl"):null;' +
+    // A click off any mark is the host's dismiss gesture — its own document-level
+    // mousedown handler never sees clicks landing in here.
+    'if(!t){post({__scratchCmtBlur:1});return;}' +
+    'postMark(t);' +
+  '});' +
+  // Re-mark from scratch on every push: add/edit/delete all send the full list,
+  // so unwinding individual spans (the host page path) buys nothing here.
+  'addEventListener("message",function(e){' +
+    'if(!e.data||e.data.__scratchCmt!==1)return;cmtUnwrapIn(document,null);' +
+    'var miss=[];(e.data.comments||[]).forEach(function(c){' +
+      'var f=cmtFindAnchor(document.body,c.anchor);' +
+      'if(!f){miss.push(c.id);return;}' +
+      'var sp=cmtWrap(f,c.id);' +
+      'if(sp.length)sp.forEach(function(s){s.title=c.body;});else miss.push(c.id);' +
+    '});' +
+    // The host keeps the orphan bookkeeping — it owns the pill and the summary.
+    'post({__scratchCmtMiss:1,ids:miss});' +
+  '});' +
+  // Jump to a comment from the host's summary list. The host can't scroll to a mark
+  // it cannot see, so it names the id and we reveal it, then report the landed rect
+  // through the click path so the popover opens where the mark ended up.
+  'var muteScroll=0;' +
+  'addEventListener("message",function(e){' +
+    'if(!e.data||e.data.__scratchCmtGoto!==1)return;' +
+    'var t=mark(e.data.cid);if(!t)return;' +
+    // Our own scrollIntoView would otherwise fire the scroll report below and
+    // dismiss the popover we are about to ask for.
+    'muteScroll=Date.now()+400;' +
+    'try{t.scrollIntoView({block:"center"});}catch(_){}' +
+    'postMark(t);' +
+  '});' +
+  // The host's popover/add-button are position:fixed, and this frame has a fixed
+  // height — so its scrolling never reaches previewEl's scroll handler. Report it
+  // so the host can dismiss them instead of leaving them stranded mid-page.
+  'addEventListener("scroll",function(){' +
+    'if(Date.now()<muteScroll)return;post({__scratchCmtScroll:1});' +
+  '},{passive:true});' +
+  'post({__scratchCmtReady:1});' +
+'})();';
+const CMT_FRAME_SCRIPT = CMT_FRAME_CSS + '<' + 'script>' + CMT_FRAME_BODY + '<' + '/script>';
 function htmlFrameDoc(fragment) {
   // Force color-scheme to the RESOLVED viewer theme (not the OS) so the kit's
   // light-dark() tokens track the toggle. data-theme is absent in system mode →
@@ -1068,6 +1252,19 @@ function armHtmlFrames() {
       }));
       return;
     }
+    // Comment traffic out of a standalone .html preview frame. Rects arrive in the
+    // FRAME's viewport coords, so they are offset by the iframe's own box before
+    // any host UI is placed against them (see cmtRectFromFrame).
+    if (e.data.__scratchSel === 1) { onFrameSelection(e.source, e.data); return; }
+    if (e.data.__scratchCmtClick === 1) {
+      const c = findComment(e.data.cid);
+      if (c && commentsVisible) cmtViewPop(c, cmtRectFromFrame(e.source, e.data));
+      return;
+    }
+    if (e.data.__scratchCmtScroll === 1) { closeCmtPop(); hideCmtAdd(); return; }
+    if (e.data.__scratchCmtBlur === 1) { closeCmtPop(); return; }
+    if (e.data.__scratchCmtMiss === 1) { onFrameMisses(e.source, e.data.ids || []); return; }
+    if (e.data.__scratchCmtReady === 1) { onFrameReady(e.source); return; }
     if (e.data.__scratchFrame !== 1) return;
     // A focused frame is sized by CSS — don't fight it with content height. Bail
     // before the lookup: going full window resizes the frame's document, so its
@@ -1525,7 +1722,7 @@ function renderPreview(pad, f, nav) {
     ? '<pre class="code"><code class="language-html">' + esc(f.content) + '</code></pre>'
     // Sandboxed with allow-scripts so interactive author pages run their own JS;
     // opaque-origin iframe still blocks host/parent access. srcdoc is attr-escaped.
-    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(FRAME_SCROLLBAR + f.content + KEY_RELAY_SCRIPT) + '"></iframe>';
+    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(FRAME_SCROLLBAR + f.content + KEY_RELAY_SCRIPT + CMT_FRAME_SCRIPT) + '"></iframe>';
   else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
     const cls = f.lang ? ' class="language-' + esc(normLang(f.lang)) + '"' : '';
     bodyHtml = '<pre class="code"><code' + cls + '>' + esc(f.content) + '</code></pre>';
@@ -1600,8 +1797,8 @@ function renderPreview(pad, f, nav) {
   }
   enhance(preview);
   // After hljs rewrote the code blocks' text nodes — comment quote-matching
-  // walks the final DOM. (Comments are a rendered-markdown concept: applyComments
-  // no-ops when there's no .md container, i.e. raw mode or non-markdown files.)
+  // walks the final DOM. (With no .md container, applyComments hands off to the
+  // standalone .html preview frame, which marks its own document.)
   applyComments();
   buildToc();
   document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
@@ -1843,11 +2040,32 @@ function showToast(msg, variant) {
 // silently if disk drifted, and say NOTHING when it matches — otherwise every
 // plain launch/refresh (where the embedded island already equals disk) would
 // flash a toast. The user-initiated 'r' reload (quiet falsy) always gives feedback.
+// commentsExport is a snapshot the host RE-RESOLVES on every disk read, while the
+// page mutates comments locally without it. Counting it as a change would make the
+// viewer's own comment write echo back as a content change — rebuilding the tree,
+// reloading an .html preview's iframe and toasting, for a write we already applied.
+function reloadSansDerived(p) {
+  return JSON.stringify(p, (k, v) => (k === 'commentsExport' ? undefined : v));
+}
+// Adopt the freshly-resolved snapshots so the copy shortcut stays current. Mutates
+// the existing file objects in place — currentRef holds one of them.
+function adoptCommentsExport(payload) {
+  const byKey = {};
+  (DATA.pads || []).forEach(p => (p.files || []).forEach(f => { byKey[p.dir + '::' + f.path] = f; }));
+  (payload.pads || []).forEach(p => (p.files || []).forEach(f => {
+    const cur = byKey[p.dir + '::' + f.path];
+    if (cur) cur.commentsExport = f.commentsExport;
+  }));
+}
 window.__scratchReload = function (payload, quiet) {
   if (!payload || !payload.pads) return;
   // Nothing on disk changed since last render → no DOM swap, no flash; just tell
   // the user it's current. This is the common case when reload is pressed out of habit.
-  if (JSON.stringify(payload) === JSON.stringify(DATA)) { if (!quiet) showToast('No changes — up to date', 'info'); return; }
+  if (reloadSansDerived(payload) === reloadSansDerived(DATA)) {
+    adoptCommentsExport(payload);
+    if (!quiet) showToast('No changes — up to date', 'info');
+    return;
+  }
   const key = currentRef ? currentRef.pad.dir + '::' + currentRef.f.path : null;
   const prevSelJson = currentRef ? JSON.stringify(currentRef.f) : null;
   const pv = document.getElementById('preview');
@@ -2708,72 +2926,7 @@ function cmtId() {
   return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
 
-// All text nodes under root, excluding SVG (mermaid output) subtrees — anchoring
-// inside a diagram is too brittle, so those comments render as orphaned instead.
-function cmtTextNodes(root) {
-  const out = [];
-  (function walk(n) {
-    if (n.nodeType === 3) { out.push(n); return; }
-    if (n.nodeType !== 1) return;
-    const tag = n.tagName ? n.tagName.toLowerCase() : '';
-    if (tag === 'svg' || (n.classList && n.classList.contains('mermaid'))) return;
-    for (let c = n.firstChild; c; c = c.nextSibling) walk(c);
-  })(root);
-  return out;
-}
-
-// Re-find a comment's quote in the container. Multiple occurrences are
-// disambiguated by how many chars of prefix/suffix match contiguously from the
-// quote's boundary outward; ties keep the first match (deterministic).
-function cmtFindAnchor(container, anchor) {
-  if (!anchor || !anchor.quote) return null;
-  const nodes = cmtTextNodes(container);
-  let text = '';
-  const starts = nodes.map(n => { const s = text.length; text += n.nodeValue; return s; });
-  const q = anchor.quote;
-  const hits = [];
-  let i = text.indexOf(q);
-  while (i !== -1) { hits.push(i); i = text.indexOf(q, i + 1); }
-  if (!hits.length) return null;
-  let best = hits[0];
-  if (hits.length > 1) {
-    const p = anchor.prefix || '', s = anchor.suffix || '';
-    let bestScore = -1;
-    hits.forEach(h => {
-      const before = text.slice(Math.max(0, h - p.length), h);
-      const after = text.slice(h + q.length, h + q.length + s.length);
-      let score = 0;
-      for (let k = 1; k <= before.length; k++) { if (p[p.length - k] === before[before.length - k]) score++; else break; }
-      for (let k = 0; k < after.length; k++) { if (s[k] === after[k]) score++; else break; }
-      if (score > bestScore) { bestScore = score; best = h; }
-    });
-  }
-  return { nodes, starts, start: best, end: best + q.length };
-}
-
-// Wrap the matched flat-text range in highlight spans. Markdown nests elements,
-// so the range may cross several text nodes — split each at the boundaries and
-// wrap the inner piece (find-and-highlight style). Returns the created spans.
-function cmtWrap(found, cid) {
-  const spans = [];
-  for (let ni = 0; ni < found.nodes.length; ni++) {
-    const node = found.nodes[ni];
-    const ns = found.starts[ni], ne = ns + node.nodeValue.length;
-    if (ne <= found.start || ns >= found.end) continue;
-    const from = Math.max(found.start, ns) - ns;
-    const to = Math.min(found.end, ne) - ns;
-    let target = node;
-    if (from > 0) target = target.splitText(from);
-    if (to - from < target.nodeValue.length) target.splitText(to - from);
-    const span = document.createElement('span');
-    span.className = 'cmt-hl';
-    span.dataset.cid = cid;
-    target.parentNode.replaceChild(span, target);
-    span.appendChild(target);
-    spans.push(span);
-  }
-  return spans;
-}
+${CMT_MATCH_JS}
 
 // Always-visible concise note pill after the highlight. The text lives in a
 // data attribute rendered via CSS ::after, so it's not a DOM text node — it
@@ -2794,13 +2947,7 @@ function cmtMark(found, c) {
 
 function cmtUnwrap(cid) {
   document.querySelectorAll('.cmt-note').forEach(n => { if (n.dataset.cid === cid) n.remove(); });
-  document.querySelectorAll('.cmt-hl').forEach(sp => {
-    if (sp.dataset.cid !== cid) return;
-    const p = sp.parentNode;
-    while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
-    p.removeChild(sp);
-    if (p.normalize) p.normalize();
-  });
+  cmtUnwrapIn(document, cid);
 }
 
 function findComment(cid) {
@@ -2976,6 +3123,7 @@ function cmtEditPop(c, rect) {
       document.querySelectorAll('.cmt-note').forEach(n => {
         if (n.dataset.cid === c.id) { n.dataset.note = cmtNoteText(c.body); n.title = c.body; }
       });
+      syncFrameComments(); // in-frame marks carry the body as their tooltip
       closeCmtPop();
       showToast('Comment saved', 'success');
     };
@@ -3003,6 +3151,7 @@ function cmtNewPop(anchor, rect) {
       const md = previewEl.querySelector('.md');
       const found = md && cmtFindAnchor(md, anchor);
       if (found) cmtMark(found, c);
+      else if (!md && previewFrame()) syncFrameComments(); // the frame marks its own
       else { ORPHANS.push(c); refreshOrphanPill(); }
       closeCmtPop();
       hideCmtAdd();
@@ -3087,7 +3236,12 @@ function gotoComment(pad, f, c) {
   if (hl) {
     try { hl.scrollIntoView({ block: 'center' }); } catch (_) {}
     if (commentsVisible) cmtViewPop(c, hl.getBoundingClientRect());
+    return;
   }
+  // No host-side mark: an .html preview keeps its marks inside the frame, which
+  // reveals the comment and reports back through the click path.
+  pendingGoto = c.id;
+  flushGoto();
 }
 
 function deleteComment(cid) {
@@ -3097,6 +3251,7 @@ function deleteComment(cid) {
   ORPHANS = ORPHANS.filter(c => c.id !== cid);
   persistComments();
   cmtUnwrap(cid);
+  syncFrameComments();
   refreshOrphanPill();
   closeCmtPop();
   showToast('Comment deleted', 'success');
@@ -3114,6 +3269,7 @@ function deleteAllComments() {
   ORPHANS = [];
   persistComments();
   ids.forEach(cmtUnwrap);
+  syncFrameComments();
   refreshOrphanPill();
   closeCmtPop();
   showToast(nComments(n) + ' deleted', 'success');
@@ -3124,7 +3280,9 @@ function refreshOrphanPill() {
   if (!ORPHANS.length) { if (pill) pill.remove(); return; }
   const label = '⚠ ' + ORPHANS.length + ' orphaned comment' + (ORPHANS.length > 1 ? 's' : '');
   if (pill) { pill.textContent = label; return; }
-  const md = previewEl.querySelector('.md');
+  // Mounts above whichever body the preview rendered — the markdown pane, or the
+  // frame of a standalone .html file (whose orphans the frame reports back).
+  const md = previewEl.querySelector('.md, iframe.htmlframe');
   if (!md) return;
   pill = document.createElement('div');
   pill.id = 'cmtOrphans';
@@ -3145,7 +3303,12 @@ function applyComments() {
   if (old) old.remove();
   const f = currentRef && currentRef.f;
   const md = previewEl.querySelector('.md');
-  if (!md || !f || !f.comments || !f.comments.length) return;
+  // Standalone .html preview: the frame marks its own document and reports back
+  // which quotes it could not find. Best-effort here (a frame still loading has no
+  // listener yet) — its ready ping re-triggers this. Sync before the empty-list
+  // bail: an emptied list is exactly what tells the frame to drop its marks.
+  if (!md) { syncFrameComments(); return; }
+  if (!f || !f.comments || !f.comments.length) return;
   f.comments.forEach(c => {
     const found = cmtFindAnchor(md, c.anchor);
     if (found) cmtMark(found, c);
@@ -3185,24 +3348,15 @@ document.addEventListener('mouseup', (e) => {
   if (!sel || sel.isCollapsed || !sel.rangeCount) { hideCmtAdd(); return; }
   const range = sel.getRangeAt(0);
   if (!md.contains(range.commonAncestorContainer)) { hideCmtAdd(); return; }
-  const quote = range.toString();
-  if (!quote || !quote.trim()) { hideCmtAdd(); return; }
-  // prefix/suffix from ranges spanning [start of preview, selection start] and
-  // [selection end, end of preview] — same text the matcher will search.
-  let prefix = '', suffix = '';
-  try {
-    const pre = document.createRange();
-    pre.selectNodeContents(md);
-    pre.setEnd(range.startContainer, range.startOffset);
-    prefix = pre.toString().slice(-32);
-    const post = document.createRange();
-    post.selectNodeContents(md);
-    post.setStart(range.endContainer, range.endOffset);
-    suffix = post.toString().slice(0, 32);
-  } catch (_) {}
+  const anchor = cmtAnchorFromRange(md, range);
+  if (!anchor) { hideCmtAdd(); return; }
   let rect = { left: e.clientX || 0, top: e.clientY || 0, bottom: (e.clientY || 0) };
   try { const r = range.getBoundingClientRect(); if (r && (r.width || r.height || r.left || r.top)) rect = r; } catch (_) {}
-  pendingSel = { anchor: { quote, prefix, suffix }, rect };
+  armCmtAdd(anchor, rect);
+});
+
+function armCmtAdd(anchor, rect) {
+  pendingSel = { anchor, rect };
   const btn = ensureCmtAdd();
   // Same zoom-space conversion as openCmtPop: rect is screen px, the fixed
   // button lives inside the zoomed root.
@@ -3210,7 +3364,73 @@ document.addEventListener('mouseup', (e) => {
   btn.style.left = Math.max(8, rect.left / z) + 'px';
   btn.style.top = (rect.bottom / z + 6) + 'px';
   btn.style.display = '';
-});
+}
+
+// --- comments inside a standalone .html preview frame --------------------------
+// That frame is its own document behind an opaque origin, so it captures, matches
+// and marks on its own (CMT_FRAME_SCRIPT) while the host keeps everything that
+// needs pad data: the add button, the popovers, the orphan bookkeeping.
+function previewFrame() { return previewEl.querySelector('iframe.htmlframe'); }
+// Frame rects are in the FRAME's viewport, which host zoom scales; the iframe's own
+// box is already in screen px. So scale the inner offsets, then add the box.
+function cmtRectFromFrame(w, d) {
+  const f = frameByWindow(w);
+  const o = f ? f.getBoundingClientRect() : { left: 0, top: 0 };
+  const z = SETTINGS.zoom || 1;
+  return {
+    left: o.left + (d.left || 0) * z, top: o.top + (d.top || 0) * z,
+    bottom: o.top + (d.bottom || 0) * z,
+    width: (d.width || 0) * z, height: (d.height || 0) * z,
+  };
+}
+function onFrameSelection(w, d) {
+  // Only the full-file preview frame, never an inline ![](x.html) embed: a comment
+  // there would anchor to text the note's own entry has no record of.
+  if (!commentsVisible || !currentRef || frameByWindow(w) !== previewFrame()) { hideCmtAdd(); return; }
+  if (!d.quote || !d.quote.trim()) { hideCmtAdd(); return; }
+  armCmtAdd({ quote: d.quote, prefix: d.prefix || '', suffix: d.suffix || '' }, cmtRectFromFrame(w, d));
+}
+// Push the current file's comments in for (re)marking. Called on the frame's ready
+// ping and after every mutation — a frame that reloads (author script, focus mode)
+// pings again, so marks come back without the host tracking frame lifecycle.
+function syncFrameComments(w) {
+  const f = w ? frameByWindow(w) : previewFrame();
+  if (!f || f !== previewFrame() || !f.contentWindow) return;
+  const cur = currentRef && currentRef.f;
+  // The frame carries its own mark CSS, so the host's data-comments-off rules can't
+  // reach it — hidden is expressed as "no comments" and the marks come back on show.
+  const list = commentsVisible ? (cur && cur.comments) || [] : [];
+  f.contentWindow.postMessage({ __scratchCmt: 1, comments: list }, '*');
+}
+// A goto can be asked for before the frame's script exists (switching files renders
+// a fresh iframe), so hold the id until that frame says it is ready. Tracking the
+// ELEMENT rather than a boolean means a re-rendered preview invalidates readiness
+// on its own.
+let readyFrame = null;
+let pendingGoto = null;
+function onFrameReady(w) {
+  readyFrame = frameByWindow(w);
+  syncFrameComments(w);
+  flushGoto();
+}
+function flushGoto() {
+  const f = previewFrame();
+  if (!pendingGoto) return;
+  // No frame at all (a markdown file's orphan) → nothing will ever reveal it; drop
+  // the id rather than let it fire at the next .html frame that reports ready.
+  if (!f) { pendingGoto = null; return; }
+  if (f !== readyFrame || !f.contentWindow) return;
+  f.contentWindow.postMessage({ __scratchCmtGoto: 1, cid: pendingGoto }, '*');
+  pendingGoto = null;
+}
+function onFrameMisses(w, ids) {
+  const cur = currentRef && currentRef.f;
+  // A reply from the PREVIOUS file's frame can land after the switch; adopting its
+  // ids would rewrite the new file's orphan list from a stale answer.
+  if (!cur || frameByWindow(w) !== previewFrame()) return;
+  ORPHANS = (cur.comments || []).filter(c => ids.indexOf(c.id) >= 0);
+  refreshOrphanPill();
+}
 
 // Click a highlight or its note pill → view popover.
 previewEl.addEventListener('click', (e) => {
@@ -3247,6 +3467,7 @@ function applyCommentsVisibility() {
   document.documentElement.toggleAttribute('data-comments-off', !commentsVisible);
   const b = document.getElementById('commentsToggle');
   if (b) b.classList.toggle('muted', !commentsVisible);
+  syncFrameComments(); // CSS can't reach into the frame; it re-marks or clears
 }
 function setCommentsVisible(v) {
   commentsVisible = v;
