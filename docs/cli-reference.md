@@ -76,7 +76,26 @@ See [Viewer](/viewer) for details.
 ## `scratch export`
 
 ```bash
-scratch export [<pad>] [--dir <root>] [-o <file>]
+scratch export [<pad>] [--dir <root>] [--all] [-o <file>] [--offline] [--theme <id>] [--mode <m>]
 ```
 
 Write the viewer to a single HTML file (file contents embedded; highlight.js / mermaid load from a pinned CDN), openable in any browser. Default out: `<pad-name>.html`.
+
+| Flag | Meaning |
+|------|---------|
+| `--all` | Merge every pad under the root into one file. |
+| `--offline` | Inline highlight.js / mermaid / KaTeX so the page needs no network. |
+| `--theme <id>` | Color theme for the exported page (see below). |
+| `--mode <m>` | `dark`, `light`, or `system`. |
+
+### Appearance
+
+By default an export inherits the appearance from your own config (see [Viewer](/viewer)), and the reader's remembered choice then wins — every exported page has a settings panel, and all `file://` pages share one browser origin, so a theme picked in any export follows the reader into the next one.
+
+`--theme` and `--mode` override the config **and pin that axis**: the exported page ignores the reader's stored preference for it, so a published page looks the same for everyone. Only the axis you pass is pinned, and pinning governs the boot value — the in-page picker still works, it just does not survive a reload.
+
+```bash
+scratch export notes --theme monokai --mode light -o public/notes.html
+```
+
+Theme ids: `ember` (default), `gruvbox`, `catppuccin`, `tokyo-night`, `solarized`, `dracula`, `nord`, `rose-pine`, `everforest`, `kanagawa`, `one-dark`, `night-owl`, `monokai`, `github`, `ayu`, `vitesse`, `synthwave`. Each has a dark and a light variant, selected by `--mode`. Passing an unknown id prints the full list.

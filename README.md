@@ -83,9 +83,13 @@ scratch ui [<pad>] [--dir <root>] [--browser] [--install-native]
     # read-only viewer: glimpse native window by default, browser fallback.
     # --install-native builds the native host on demand (needs .NET 8 SDK).
 
-scratch export [<pad>] [--dir <root>] [-o <file>]
+scratch export [<pad>] [--dir <root>] [--all] [-o <file>] [--offline]
+               [--theme <id>] [--mode dark|light|system]
     # write the viewer to a single HTML file (file contents embedded; highlight.js
     # / mermaid load from a pinned CDN), openable in any browser. Default out: <pad-name>.html.
+    # --offline inlines those libs so the page needs no network.
+    # --theme/--mode pin the exported page's appearance for every reader; without
+    # them it follows your config and the reader's own choice still wins.
 ```
 
 **Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.

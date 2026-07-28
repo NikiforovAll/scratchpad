@@ -16,7 +16,8 @@ import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { COLOR_THEME_IDS, DEFAULT_COLOR_THEME } from "./ui/theme.ts";
 
-export type ThemeMode = "dark" | "light" | "system";
+export const THEME_MODES = ["dark", "light", "system"] as const;
+export type ThemeMode = (typeof THEME_MODES)[number];
 export type GridStyle = "off" | "dots" | "lines";
 
 export interface ScratchConfig {
@@ -58,10 +59,10 @@ const DEFAULTS: ScratchConfig = {
   },
 };
 
-function validThemeMode(v: unknown): v is ThemeMode {
-  return v === "dark" || v === "light" || v === "system";
+export function validThemeMode(v: unknown): v is ThemeMode {
+  return typeof v === "string" && (THEME_MODES as readonly string[]).includes(v);
 }
-function validColorTheme(v: unknown): v is string {
+export function validColorTheme(v: unknown): v is string {
   return typeof v === "string" && COLOR_THEME_IDS.includes(v);
 }
 /** Normalizing sanitizer (not a type guard): keeps known theme ids, drops dupes,

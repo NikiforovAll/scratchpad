@@ -195,6 +195,29 @@ describe("renderHtml", () => {
     expect(live).toContain('id="saveCopy"');
   });
 
+  test("data-theme-pinned lists only the axes the exporter passed explicitly", async () => {
+    const pad = await seedPad();
+    const view = await buildView([pad]);
+    const ui = { themeMode: "light" as const, colorTheme: "ayu" };
+    // Anchor on the real <html> tag — the client JS also mentions the attribute name.
+    const marker = (html: string) => /^<!doctype html>\n<html[^>]* data-theme-pinned="([^"]*)"/.exec(html)?.[1];
+    // No flags → no marker, so the reader's localStorage still wins (today's behavior).
+    expect(marker(await renderHtml(view, "Notes", ui, { exportMode: true }))).toBeUndefined();
+    const both = await renderHtml(view, "Notes", ui, {
+      exportMode: true,
+      pinned: ["colorTheme", "themeMode"],
+    });
+    expect(marker(both)).toBe("colorTheme themeMode");
+    expect(both).toContain('data-color-theme="ayu"');
+    expect(both).toContain('data-theme="light"');
+    // One axis only — the other stays reader-controlled.
+    const one = await renderHtml(view, "Notes", ui, { exportMode: true, pinned: ["colorTheme"] });
+    expect(marker(one)).toBe("colorTheme");
+    // Pinning is an export concept: a live page never carries it (the host owns config).
+    const live = await renderHtml(view, "Notes", ui, { pinned: ["colorTheme", "themeMode"] });
+    expect(marker(live)).toBeUndefined();
+  });
+
   test("defaults to system mode + ember and ships the settings UI", async () => {
     const pad = await seedPad();
     const html = await renderHtml(await buildView([pad]), "Notes");

@@ -20,6 +20,7 @@ import {
   type FileType,
 } from "./manifest.ts";
 import type { CommentItem } from "./comments.ts";
+import type { UiSettings } from "./ui/render.ts";
 
 export interface IO {
   out: (s: string) => void;
@@ -486,13 +487,40 @@ export async function cmdUi(
   });
 }
 
-/** scratch export [<pad>] [--dir <root>] [--all] [-o/--out <file>] [--offline] — write self-contained HTML. */
+/** scratch export [<pad>] [--dir <root>] [--all] [-o/--out <file>] [--offline]
+ * [--theme <id>] [--mode dark|light|system] — write self-contained HTML. */
 export async function cmdExport(
-  args: { pad?: string; dir?: string; all?: boolean; out?: string; offline?: boolean },
+  args: {
+    pad?: string;
+    dir?: string;
+    all?: boolean;
+    out?: string;
+    offline?: boolean;
+    theme?: string;
+    mode?: string;
+  },
   io: IO,
 ): Promise<number> {
   const { buildView, renderHtml } = await import("./ui/render.ts");
-  const { loadConfig } = await import("./config.ts");
+  const { loadConfig, validColorTheme, validThemeMode, THEME_MODES } = await import("./config.ts");
+  // Validate and record in one pass, before any pad I/O: the key set of `overrides`
+  // IS the pinned list, so the two can't drift as axes are added.
+  const overrides: Partial<UiSettings> = {};
+  if (args.theme !== undefined) {
+    if (!validColorTheme(args.theme)) {
+      const { COLOR_THEME_IDS } = await import("./ui/theme.ts");
+      fail(io, `invalid --theme "${args.theme}". one of: ${COLOR_THEME_IDS.join(" ")}`);
+      return 2;
+    }
+    overrides.colorTheme = args.theme;
+  }
+  if (args.mode !== undefined) {
+    if (!validThemeMode(args.mode)) {
+      fail(io, `invalid --mode "${args.mode}". one of: ${THEME_MODES.join(" ")}`);
+      return 2;
+    }
+    overrides.themeMode = args.mode;
+  }
   const root = resolveRoot(args.dir);
   const sel = await selectPads(args, root, io, "export");
   if (!sel) return 1;
@@ -500,13 +528,16 @@ export async function cmdExport(
   // File contents are embedded. Online (default): hljs/mermaid/katex load from the
   // pinned CDN (needs network, degrades gracefully). --offline: those libs are
   // inlined from the build cache so the page needs NO network (air-gapped sandbox).
-  // The exporter's saved theme is baked in; the exported file's own settings panel
-  // falls back to localStorage (no host listening to write config).
+  // Appearance defaults to the exporter's saved theme, which the reader's own
+  // remembered choice then overrides (no host listens, so localStorage is the store).
+  // --theme/--mode also PIN that axis so a published page can't be repainted.
   const view = await buildView(sel.pads);
   const cfg = await loadConfig();
+  const ui = { ...cfg.ui, ...overrides };
+  const pinned = Object.keys(overrides) as (keyof UiSettings)[];
   let html: string;
   try {
-    html = await renderHtml(view, sel.label, cfg.ui, { exportMode: true, offline: args.offline });
+    html = await renderHtml(view, sel.label, ui, { exportMode: true, offline: args.offline, pinned });
   } catch (e) {
     if (args.offline) {
       fail(io, "offline export needs the vendor cache — run `bun run vendor` first.");

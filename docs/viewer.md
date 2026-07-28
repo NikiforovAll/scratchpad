@@ -34,9 +34,14 @@ The viewer is **long-running** — it keeps a local server alive until you close
 ```bash
 scratch export "<name>"            # → <pad-name>.html
 scratch export "<name>" -o out.html
+scratch export "<name>" --offline  # inline the libs; no network needed
+scratch export "<name>" --theme monokai --mode light
+scratch export --all -o all.html   # merge every pad under the root
 ```
 
-File contents are embedded; highlight.js / mermaid load from a pinned CDN.
+File contents are embedded; highlight.js / mermaid load from a pinned CDN (`--offline` inlines them instead).
+
+An export inherits its appearance from the config below, and the reader's own remembered choice then overrides it. For a page you publish, pin it with `--theme` / `--mode` — see the [CLI reference](/cli-reference#appearance).
 
 ## Config
 

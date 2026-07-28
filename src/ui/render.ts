@@ -314,7 +314,7 @@ export async function renderHtml(
   view: PadView[],
   rootLabel: string,
   ui: UiSettings = DEFAULT_UI,
-  opts: { exportMode?: boolean; offline?: boolean } = {},
+  opts: { exportMode?: boolean; offline?: boolean; pinned?: (keyof UiSettings)[] } = {},
 ): Promise<string> {
   const data = payloadJson(view, rootLabel);
   // Static kit (tokens + classes + #arrow marker) baked into every ![](file.html)
@@ -329,6 +329,11 @@ export async function renderHtml(
   const zoom = opts.exportMode ? 1 : (ui.zoom ?? 1);
   const gridStyle = ui.gridStyle ?? "dots";
   const wideMode = ui.wideMode ?? false;
+  // Theme axes the exporter chose EXPLICITLY (`scratch export --theme/--mode`), as
+  // opposed to inherited from its config: the client skips its localStorage seed for
+  // these (see the SETTINGS comment for why that matters on file://). Boot seed only —
+  // the in-page picker still works, it just doesn't survive a reload here.
+  const pinned = (opts.exportMode ? (opts.pinned ?? []) : []).join(" ");
   // Persisted theme/zoom land on <html> server-side so the first paint is
   // already correct (no flash). "system" stays attribute-less until the client
   // resolves prefers-color-scheme — same dark-first default as today.
@@ -341,6 +346,7 @@ export async function renderHtml(
     // The client keys "save a copy" behavior off this attribute, and it rides
     // along when the page re-saves itself, so saved copies stay exports.
     (opts.exportMode ? " data-export" : "") +
+    (pinned ? ` data-theme-pinned="${escapeHtml(pinned)}"` : "") +
     ` data-export-name="${escapeHtml(exportName)}"` +
     (zoom === 1 ? "" : ` style="zoom: ${zoom}"`);
   // NOT part of payloadJson: __scratchReload diff-compares the data island to
@@ -1873,8 +1879,13 @@ const SETTINGS = (function () {
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // With no host the embedded snapshot is whatever the exporting machine had
   // saved — the reader's own remembered choice wins ('scratch.theme' is the
-  // pre-settings key, kept as a migration seed).
+  // pre-settings key, kept as a migration seed). EXCEPT for axes the exporter
+  // pinned with "scratch export --theme/--mode": those are a property of the
+  // published page, so the baked value beats localStorage. Note all file:// pages
+  // share one origin, so without pinning ANY export the reader has themed repaints
+  // every other export they open. Seed only — setColorTheme/setThemeMode still work.
   if (!HAS_HOST) {
+    const PINNED = (document.documentElement.getAttribute('data-theme-pinned') || '').split(' ');
     try {
       const m = localStorage.getItem('scratch.themeMode') || localStorage.getItem('scratch.theme');
       const c = localStorage.getItem('scratch.colorTheme');
@@ -1883,8 +1894,8 @@ const SETTINGS = (function () {
       const g = localStorage.getItem('scratch.gridStyle');
       const w = localStorage.getItem('scratch.wideMode');
       const z = parseFloat(localStorage.getItem('scratch.zoom'));
-      if (m === 'dark' || m === 'light' || m === 'system') s.themeMode = m;
-      if (c) s.colorTheme = c;
+      if (PINNED.indexOf('themeMode') < 0 && (m === 'dark' || m === 'light' || m === 'system')) s.themeMode = m;
+      if (PINNED.indexOf('colorTheme') < 0 && c) s.colorTheme = c;
       if (st) s.starredThemes = st;
       if (g === 'off' || g === 'dots' || g === 'lines') s.gridStyle = g;
       if (w === 'true' || w === 'false') s.wideMode = w === 'true';

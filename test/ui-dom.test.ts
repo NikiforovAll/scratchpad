@@ -81,6 +81,13 @@ async function boot(html: string, seedStorage?: Record<string, string>, pre?: (w
     .replace(/<script>[\s\S]*?<\/script>/g, (m) =>
       m.includes("buildTree()") ? m : "<script></script>",
     );
+  // innerHTML only replaces children, so the real <html> tag's attributes would be
+  // dropped — and the page reads them at boot (data-export, data-theme-pinned).
+  // Copy them across first so the harness sees the same root element a browser would.
+  const rootTag = /<html([^>]*)>/.exec(slim)?.[1] ?? "";
+  for (const [, name, , value] of rootTag.matchAll(/([\w-]+)(="([^"]*)")?/g)) {
+    if (name && name !== "lang") document.documentElement.setAttribute(name, value ?? "");
+  }
   document.documentElement.innerHTML = slim
     .replace(/^[\s\S]*?<html[^>]*>/, "")
     .replace(/<\/html>[\s\S]*$/, "");
@@ -1192,6 +1199,42 @@ test("embedded settings from the config file apply at boot", async () => {
   try {
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(document.documentElement.dataset.colorTheme).toBe("tokyo-night");
+  } finally {
+    await teardown();
+  }
+});
+
+// The point of `scratch export --theme/--mode`. All file:// pages share one
+// localStorage origin, so without pinning, a reader who ever picked a theme in
+// any other export repaints a published page with it.
+test("a pinned axis beats the reader's localStorage; an unpinned one does not", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "doc.md"), "# H\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "doc.md", title: "Doc", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  const view = await buildView([pad]);
+  const ui = { themeMode: "light" as const, colorTheme: "ayu" };
+  const reader = { "scratch.colorTheme": "nord", "scratch.themeMode": "dark" };
+
+  // Only colorTheme pinned: the baked ayu survives, mode still follows the reader.
+  const pinnedHtml = await renderHtml(view, "P", ui, { exportMode: true, pinned: ["colorTheme"] });
+  await boot(pinnedHtml, reader);
+  try {
+    expect(document.documentElement.dataset.colorTheme).toBe("ayu");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  } finally {
+    await teardown();
+  }
+
+  // Nothing pinned (a flagless export): the reader wins on both axes, as before.
+  const plainHtml = await renderHtml(view, "P", ui, { exportMode: true });
+  await boot(plainHtml, reader);
+  try {
+    expect(document.documentElement.dataset.colorTheme).toBe("nord");
+    expect(document.documentElement.dataset.theme).toBe("dark");
   } finally {
     await teardown();
   }

@@ -51,10 +51,14 @@ ${bold("USAGE")}
       --install-native    build the native host on demand (needs the .NET 8 SDK).
       With multiple pads under root, name one or pass --all to view them together.
 
-  ${cyan("scratch export")} [<pad>] ${dim("[--dir <root>] [--all] [-o <file>] [--offline]")}
+  ${cyan("scratch export")} [<pad>] ${dim("[--dir <root>] [--all] [-o <file>] [--offline] [--theme <id>] [--mode <m>]")}
       Write the viewer to a single HTML file (file contents embedded; hljs/mermaid
       load from CDN), openable in any browser. Default out: <pad-name>.html.
       --offline           inline hljs/mermaid/katex (no CDN) for air-gapped use.
+      --theme <id>        color theme for the exported page (pass a bad id to list them).
+      --mode <m>          dark | light | system.
+      Without --theme/--mode the export uses your saved config and the reader's own
+      remembered choice still wins; passing either pins it for every reader.
       With multiple pads under root, name one or pass --all to merge them.
 
 ${bold("ADDRESSING")}
@@ -81,6 +85,8 @@ const FLAG_SPEC = {
   json: { type: "boolean" as const },
   browser: { type: "boolean" as const },
   offline: { type: "boolean" as const },
+  theme: { type: "string" as const },
+  mode: { type: "string" as const },
   "install-native": { type: "boolean" as const },
   out: { type: "string" as const, short: "o" },
   help: { type: "boolean" as const, short: "h" },
@@ -129,7 +135,10 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
         io,
       );
     case "export":
-      return cmdExport({ pad: rest[0], dir: v.dir, all: v.all, out: v.out, offline: v.offline }, io);
+      return cmdExport(
+        { pad: rest[0], dir: v.dir, all: v.all, out: v.out, offline: v.offline, theme: v.theme, mode: v.mode },
+        io,
+      );
     default:
       io.err(`${red("error:")} unknown command "${cmd}". run \`scratch --help\`.`);
       return 2;

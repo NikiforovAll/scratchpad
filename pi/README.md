@@ -7,7 +7,7 @@ It ships:
 - **Skills** — `scratch` (the CLI loop: `new` → write → `add` → `ls` → `show`) and `planning-with-scratchpad` (planning conventions on top). These teach the pi agent when and how to drive the CLI.
 - **Commands** — the bits a plain shell call can't do well:
   - `/scratch ui [pad] [--browser]` — open the viewer. The viewer is long-running, so it's launched detached. No pad → interactive picker; type a pad → tab-completion.
-  - `/scratch export [pad] [-o <file>]` — write the standalone HTML and report the path. Same pad selection as `ui`.
+  - `/scratch export [pad] [-o <file>] [--offline] [--theme <id>] [--mode dark|light|system]` — write the standalone HTML and report the path. Same pad selection as `ui`. `--theme`/`--mode` pin the exported page's appearance for every reader.
   - `/scratch stop` — close viewers opened this session.
 
 ## Requirements

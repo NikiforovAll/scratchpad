@@ -419,6 +419,38 @@ describe("export", () => {
   test("missing pad exits 1", async () => {
     expect(await run(["export", "ghost", "--dir", root], io)).toBe(1);
   });
+
+  test("--theme/--mode bake and pin; bad values exit 2 and list what's valid", async () => {
+    await seed();
+    const out = join(root, "themed.html");
+    log = []; errs = [];
+    expect(await run(["export", "Notes", "--dir", root, "-o", out, "--theme", "ayu", "--mode", "light"], io)).toBe(0);
+    const html = await readFile(out, "utf8");
+    expect(html).toContain('data-color-theme="ayu"');
+    expect(html).toContain('data-theme="light"');
+    expect(html).toContain('data-theme-pinned="colorTheme themeMode"');
+
+    // Validated before any work — and the error doubles as the list of theme ids,
+    // which is why --help doesn't enumerate all 17.
+    log = []; errs = [];
+    expect(await run(["export", "Notes", "--dir", root, "-o", out, "--theme", "bogus"], io)).toBe(2);
+    expect(allErr()).toContain('invalid --theme "bogus"');
+    expect(allErr()).toContain("ayu");
+
+    log = []; errs = [];
+    expect(await run(["export", "Notes", "--dir", root, "-o", out, "--mode", "bogus"], io)).toBe(2);
+    expect(allErr()).toContain('invalid --mode "bogus"');
+    expect(allErr()).toContain("dark light system");
+  });
+
+  test("without --theme/--mode the export carries no pin marker", async () => {
+    await seed();
+    const out = join(root, "unpinned.html");
+    log = []; errs = [];
+    expect(await run(["export", "Notes", "--dir", root, "-o", out], io)).toBe(0);
+    // Anchor on the <html> tag — the client JS mentions the attribute name too.
+    expect(await readFile(out, "utf8")).not.toMatch(/<html[^>]* data-theme-pinned=/);
+  });
 });
 
 describe("comments", () => {

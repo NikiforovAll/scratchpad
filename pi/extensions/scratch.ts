@@ -21,7 +21,7 @@ const viewers = new Set<{ child: ChildProcess; pad: string }>();
 const SUBCOMMANDS = ["ui", "export", "stop", "help"] as const;
 // Flags that consume the following token as a value — so it isn't mistaken for
 // the pad name when we pick the first bare token as the pad.
-const VALUE_FLAGS = new Set(["-o", "--out", "--dir"]);
+const VALUE_FLAGS = new Set(["-o", "--out", "--dir", "--theme", "--mode"]);
 
 // `shell` resolves the `scratch.cmd`/`.exe` shim on Windows; `windowsHide`
 // suppresses the cmd console window that would otherwise flash/stay open.
@@ -156,6 +156,7 @@ function showHelp(ctx: any): void {
   ctx.ui.notify(
     "/scratch ui [pad] [--browser]   open the viewer (picker if no pad)\n" +
       "/scratch export [pad] [-o f]    write standalone HTML\n" +
+      "    [--offline] [--theme <id>] [--mode dark|light|system]\n" +
       "/scratch stop                   close viewers opened this session",
     "info",
   );

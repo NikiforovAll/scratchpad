@@ -33,7 +33,7 @@ For local development, add the package directory to `~/.pi/agent/settings.json`:
 | Command | Does |
 |---------|------|
 | `/scratch ui [pad] [--browser]` | Open the viewer. Long-running, so it's launched detached. No pad → interactive picker; type a pad → tab-completion. |
-| `/scratch export [pad] [-o <file>]` | Write the standalone HTML and report the path. Same pad selection as `ui`. |
+| `/scratch export [pad] [-o <file>] [--theme <id>] [--mode <m>]` | Write the standalone HTML and report the path. Same pad selection as `ui`. `--theme`/`--mode` pin the page's appearance for every reader. |
 | `/scratch stop` | Close viewers opened this session. |
 
 The commands and skills surface an install hint if the `scratch` CLI is missing from PATH.
