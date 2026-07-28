@@ -215,6 +215,13 @@ export interface LaunchOpts {
   autoReload?: boolean;
 }
 
+/** Page → disk write-back handlers, one per message key / POST route. */
+interface Persisters {
+  comments: (payload: unknown) => Promise<void>;
+  checkbox: (payload: unknown) => Promise<void>;
+  hidden: (payload: unknown) => Promise<void>;
+}
+
 export async function launchViewer(
   pads: Pad[],
   rootLabel: string,
@@ -225,25 +232,25 @@ export async function launchViewer(
   // primed from exactly what the launched page loaded.
   const reloader = createReloader(pads, rootLabel);
   const snap = await reloader.rebuild();
-  // Writeback handlers shared by both transports.
-  const persistComments = (payload: unknown) => persistFileComments(pads, payload, io);
-  const persistCheckbox = (payload: unknown) => persistFileCheckbox(pads, payload, io);
-  const persistHidden = (payload: unknown) => persistFileHidden(pads, payload, io);
+  // Writeback handlers shared by both transports. Passed as one object: they're
+  // structurally identical, so positional params would swap silently.
+  const persist: Persisters = {
+    comments: (payload) => persistFileComments(pads, payload, io),
+    checkbox: (payload) => persistFileCheckbox(pads, payload, io),
+    hidden: (payload) => persistFileHidden(pads, payload, io),
+  };
 
   // Native glimpse is the default; --browser forces the browser viewer. When the
   // native host isn't built, tryGlimpse prints how to install it and we fall back.
   if (!opts.forceBrowser) {
     const ok = await tryGlimpse(
       snap.html, opts.title, io, reloader, opts.frameless !== false, !!opts.installNative,
-      persistComments, persistCheckbox, persistHidden, opts.autoReload !== false,
+      persist, opts.autoReload !== false,
     );
     if (ok) return 0;
     io.err("falling back to the browser viewer.");
   }
-  return serveBrowser(
-    snap.html, opts.title, io, reloader, persistComments, persistCheckbox, persistHidden,
-    opts.autoReload !== false,
-  );
+  return serveBrowser(snap.html, opts.title, io, reloader, persist, opts.autoReload !== false);
 }
 
 // glimpse's WebView2 host is a compiled .NET binary. On a global `bun add -g`
@@ -303,9 +310,7 @@ async function tryGlimpse(
   reloader: Reloader,
   frameless: boolean,
   install: boolean,
-  persistComments: (payload: unknown) => Promise<void>,
-  persistCheckbox: (payload: unknown) => Promise<void>,
-  persistHidden: (payload: unknown) => Promise<void>,
+  persist: Persisters,
   autoReload: boolean,
 ): Promise<boolean> {
   // glimpseui resolves its native host relative to its own module file. Inside a
@@ -432,17 +437,17 @@ async function tryGlimpse(
       // Comment mutations from the page (add/edit/delete) — write the file's
       // comment array back into its pad manifest.
       if (d && d.__scratch_comments) {
-        await persistComments(d.__scratch_comments);
+        await persist.comments(d.__scratch_comments);
         return;
       }
       // Task-checkbox toggle from the page — flip the "[ ]"/"[x]" in the file.
       if (d && d.__scratch_checkbox) {
-        await persistCheckbox(d.__scratch_checkbox);
+        await persist.checkbox(d.__scratch_checkbox);
         return;
       }
       // File hidden from the page (Ctrl+Alt+H) — set the entry's hidden flag.
       if (d && d.__scratch_hide) {
-        await persistHidden(d.__scratch_hide);
+        await persist.hidden(d.__scratch_hide);
         return;
       }
       // Save-a-copy: the page can't open its own save dialog (non-secure origin),
@@ -530,8 +535,7 @@ async function serveBrowser(
   title: string,
   io: IO,
   reloader: Reloader,
-  persistComments: (payload: unknown) => Promise<void>,
-  persistCheckbox: (payload: unknown) => Promise<void>,
+  persist: Persisters,
   autoReload: boolean,
 ): Promise<number> {
   // The browser transport is request/response: a manual reload rebuilds from disk
@@ -562,17 +566,17 @@ async function serveBrowser(
       }
       // Comment write-back — browser mirror of the WebView2 __scratch_comments path.
       if (req.method === "POST" && url.pathname === "/comments") {
-        await persistComments(await req.json().catch(() => null));
+        await persist.comments(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
       }
       // Checkbox toggle write-back — browser mirror of __scratch_checkbox.
       if (req.method === "POST" && url.pathname === "/checkbox") {
-        await persistCheckbox(await req.json().catch(() => null));
+        await persist.checkbox(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
       }
       // Hide-file write-back — browser mirror of __scratch_hide.
       if (req.method === "POST" && url.pathname === "/hide") {
-        await persistHidden(await req.json().catch(() => null));
+        await persist.hidden(await req.json().catch(() => null));
         return new Response(null, { status: 204 });
       }
       // Auto-reload event stream. The page opens EventSource('/events'); on a
