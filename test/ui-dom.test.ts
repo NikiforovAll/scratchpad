@@ -1771,6 +1771,20 @@ test("edit updates the body and bumps updated, persisting the full array", async
   }
 });
 
+test("a comment box opens with the cursor already in its textarea", async () => {
+  const html = await renderPadWithComments([cmt()]);
+  await boot(html);
+  try {
+    (document.querySelector(".cmt-hl") as any).click();
+    (Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find((b) => b.textContent === "edit") as any).click();
+    // Regression: the popover used to be built while still detached, so focus() was a
+    // silent no-op and every comment cost an extra click before you could type.
+    expect(document.activeElement).toBe(document.querySelector(".cmt-pop textarea"));
+  } finally {
+    await teardown();
+  }
+});
+
 test("Ctrl+Enter in the comment textarea submits like the button", async () => {
   const html = await renderPadWithComments([cmt()]);
   const posted: any[] = [];

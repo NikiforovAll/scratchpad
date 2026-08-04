@@ -3230,6 +3230,11 @@ function openCmtPop(rect, build) {
   el.style.left = left + 'px';
   el.style.top = top + 'px';
   cmtPopEl = el;
+  // Type straight into a popover that has one: focus() only takes on an element that is
+  // IN the document, and build() runs above while el is still detached — so the callers'
+  // own focus() calls were silent no-ops and every comment needed a click first.
+  const ta = el.querySelector('textarea');
+  if (ta) { try { ta.focus(); } catch (_) {} }
 }
 function cmtBtn(label, onClick) {
   const b = document.createElement('button');
@@ -3277,8 +3282,7 @@ function cmtEditPop(c, rect) {
     };
     act.appendChild(cmtBtn('save', save));
     el.appendChild(act);
-    cmtCtrlEnter(ta, save);
-    try { ta.focus(); } catch (_) {}
+    cmtCtrlEnter(ta, save);   // focus is handled by openCmtPop, once el is in the document
   });
 }
 function cmtNewPop(anchor, rect) {
@@ -3308,8 +3312,7 @@ function cmtNewPop(anchor, rect) {
     };
     act.appendChild(cmtBtn('add', add));
     el.appendChild(act);
-    cmtCtrlEnter(ta, add);
-    try { ta.focus(); } catch (_) {}
+    cmtCtrlEnter(ta, add);   // focus is handled by openCmtPop, once el is in the document
   });
 }
 function openOrphansPop(pill) {
