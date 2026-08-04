@@ -804,7 +804,7 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     Object.defineProperty(embed, "clientWidth", { value: 300, configurable: true });
     (embed.contentWindow as any).postMessage = (m: any) => posts.push(m);
     window.dispatchEvent(new MessageEvent("message", {
-      data: { __scratchFrame: 1, h: 400, w: 900 }, source: embed.contentWindow,
+      data: { __scratchFrame: 1, h: 400, w: 900, z: 1 }, source: embed.contentWindow,
     } as any));
     // Sized to the reported height (already scaled frame-side), and NOT scaled itself.
     expect(embed.style.height).toBe("401px");
@@ -840,6 +840,16 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     // Leaving full window drops the embed's scale: it was chosen for the viewport, and
     // left in place it shrank the inline embed for the rest of the session.
     expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 1 });
+    // The shrink back into the column is reported at the OLD factor and lands after the
+    // exit — sizing the embed from it left a tall blank box.
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { __scratchFrame: 1, h: 1600, w: 900, z: 0.26 }, source: embed.contentWindow,
+    } as any));
+    expect(embed.style.height).toBe("");   // exitFocus cleared it; the stale report can't set it
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { __scratchFrame: 1, h: 500, w: 900, z: 1 }, source: embed.contentWindow,
+    } as any));
+    expect(embed.style.height).toBe("501px");
 
     // --- a standalone .html file as the active preview ---
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));

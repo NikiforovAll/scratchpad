@@ -831,7 +831,9 @@ const FRAME_ZOOM = 'var Z=1;'
   + 'function P(){var d=document.documentElement,b=document.body,'
   + 'h=Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0),'
   + 'w=Math.max(d.scrollWidth,b?b.scrollWidth:0);'
-  + 'parent.postMessage({__scratchFrame:1,h:Math.ceil(h*Z),w:w},"*");}'
+  // z tags the report with the factor it was measured at — the host needs it to spot a
+  // report that is already stale (see the size handler).
+  + 'parent.postMessage({__scratchFrame:1,h:Math.ceil(h*Z),w:w,z:Z},"*");}'
   + 'addEventListener("message",function(e){var d=e.data;if(!d||d.__scratchZoom!==1)return;'
   + 'Z=d.z;var r=document.documentElement,b=document.body;'
   + 'if(b){b.style.transformOrigin="0 0";b.style.transform=Z===1?"":"scale("+Z+")";}'
@@ -1306,6 +1308,11 @@ function armHtmlFrames() {
     // don't fight either with content height. (Direct-child test, not closest(): the
     // CSS contract is .md .htmlembed > .htmlframe, and this runs per resize tick.)
     if (focusedFrame === f || !f.parentElement.classList.contains('htmlembed')) return;
+    // Reports measured at a factor we have since left are stale, and one always is:
+    // leaving full window shrinks the frame back into the column, and that resize is
+    // reported at the OLD (magnified) factor, landing after exitFocus cleared
+    // focusedFrame. Sizing the inline embed from it left a tall blank box.
+    if ((parseFloat(f.dataset.ez) || 1) !== (e.data.z || 1)) return;
     // Writing the height resizes the frame's document, which reports again — so an
     // unchanged value would dirty the article's layout on every steady-state tick.
     const px = (e.data.h + 1) + 'px';
