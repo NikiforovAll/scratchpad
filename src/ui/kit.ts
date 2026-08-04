@@ -20,6 +20,12 @@
 // track so the bar overlays the author's background instead of painting a gutter. It
 // only ever shows in full-window mode — inline embeds are sized to their content.
 
+// The kit's page background, exported because the HOST stylesheet has to paint the
+// iframe ELEMENT the same color (theme.ts --embed-paper) — the frame's scrollbar track
+// is transparent, so the element behind it is what paints the scroll gutter. Shared
+// rather than retyped so the two can't drift apart.
+export const KIT_BG = { light: "#ffffff", dark: "#2a2925" };
+
 export const KIT_CSS = `
 :root {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -28,7 +34,7 @@ export const KIT_CSS = `
   --border-radius-md: 8px;
   --border-radius-lg: 12px;
   --border-radius-xl: 16px;
-  --color-background-primary: light-dark(#ffffff, #2a2925);
+  --color-background-primary: light-dark(${KIT_BG.light}, ${KIT_BG.dark});
   --color-background-secondary: light-dark(#f5f4ed, #21201c);
   --color-background-tertiary: light-dark(#faf9f5, #1b1a17);
   --color-background-info: light-dark(#e6f1fb, rgba(55, 138, 221, 0.18));
@@ -56,7 +62,10 @@ export const KIT_CSS = `
   --c-coral-line: #e8835e;
   --c-coral-text: light-dark(#a44f28, #f0a987);
 }
-html { box-sizing: border-box; scrollbar-width: thin;
+/* overscroll-behavior: a wheel that reaches the end of THIS page must not carry on
+   scrolling the viewer's article behind it — full window especially, where the frame
+   covers the article and the reader can't see what moved until they leave. */
+html { box-sizing: border-box; scrollbar-width: thin; overscroll-behavior: contain;
   scrollbar-color: var(--color-border-secondary) transparent; }
 *, *::before, *::after { box-sizing: inherit; }
 body {

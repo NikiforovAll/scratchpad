@@ -2,6 +2,8 @@
 // tokens. Dark-first (#101114) + warm-paper light (#e8e6e3) siblings; one ember
 // accent; tonal-first depth, flat at rest; two-voice serif/mono type.
 
+import { KIT_BG } from "./kit.ts";
+
 /** The 12 color variables a color theme must define, per mode. */
 export interface Palette {
   ember: string;
@@ -347,6 +349,13 @@ const BASE_CSS = `
   --ok: #2ea043;
   --ok-strong: #3fb950;
   --ok-on: #fff;
+  /* Canvas behind a kit-themed md embed's iframe ELEMENT. Taken from kit.ts so it
+     stays equal to its --color-background-primary pair: the frame's scrollbar track is
+     transparent on purpose (kit.ts), so this element background is what paints
+     the scroll gutter — a hardcoded white one read as a bright band in dark mode.
+     Not light-dark(): the host stylesheet never declares color-scheme, so it
+     would follow the OS instead of the theme the user pinned. */
+  --embed-paper: ${KIT_BG.dark};
   --serif: 'Playfair Display', Georgia, serif;
   --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
 }
@@ -367,6 +376,7 @@ const BASE_CSS = `
   --ok: #1a7f37;
   --ok-strong: #2ea043;
   --ok-on: #fff;
+  --embed-paper: ${KIT_BG.light};
 }
 
 * { box-sizing: border-box; }
@@ -742,6 +752,9 @@ pre.has-nos > code { flex: 1 1 auto; min-width: 0; display: block; overflow-x: a
 .md img.mdimg { max-width: 100%; height: auto; border: 1px solid var(--border);
   border-radius: 6px; background: var(--elevated); }
 .notice { color: var(--ink-muted); font-size: 13px; padding: 20px 0; }
+/* #fff, not a theme token: this bare form is the standalone .html preview, an author
+   page that never opted into dark and gets no kit CSS — white paper is the honest
+   backdrop for it. Md embeds are kit-themed and override this (see --embed-paper). */
 .htmlframe { width: 100%; height: 75vh; border: 1px solid var(--border);
   border-radius: 6px; background: #fff; }
 
@@ -828,7 +841,8 @@ sup.fnref a:hover { text-decoration: underline; }
    positioning context; a span, not a div, because the embed is emitted from inline
    markdown, inside a p. */
 .md .htmlembed { display: block; position: relative; width: 100%; max-width: 760px; margin: 1em auto; }
-.md .htmlembed > .htmlframe { display: block; width: 100%; height: 150px; border: 0; margin: 0; }
+.md .htmlembed > .htmlframe { display: block; width: 100%; height: 150px; border: 0; margin: 0;
+  background: var(--embed-paper); }
 /* Hover-only: an always-on chip would cover the author page's own corner. */
 .embed-full { position: absolute; top: 6px; right: 6px; z-index: 1;
   background: var(--elevated); border: 1px solid var(--border); border-radius: 4px;

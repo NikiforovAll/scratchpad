@@ -498,6 +498,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
         <div class="sc-group">View</div>
         <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
         <div><dt><kbd>f</kbd></dt><dd>Expand the embed under the cursor (html / mermaid) · <kbd>Esc</kbd> exits</dd></div>
+        <div><dt><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Scale that embed in / out / back to fit</dd></div>
         <div><dt><kbd>o</kbd></dt><dd>Toggle table of contents</dd></div>
         <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
         <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy comments (JSON)</dd></div>
@@ -818,16 +819,47 @@ const KIT = (function () {
 // (least of all a closing one) appears in this source — this whole block is itself
 // emitted inside the host page's own script element, where a closing tag would end it.
 const KEY_RELAY = 'addEventListener("keydown",function(e){var x=e.target;if(x&&(x.tagName==="INPUT"||x.tagName==="TEXTAREA"||x.isContentEditable))return;parent.postMessage({__scratchKey:1,key:e.key,ctrlKey:e.ctrlKey,metaKey:e.metaKey,altKey:e.altKey,shiftKey:e.shiftKey},"*");});';
-const FRAME_SCRIPT = '<' + 'script>(function(){function p(){var d=document.documentElement,b=document.body,h=Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0);parent.postMessage({__scratchFrame:1,h:h},"*");}var o=new ResizeObserver(p);o.observe(document.documentElement);if(document.body)o.observe(document.body);addEventListener("load",p);p();' + KEY_RELAY + '})();' + '<' + '/script>';
-// The relay alone, for a STANDALONE .html preview: that frame is the author's own
-// document (no kit, no auto-sizing), but it must not trap the keyboard — without
-// this, clicking into a full-window page leaves Esc with nowhere to go.
-const KEY_RELAY_SCRIPT = '<' + 'script>(function(){' + KEY_RELAY + '})();' + '<' + '/script>';
+// Scale (fit-to-width / +/-) inside a frame. The HOST decides the factor — only it
+// knows the frame's box — and the frame applies it and reports its NATURAL size back.
+// transform:scale, not CSS zoom: zoom reflows, so fitting a wide table would re-wrap
+// it into a tall one instead of shrinking it, and layout metrics stay natural under a
+// transform, so one measurement serves every factor. overflow-x is pinned only when
+// the SCALED content really fits, so the 1px of rounding slack can't leave a scrollbar
+// behind — a factor that hit the host's floor (a table many times wider than the box)
+// keeps its scrollbar instead of hiding the part it cannot show.
+const FRAME_ZOOM = 'var Z=1;'
+  + 'function P(){var d=document.documentElement,b=document.body,'
+  + 'h=Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0),'
+  + 'w=Math.max(d.scrollWidth,b?b.scrollWidth:0);'
+  + 'parent.postMessage({__scratchFrame:1,h:Math.ceil(h*Z),w:w},"*");}'
+  + 'addEventListener("message",function(e){var d=e.data;if(!d||d.__scratchZoom!==1)return;'
+  + 'Z=d.z;var r=document.documentElement,b=document.body;'
+  + 'if(b){b.style.transformOrigin="0 0";b.style.transform=Z===1?"":"scale("+Z+")";}'
+  + 'r.style.overflowX="";'
+  + 'var w=Math.max(r.scrollWidth,b?b.scrollWidth:0);'
+  + 'if(Z<1&&Math.ceil(w*Z)<=r.clientWidth)r.style.overflowX="hidden";P();});'
+  // Ctrl+wheel inside the frame, relayed like a keystroke: unhandled, it reached the
+  // browser's OWN page zoom (and, full window, that zoom applied to the host page
+  // hiding behind the frame — invisible until you left it). Scaling the embed is what
+  // the gesture means when the embed is what you are looking at.
+  + 'addEventListener("wheel",function(e){if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();'
+  + 'parent.postMessage({__scratchWheel:1,down:e.deltaY>0},"*");},{passive:false});';
+// observe: keep reporting the content height so the host can size the frame to it.
+const frameScript = (observe) => '<' + 'script>(function(){' + FRAME_ZOOM
+  + (observe ? 'var o=new ResizeObserver(P);o.observe(document.documentElement);if(document.body)o.observe(document.body);' : '')
+  + 'addEventListener("load",P);P();' + KEY_RELAY + '})();' + '<' + '/script>';
+const FRAME_SCRIPT = frameScript(true);
+// For a STANDALONE .html preview: that frame is the author's own document (no kit, no
+// auto-sizing — the host sizes it from CSS and ignores the height it reports), but it
+// must not trap the keyboard — without this, clicking into a full-window page leaves
+// Esc with nowhere to go — and it gets the same fit/zoom as an embed. No
+// ResizeObserver here: one report at load is all the host needs to fit it.
+const KEY_RELAY_SCRIPT = frameScript(false);
 // Prepended, so an author's own scrollbar rule wins — a default, not an override (the
 // properties inherit, so this reaches their inner scrollers too). Theme-neutral gray
 // because, unlike htmlFrameDoc, we must not force color-scheme here: that would repaint
 // an author page that never opted into dark, and light-dark() would resolve light-only.
-const FRAME_SCROLLBAR = '<style>html{scrollbar-width:thin;scrollbar-color:rgba(136,136,136,0.55) transparent}</style>';
+const FRAME_SCROLLBAR = '<style>html{scrollbar-width:thin;overscroll-behavior:contain;scrollbar-color:rgba(136,136,136,0.55) transparent}</style>';
 // Comments inside a STANDALONE .html preview. The host cannot read that frame's
 // selection or text (opaque origin), so the frame does its own capture, matching
 // and marking, and talks to the host over postMessage — the same relay the key
@@ -1255,6 +1287,7 @@ function armHtmlFrames() {
     // Comment traffic out of a standalone .html preview frame. Rects arrive in the
     // FRAME's viewport coords, so they are offset by the iframe's own box before
     // any host UI is placed against them (see cmtRectFromFrame).
+    if (e.data.__scratchWheel === 1) { wheelScale(frameOf(e.source), e.data.down); return; }
     if (e.data.__scratchSel === 1) { onFrameSelection(e.source, e.data); return; }
     if (e.data.__scratchCmtClick === 1) {
       const c = findComment(e.data.cid);
@@ -1266,12 +1299,17 @@ function armHtmlFrames() {
     if (e.data.__scratchCmtMiss === 1) { onFrameMisses(e.source, e.data.ids || []); return; }
     if (e.data.__scratchCmtReady === 1) { onFrameReady(e.source); return; }
     if (e.data.__scratchFrame !== 1) return;
-    // A focused frame is sized by CSS — don't fight it with content height. Bail
-    // before the lookup: going full window resizes the frame's document, so its
-    // in-frame observer turns chatty exactly where the work is wasted.
-    if (focusedFrame && focusedFrame.contentWindow === e.source) return;
-    const f = frameByWindow(e.source);
-    if (f) f.style.height = (e.data.h + 1) + 'px';
+    const f = frameOf(e.source);
+    if (!f) return;
+    noteNatW(f, e.data.w);
+    // A focused frame is sized by CSS, and so is a standalone .html preview (75vh) —
+    // don't fight either with content height. (Direct-child test, not closest(): the
+    // CSS contract is .md .htmlembed > .htmlframe, and this runs per resize tick.)
+    if (focusedFrame === f || !f.parentElement.classList.contains('htmlembed')) return;
+    // Writing the height resizes the frame's document, which reports again — so an
+    // unchanged value would dirty the article's layout on every steady-state tick.
+    const px = (e.data.h + 1) + 'px';
+    if (f.style.height !== px) f.style.height = px;
   });
   // Delegated (frames are re-created on every render): track the frame under the
   // pointer so a bare 'f' knows which embed you mean, and wire the expand chips.
@@ -1330,6 +1368,14 @@ function frameByWindow(w) {
   if (!w) return null;
   return [...document.querySelectorAll('iframe.htmlframe')].find(f => f.contentWindow === w) || null;
 }
+// Same answer as frameByWindow, without the document-wide query for the frame we
+// already hold. The per-tick resize reports and a held wheel gesture both come from
+// the focused frame far more often than not, and both arrive while its document is
+// reflowing — exactly where a full selector match is wasted work.
+function frameOf(w) {
+  if (focusedFrame && focusedFrame.contentWindow === w) return focusedFrame;
+  return frameByWindow(w);
+}
 // Which embed does a bare 'f' mean? The frame you were typing inside, else the one
 // under the pointer. No "it's the only one on the page" fallback: that fired with the
 // pointer nowhere near it, so 'f' anywhere in a doc with one diagram opened it.
@@ -1355,6 +1401,9 @@ function exitFocus() {
   if (!focusedFrame) return;
   focusedFrame.removeAttribute('data-focused');
   focusedFrame.style.height = '';  // let the ResizeObserver re-size the md embed
+  // A scale chosen for the whole viewport is meaningless back in the column, and left
+  // in place it shrank the inline embed for the rest of the session.
+  setEmbedZoom(focusedFrame, 1);
   focusedFrame = null;
   document.documentElement.removeAttribute('data-focus');
   applyZoom();   // restores the reader zoom
@@ -1362,6 +1411,63 @@ function exitFocus() {
   const p = document.getElementById('preview');
   if (p) p.focus({ preventScroll: true });
 }
+// --- Embed scale ('+' / '-' / '0') ---------------------------------------------
+// An embed wider than its box used to show only its left third with nothing in the UI
+// able to scale it down. Fitting is ON DEMAND ('0'), never on load: auto-fitting
+// everything that overflowed at all shrank near-fitting pages too (a 286-wide page in
+// a 238 box opened at 83%, text and all), which reads worse than the scrollbar it
+// removed. Nothing here goes to config.json — like full-window mode above, a scale is
+// a transient look at one embed, not a viewer preference.
+// One step for every gesture (keys, host wheel, relayed frame wheel) — they used to
+// carry the pair as three literal expressions with three direction conventions.
+const EMBED_MIN = 0.2, EMBED_MAX = 2, EMBED_STEP = 1.25;
+// Ask the frame to scale. dataset.ez is the applied factor: it makes the no-op case
+// free (the frame's own ResizeObserver reports after every scale, so without this the
+// answer would be posted straight back into the report that prompted it).
+function setEmbedZoom(frame, z) {
+  z = Math.round(Math.min(EMBED_MAX, Math.max(EMBED_MIN, z)) * 100) / 100;
+  if (frame.dataset.ez === String(z)) return z;
+  frame.dataset.ez = String(z);
+  try { frame.contentWindow.postMessage({ __scratchZoom: 1, z: z }, '*'); } catch (_) {}
+  return z;
+}
+// Remember what '0' should fit to. The LARGEST width the frame ever reported, not the
+// latest: the first report can land before webfonts/images settle, and a scaled-down
+// frame loses its scrollbar and then measures narrower still.
+function noteNatW(frame, natW) {
+  if (natW && !(frame.__natW > natW)) frame.__natW = natW;
+}
+// The factor that makes the whole page fit its box — never above 100%: '0' is "reset",
+// and blowing a narrow page up to fill the column is not what it asks for.
+function embedFit(frame) {
+  return frame.__natW ? Math.min(1, frame.clientWidth / frame.__natW) : 1;
+}
+// mult scales relatively; 0 means "fit to the box". Reports the result, since an embed
+// carries no zoom readout of its own — but only when it moved, or holding the wheel at
+// the floor would keep re-arming the readout over a picture that isn't changing.
+function scaleEmbed(f, mult) {
+  if (!f || f.tagName !== 'IFRAME') return false;
+  const cur = parseFloat(f.dataset.ez) || 1;
+  const z = setEmbedZoom(f, mult ? cur * mult : embedFit(f));
+  if (z !== cur) showToast(Math.round(z * 100) + '%', 'info');
+  return true;
+}
+function wheelScale(f, down) { return scaleEmbed(f, down ? 1 / EMBED_STEP : EMBED_STEP); }
+// One binding for both embed kinds, so the muscle memory transfers: it scales
+// whichever preview is in front — the diagram lightbox if it's open, else the embed
+// under the pointer. Bare keys; Ctrl+= / Ctrl+- / Ctrl+0 stay the reader's page zoom.
+function scaleKey(key) {
+  if (key !== '+' && key !== '=' && key !== '-' && key !== '0') return false;
+  const mult = key === '-' ? 1 / EMBED_STEP : (key === '0' ? 0 : EMBED_STEP);
+  if (diagramModal.style.display !== 'none') {
+    if (dgSvg) { if (mult) dgZoom(mult); else dgReset(); }
+    return true;
+  }
+  // The embed under the pointer — or the focused one, which owns the whole viewport
+  // and so is unambiguously what the reader means.
+  return scaleEmbed(focusedFrame || pickTarget(), mult);
+}
+
 // The one entry point for 'f' / the ⛶ chips, over both embed kinds.
 // (No focusedFrame branch: while focused, the keydown handler intercepts every key
 // and the chrome that could call this is hidden behind the frame.)
@@ -2458,6 +2564,11 @@ document.getElementById('zoomReset').addEventListener('click', () => setZoom(1))
 window.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return;
   e.preventDefault();
+  // Same reasoning as the Ctrl+= keys: while an embed owns the viewport the reader zoom
+  // is suppressed, so this gesture must move the embed instead of drifting a zoom you
+  // only see when you leave. (The gesture over the frame itself arrives via the relay
+  // in FRAME_ZOOM; this path is the sliver of chrome left around it.)
+  if (focusedFrame) { wheelScale(focusedFrame, e.deltaY > 0); return; }
   setZoom(SETTINGS.zoom + (e.deltaY < 0 ? 0.1 : -0.1));
 }, { passive: false });
 
@@ -2525,6 +2636,18 @@ function dgApply() {
   if (dgSvg) dgSvg.style.transform = 'translate(' + dgTx + 'px,' + dgTy + 'px) scale(' + dgScale + ')';
 }
 function dgReset() { dgScale = 1; dgTx = 0; dgTy = 0; dgApply(); }
+// Zoom keeping the stage point (px, py) fixed — the wheel anchors it at the cursor,
+// the keys at the stage centre; only the anchor differs.
+function dgZoomAt(px, py, mult) {
+  const next = Math.min(DG_MAX, Math.max(DG_MIN, dgScale * mult));
+  const k = next / dgScale;
+  dgTx = px - (px - dgTx) * k; dgTy = py - (py - dgTy) * k; dgScale = next;
+  dgApply();
+}
+function dgZoom(mult) {
+  const r = diagramStage.getBoundingClientRect();
+  dgZoomAt(r.width / 2 - DG_PAD, r.height / 2 - DG_PAD, mult);
+}
 const showDiagram = (v) => {
   diagramModal.style.display = v ? 'flex' : 'none';
   if (!v) { diagramStage.innerHTML = ''; dgSvg = null; dgDrag = null; }
@@ -2547,11 +2670,7 @@ diagramStage.addEventListener('wheel', (e) => {
   if (!dgSvg) return;
   e.preventDefault();
   const r = diagramStage.getBoundingClientRect();
-  const px = e.clientX - r.left - DG_PAD, py = e.clientY - r.top - DG_PAD;
-  const next = Math.min(DG_MAX, Math.max(DG_MIN, dgScale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
-  const k = next / dgScale;
-  dgTx = px - (px - dgTx) * k; dgTy = py - (py - dgTy) * k; dgScale = next;
-  dgApply();
+  dgZoomAt(e.clientX - r.left - DG_PAD, e.clientY - r.top - DG_PAD, e.deltaY < 0 ? 1.1 : 1 / 1.1);
 }, { passive: false });
 diagramStage.addEventListener('pointerdown', (e) => {
   if (!dgSvg) return;
@@ -2713,6 +2832,10 @@ document.addEventListener('keydown', (e) => {
   // which embed 'f' expands.
   if (e.isTrusted) keySource = null;
   if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+    // While an embed owns the viewport the reader zoom is suppressed (see applyZoom),
+    // so moving it here would change nothing on screen and then jump the page on exit.
+    // Send the accelerator to the embed — that IS the page in front of you.
+    if (focusedFrame && scaleKey(e.key)) { e.preventDefault(); return; }
     // Take over the host's zoom accelerators so OUR (persisted) zoom is the one
     // that moves, instead of Chromium's forgotten-on-relaunch page zoom.
     if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoom(SETTINGS.zoom + 0.1); return; }
@@ -2739,6 +2862,10 @@ document.addEventListener('keydown', (e) => {
   // other shortcut would change something invisible behind the frame; ignore it so
   // you can never end up chrome-less with no way back. (Keys typed inside the frame
   // reach us via the postMessage relay in armHtmlFrames, so Esc always works.)
+  // Above the full-window block: scaling the page you are looking at is the one other
+  // thing that changes something VISIBLE while focused, so the binding is the same on
+  // both sides of it (scaleKey itself resolves which preview it means).
+  if (scaleKey(e.key)) { e.preventDefault(); return; }
   if (focusedFrame) {
     if (e.key === 'Escape' || e.key === 'f') { e.preventDefault(); exitFocus(); return; }
     if (e.key === 'q' && closeWindow) { closeWindow(); return; }

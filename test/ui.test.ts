@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildView, renderHtml } from "../src/ui/render.ts";
+import { KIT_BG } from "../src/ui/kit.ts";
 import { newManifest, writeManifest } from "../src/manifest.ts";
 import { readManifest } from "../src/manifest.ts";
 import type { Pad } from "../src/discovery.ts";
@@ -136,6 +137,15 @@ describe("renderHtml", () => {
     // against the unzoomed window under CSS zoom, and auto on a replaced element
     // (an iframe) means its intrinsic 300x150.
     expect(html).toMatch(/\[data-focused\]\s*\{[^}]*width:\s*100%\s*!important/);
+    // A kit-themed md embed's iframe element must carry a per-theme paper color: its
+    // scrollbar track is transparent, so a white element background painted the scroll
+    // gutter white in dark mode. Also a layout-free check — no DOM test can see it.
+    expect(html).toMatch(/\.md \.htmlembed > \.htmlframe \{[^}]*background: var\(--embed-paper\)/);
+    // Asserted against kit.ts rather than against literals: the point is that the two
+    // agree, so a literal here would just lock in a copy of the value under test.
+    expect(html).toContain(`--embed-paper: ${KIT_BG.dark}`);
+    expect(html).toContain(`--embed-paper: ${KIT_BG.light}`);
+    expect(html).toContain(`light-dark(${KIT_BG.light}, ${KIT_BG.dark})`);
   });
 
   test("links hljs via CDN (with SRI) when code present, not mermaid", async () => {

@@ -796,6 +796,51 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(document.documentElement.style.zoom).toBe("1.2");
 
+    // --- embed scale: '+' / '-' / '0' ---
+    // The frame reports its natural size; the host only remembers it (fitting on load
+    // shrank near-fitting pages) and scales on demand. The box width is stubbed
+    // because happy-dom does no layout (clientWidth is 0).
+    const posts: any[] = [];
+    Object.defineProperty(embed, "clientWidth", { value: 300, configurable: true });
+    (embed.contentWindow as any).postMessage = (m: any) => posts.push(m);
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { __scratchFrame: 1, h: 400, w: 900 }, source: embed.contentWindow,
+    } as any));
+    // Sized to the reported height (already scaled frame-side), and NOT scaled itself.
+    expect(embed.style.height).toBe("401px");
+    expect(posts.length).toBe(0);
+    // '0' fits the embed under the pointer: 900 natural into a 300 box → a third.
+    embed.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "0" }));
+    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 0.33 });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "+" }));
+    expect(posts.at(-1).z).toBe(0.41);
+    // Bare keys only — Ctrl+= is the reader's page zoom and must not touch the embed.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "=", ctrlKey: true }));
+    expect(posts.length).toBe(2);
+    expect(document.documentElement.style.zoom).toBe("1.3");
+    // …unless the embed owns the viewport: the reader zoom is suppressed there, so
+    // moving it would do nothing on screen and then jump the page on exit.
+    (wrap.querySelector("button.embed-full") as any).click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "-", ctrlKey: true }));
+    expect(posts.at(-1).z).toBe(0.33);
+    expect(document.documentElement.style.zoom).toBe("");
+    // Ctrl+wheel inside the frame arrives as a relayed message — the frame's own
+    // listener preventDefaults it, so the browser's page zoom (which, full window,
+    // zoomed the host page hiding behind the frame) never sees the gesture. Only the
+    // relay is asserted: happy-dom's WheelEvent drops the ctrlKey init, and the host's
+    // own wheel path lands in the same scaleEmbed as the Ctrl+= keys above.
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { __scratchWheel: 1, down: true }, source: embed.contentWindow,
+    } as any));
+    expect(posts.at(-1).z).toBe(0.26);
+    expect(document.documentElement.style.zoom).toBe("");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.documentElement.style.zoom).toBe("1.3");
+    // Leaving full window drops the embed's scale: it was chosen for the viewport, and
+    // left in place it shrank the inline embed for the rest of the session.
+    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 1 });
+
     // --- a standalone .html file as the active preview ---
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
     const frame = document.querySelector("#preview > .pbody > iframe.htmlframe") as any;
