@@ -444,6 +444,12 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
     // mermaid block emitted + mermaid.run invoked with 1 node
     expect(preview.querySelector(".mermaid")).not.toBeNull();
     expect(mermaidCalls.some((c) => c[0] === "run" && c[1] === 1)).toBe(true);
+    // Labels must stay SVG <text>, never an HTML foreignObject (it clips to its own
+    // box) — see the comment at mermaid.initialize in src/ui/render.ts. Both keys are
+    // asserted because mermaid 11 ignores flowchart.htmlLabels without the top-level one.
+    const init = mermaidCalls.find((c) => c[0] === "init")?.[1];
+    expect(init?.htmlLabels).toBe(false);
+    expect(init?.flowchart?.htmlLabels).toBe(false);
     // metadata strip
     expect(preview.querySelector(".pmeta")?.textContent).toContain("#t");
     // tree built with the file row

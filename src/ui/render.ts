@@ -1386,7 +1386,21 @@ function enhance(container) {
     const nodes = container.querySelectorAll('.mermaid');
     if (nodes.length) {
       try {
-        window.mermaid.initialize({ startOnLoad: false, theme: mermaidTheme(), securityLevel: 'strict' });
+        // htmlLabels: false makes mermaid size each box from the SVG glyphs it
+        // actually paints, instead of an HTML foreignObject measured under this
+        // page's own font/zoom — any mismatch there (the zoom setting, the article
+        // font-size, an inherited rule) left boxes too small, and a foreignObject
+        // clips to its box whatever overflow says. <br/> still works.
+        // Both keys are required: mermaid 11.15 silently ignores
+        // flowchart.htmlLabels alone (measured — foreignObject either way); only
+        // the top-level flag flips the renderer to SVG <text>.
+        window.mermaid.initialize({
+          startOnLoad: false,
+          theme: mermaidTheme(),
+          securityLevel: 'strict',
+          htmlLabels: false,
+          flowchart: { htmlLabels: false },
+        });
         // Same expand affordance as an html embed — one hover chip, one 'f' key for
         // both. run() is ASYNC and replaces the div's content, so the chips can only
         // go on after its promise settles (settled, not resolved: a diagram that

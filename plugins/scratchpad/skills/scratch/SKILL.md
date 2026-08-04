@@ -112,12 +112,9 @@ default for architecture, data-flow, and state diagrams in a note, and reads far
 better than an ASCII sketch. The viewer themes the diagram for light/dark
 automatically, so don't hardcode colors.
 
-    ```mermaid
-    graph TD
-      A[Request] --> B{Cache hit?}
-      B -->|yes| C[Return cached]
-      B -->|no| D[Fetch + store]
-    ```
+Before writing one, read `references/MERMAID_GUIDE.md` — it carries the label
+rules (line breaks, width budget, which characters need escaping). Skipping them
+is what makes a diagram come out unreadable.
 
 When mermaid can't express it (bespoke layout, a chart, interactivity), embed an
 HTML diagram instead (below).

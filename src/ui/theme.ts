@@ -593,7 +593,11 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 .md :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: 1.6em; }
 
 /* tree */
-.label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
+/* Scoped to .tree deliberately: mermaid tags every node/edge label in its SVG
+   with class="label", so an unscoped rule upper-cased and letter-spaced every
+   diagram label — and since mermaid sizes each box by measuring the raw string,
+   the wider painted text then overflowed the box. */
+.tree .label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--ink-muted); padding: 6px 10px 10px; }
 /* Stacked group headers: separate each group from the rows above it. The first
    group sits flush at the top; only subsequent ones get the gap + hairline. */
