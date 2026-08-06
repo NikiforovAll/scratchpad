@@ -84,6 +84,8 @@ interface FileView {
    * time — the CLI's `comments --json` shape, embedded so the viewer's Ctrl+Alt+C
    * can copy it synchronously (no host round-trip = clipboard activation survives). */
   commentsExport?: CommentItem[];
+  /** Manifest-hidden entry included only via a session reveal (see Reloader.reveal). */
+  hidden?: boolean;
 }
 interface PadView {
   name: string;
@@ -92,6 +94,10 @@ interface PadView {
   files: FileView[];
   /** Optional group ordering/collapse hint from the manifest (see manifest.ts). */
   layout?: Layout;
+  /** Paths of manifest-hidden entries NOT in `files` (paths only — no content, so
+   * nothing leaks into exports). Lets the client recognize a link to a hidden file
+   * and ask the host to reveal it for the session. */
+  hiddenPaths?: string[];
 }
 
 /** Base64 data URI for an embedded image's bytes (shared by the registered-file
@@ -157,13 +163,28 @@ function classify(ext: string): Kind {
   return "binary";
 }
 
-/** List the pad's registered files (from the manifest), merged with metadata.
- * Unregistered on-disk files are intentionally not shown. */
-async function scanPadFiles(pad: Pad): Promise<FileView[]> {
+/** Session-only reveal state owned by the Reloader: which manifest-hidden files
+ * to include anyway. `revealed` keys come from revealKey below. */
+export interface RevealState {
+  revealed: Set<string>;
+  revealAll: boolean;
+}
+/** The one place the reveal Set key format is defined (NUL cannot appear in a
+ * path, so keys never collide) - reload.ts imports this rather than re-encoding. */
+export function revealKey(padDir: string, path: string): string {
+  return padDir + "\u0000" + path;
+}
+function isRevealed(reveal: RevealState | undefined, padDir: string, path: string): boolean {
+  return !!reveal && (reveal.revealAll || reveal.revealed.has(revealKey(padDir, path)));
+}
+
+/** Read the given manifest entries (buildView decides which — hidden filtering
+ * happens there), merged with metadata. Unregistered on-disk files are
+ * intentionally not shown. */
+async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
   // Files are independent, so read them concurrently; Promise.all keeps the
   // result in manifest.files[] order — the author's deliberate reading order.
-  // `hidden` entries stay registered in the manifest but never reach the viewer.
-  const views = pad.manifest.files.filter((meta) => !meta.hidden).map(async (meta): Promise<FileView> => {
+  const views = metas.map(async (meta): Promise<FileView> => {
     const path = meta.path;
     // Linked entries carry a label in `path`; classify by the real source filename
     // (its extension) so external files preview by kind, not as "binary/missing".
@@ -233,20 +254,33 @@ async function scanPadFiles(pad: Pad): Promise<FileView[]> {
         meta.comments?.length && content != null && kind !== "image"
           ? toCommentItems(path, content, meta.comments)
           : undefined,
+      ...(meta.hidden ? { hidden: true } : {}),
     };
   });
   return Promise.all(views);
 }
 
-export async function buildView(pads: Pad[]): Promise<PadView[]> {
+export async function buildView(pads: Pad[], reveal?: RevealState): Promise<PadView[]> {
   return Promise.all(
-    pads.map(async (p) => ({
-      name: p.manifest.name,
-      id: p.manifest.id,
-      dir: p.dir,
-      files: await scanPadFiles(p),
-      ...(p.manifest.layout ? { layout: p.manifest.layout } : {}),
-    })),
+    pads.map(async (p) => {
+      // One partition decides visibility: `hidden` entries stay registered in the
+      // manifest and never reach the viewer, unless a session reveal (RevealState)
+      // asked for them — then they're scanned like any other file, just flagged.
+      const shown: FileEntry[] = [];
+      const hiddenPaths: string[] = [];
+      for (const m of p.manifest.files) {
+        if (!m.hidden || isRevealed(reveal, p.dir, m.path)) shown.push(m);
+        else hiddenPaths.push(m.path);
+      }
+      return {
+        name: p.manifest.name,
+        id: p.manifest.id,
+        dir: p.dir,
+        files: await scanPadFiles(p, shown),
+        ...(p.manifest.layout ? { layout: p.manifest.layout } : {}),
+        ...(hiddenPaths.length ? { hiddenPaths } : {}),
+      };
+    }),
   );
 }
 
@@ -651,7 +685,8 @@ const SHORTCUT_PAIRS: [ShortcutGroup, ShortcutGroup][] = [
       title: "General",
       rows: [
         { keys: ["Ctrl", "S"], combo: true, label: "Save / export a copy" },
-        { keys: ["Ctrl", "Alt", "H"], combo: true, live: true, label: "Hide file from viewer" },
+        { keys: ["Ctrl", "Alt", "H"], combo: true, live: true, label: "Hide file / unhide a revealed one" },
+        { keys: ["h"], live: true, label: "Reveal / re-hide hidden files" },
         { keys: ["r"], live: true, label: "Reload from disk" },
         { keys: ["s"], label: "Settings" },
         { keys: ["?"], label: "Show this help" },
@@ -1815,23 +1850,97 @@ function copyAllComments() {
     .catch(() => showToast('Copy failed'));
 }
 
-// Hide the active file from the viewer (Ctrl+Alt+H). One-way: the host sets the
-// entry's hidden flag in scratchpad.json (no unhide in the UI — edit the
-// manifest by hand to restore). We drop it from the in-memory model and rebuild
-// the tree so the change shows immediately, with NO reload (a reload would
-// re-read disk and drop it anyway — this just skips the blink). Lands on the
-// neighbouring file. No-op in the file:// export, where no host listens.
+// Toggle the active file's hidden flag (Ctrl+Alt+H). On a visible file: the host
+// sets hidden in scratchpad.json and we drop it from the in-memory model and
+// rebuild the tree so the change shows immediately, with NO reload (a reload
+// would re-read disk and drop it anyway — this just skips the blink), landing on
+// the neighbouring file. On a session-revealed hidden file: the host CLEARS the
+// flag — the reveal becomes permanent and the row undims in place. No-op in the
+// file:// export, where no host listens.
 function hideCurrentFile() {
   const ref = currentRef;
   if (!ref || !ref.f) return;
+  if (ref.f.hidden) {
+    const undone = postToHost('__scratch_hide', '/hide', { padDir: ref.pad.dir, filePath: ref.f.path, hidden: false });
+    if (!undone) { showToast('Hiding is unavailable in exports'); return; }
+    revealPatchPending = true; // the manifest write triggers a watcher patch — already announced below
+    ref.f.hidden = false;
+    linkRevealed.delete(ref.pad.dir + '::' + ref.f.path); // now a normal file — nothing to auto-conceal
+    buildTree(ref.pad.dir + '::' + ref.f.path);
+    showToast('File unhidden', 'info');
+    return;
+  }
   const sent = postToHost('__scratch_hide', '/hide', { padDir: ref.pad.dir, filePath: ref.f.path });
   if (!sent) { showToast('Hiding is unavailable in exports'); return; }
+  revealPatchPending = true; // ditto: suppress the watcher patch's sync toast
   // Pick a neighbour to land on BEFORE the file leaves ITEMS.
   const idx = ITEMS.findIndex(it => it.pad === ref.pad && it.f === ref.f);
   const nb = idx >= 0 ? (ITEMS[idx + 1] || ITEMS[idx - 1]) : null;
   ref.pad.files = ref.pad.files.filter(f => f !== ref.f);
   buildTree(nb ? nb.pad.dir + '::' + nb.f.path : null); // rebuilds ITEMS + selects the neighbour (or empty state)
   showToast('File hidden', 'info');
+}
+
+// ---------------------------------------------------------------------------
+// Session reveal of hidden files. Hidden entries never reach the page data (see
+// scanPadFiles) — only their paths do (pad.hiddenPaths) — so revealing means
+// asking the HOST to include them and push a data patch back. Two triggers:
+// following a link that points at a hidden file (reveals that one file) and the
+// 'h' shortcut (toggles reveal of ALL hidden files). Reveals live in the
+// Reloader, not the manifest: a relaunch hides everything again. No-op in
+// exports — the content simply isn't in the file.
+let pendingRevealKey = null; // pad.dir::path to select once the reveal patch lands
+let revealPatchPending = false; // silence the generic sync toast on that patch
+let revealAllOn = false;
+const linkRevealed = new Set(); // keys revealed by following a link — auto-concealed on nav away
+function requestReveal(pad, filePath) {
+  if (!postToHost('__scratch_reveal', '/reveal', { padDir: pad.dir, filePath: filePath })) {
+    showToast('Hidden file — not included in this export');
+    return;
+  }
+  pendingRevealKey = pad.dir + '::' + filePath;
+  linkRevealed.add(pendingRevealKey);
+  revealPatchPending = true;
+  showToast('Revealed hidden file', 'info');
+}
+// A link-reveal is a peek, not a state change: the moment the user lands on any
+// OTHER file, the peeked file goes back into hiding (unless the 'h' toggle has
+// everything revealed anyway). Called from renderPreview on every selection.
+// The conceal is applied locally (drop the file, restore its hiddenPaths entry,
+// rebuild the tree) and only NOTED to the host — the host mutates its reveal set
+// for the next rebuild but pushes nothing back, since a conceal delivers nothing
+// new to the page. That keeps a full disk rebuild off the navigation path.
+function concealLinkRevealsExcept(currentKey) {
+  if (revealAllOn || !linkRevealed.size) return;
+  let changed = false;
+  for (const key of linkRevealed) {
+    if (key === currentKey) continue;
+    const sep = key.indexOf('::');
+    const padDir = key.slice(0, sep), filePath = key.slice(sep + 2);
+    postToHost('__scratch_reveal', '/reveal', { padDir: padDir, filePath: filePath, conceal: true });
+    linkRevealed.delete(key);
+    const pad = DATA.pads.find(p => p.dir === padDir);
+    if (pad) {
+      pad.files = pad.files.filter(f => f.path !== filePath);
+      (pad.hiddenPaths = pad.hiddenPaths || []).push(filePath);
+      changed = true;
+    }
+  }
+  // prevSelJson = the current file's own JSON → buildTree's skip path: the tree
+  // re-renders without the peeked file, the preview (mid-render right now) is
+  // left alone.
+  if (changed) buildTree(currentKey, currentRef ? JSON.stringify(currentRef.f) : null);
+}
+function toggleRevealAll() {
+  const anyHidden = revealAllOn || DATA.pads.some(p => (p.hiddenPaths || []).length || p.files.some(f => f.hidden));
+  if (!anyHidden) { showToast('No hidden files', 'info'); return; }
+  if (!postToHost('__scratch_reveal', '/reveal', { all: !revealAllOn })) {
+    showToast('Hidden files are not included in this export');
+    return;
+  }
+  revealAllOn = !revealAllOn;
+  revealPatchPending = true;
+  showToast(revealAllOn ? 'Hidden files revealed' : 'Hidden files hidden again', 'info');
 }
 
 // ---------------------------------------------------------------------------
@@ -1909,6 +2018,7 @@ function renderPreview(pad, f, nav) {
   hoverHost = hoverTarget = keySource = null;
   cancelPin(); // a re-render invalidates any in-flight anchor re-pin (stale element)
   current = pad.dir + '::' + f.path; currentRef = { pad, f };
+  concealLinkRevealsExcept(current);
   navRecord(current);
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
   // Meta is a single tight dot-separated line (type · #tags) — not scattered chips.
@@ -2198,7 +2308,7 @@ function buildTree(preferKey, prevSelJson) {
     html += '<div class="grows">';
     groups.get(g).forEach(({ pad, f, pi, fi }) => {
       const key = pad.dir + '::' + f.path;
-      const cls = 'frow' + (f.registered ? '' : ' unreg');
+      const cls = 'frow' + (f.registered ? '' : ' unreg') + (f.hidden ? ' revealed' : '');
       const ttl = f.title || f.path;
       const tag = f.registered ? (f.type || 'note') : '·';
       html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '">' +
@@ -2240,6 +2350,10 @@ function buildTree(preferKey, prevSelJson) {
   // blink). Just refresh the tree's active highlight and leave the preview be.
   const selKey = sel.pad.dir + '::' + sel.f.path;
   if (prevSelJson != null && selKey === current && JSON.stringify(sel.f) === prevSelJson) {
+    // Re-bind to the FRESH objects even though the preview stays put: DATA was
+    // just swapped, and a stale currentRef.pad would make later lookups (e.g.
+    // link resolution against pad.files/hiddenPaths) miss files this patch added.
+    currentRef = { pad: sel.pad, f: sel.f };
     document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
     expandActiveGroup();
     return;
@@ -2297,10 +2411,22 @@ window.__scratchReload = function (payload, quiet) {
   // the user it's current. This is the common case when reload is pressed out of habit.
   if (reloadSansDerived(payload) === reloadSansDerived(DATA)) {
     adoptCommentsExport(payload);
+    // A reveal that changed nothing still owes the user the navigation: the file
+    // is already in DATA (e.g. the host had it revealed) — jump to it directly.
+    if (pendingRevealKey) {
+      const it = ITEMS.find(x => (x.pad.dir + '::' + x.f.path) === pendingRevealKey);
+      pendingRevealKey = null; revealPatchPending = false;
+      if (it) renderPreview(it.pad, it.f, { top: true });
+      return;
+    }
+    revealPatchPending = false;
     if (!quiet) showToast('No changes — up to date', 'info');
     return;
   }
-  const key = currentRef ? currentRef.pad.dir + '::' + currentRef.f.path : null;
+  // A pending reveal wins the selection: the patch we're applying is the one
+  // that carries the newly-revealed file, so land on it.
+  const key = pendingRevealKey || (currentRef ? currentRef.pad.dir + '::' + currentRef.f.path : null);
+  pendingRevealKey = null;
   const prevSelJson = currentRef ? JSON.stringify(currentRef.f) : null;
   const pv = document.getElementById('preview');
   const scroll = pv ? pv.scrollTop : 0;
@@ -2308,6 +2434,9 @@ window.__scratchReload = function (payload, quiet) {
   buildTree(key, prevSelJson);
   const pv2 = document.getElementById('preview');
   if (pv2) pv2.scrollTop = scroll;
+  // A reveal patch already announced itself ("Revealed hidden file" / the 'h'
+  // toggle toast) — a "Synced from disk" on top would misread as a file change.
+  if (revealPatchPending) { revealPatchPending = false; return; }
   showToast(quiet ? 'Synced from disk' : 'Reloaded from disk', 'success');
 };
 
@@ -3011,6 +3140,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '[') { toggleSidebar(); return; }
   if (e.key === ']') { toggleTopbar(); return; }
   if (e.key === 'r') { requestReload(); return; }
+  if (e.key === 'h') { toggleRevealAll(); return; }
   if (e.key === 'v' && currentRef && currentRef.f.kind === 'markdown' && currentRef.f.content != null) {
     setRaw(!rawMode); renderPreview(currentRef.pad, currentRef.f); return;
   }
@@ -3130,10 +3260,17 @@ previewEl.addEventListener('click', (e) => {
   }
   const target = resolveRel(currentRef.f.path, filePart);
   const pad = currentRef.pad;
-  const f = pad.files.find(x => x.path === target || x.path === filePart || x.path.endsWith('/' + target));
+  // One matcher for both lookups below — visible files and hidden paths must
+  // resolve links by the same rules.
+  const matchesLink = p => p === target || p === filePart || p.endsWith('/' + target);
+  const f = pad.files.find(x => matchesLink(x.path));
   // Cross-file link: open the doc at its #fragment, or at the top for a plain link
   // — following a link is a fresh read, NOT a resume (that's reserved for the nav).
-  if (f) { renderPreview(pad, f, hash ? { anchor: hash } : { top: true }); }
+  if (f) { renderPreview(pad, f, hash ? { anchor: hash } : { top: true }); return; }
+  // Not in the view but registered as hidden: reveal it for the session and let
+  // the reload patch select it (pendingRevealKey in __scratchReload).
+  const hp = (pad.hiddenPaths || []).find(matchesLink);
+  if (hp) requestReveal(pad, hp);
 });
 
 // ---------------------------------------------------------------------------

@@ -50,6 +50,17 @@ test("is idempotent — hiding an already-hidden file stays hidden", async () =>
   expect(await hiddenOf(pad, "a.md")).toBe(true);
 });
 
+test("hidden:false clears the flag (Ctrl+Alt+H toggle on a revealed file)", async () => {
+  const pad = await makePad();
+  await persistFileHidden([pad], { padDir: pad.dir, filePath: "a.md" }, io);
+  expect(await hiddenOf(pad, "a.md")).toBe(true);
+  await persistFileHidden([pad], { padDir: pad.dir, filePath: "a.md", hidden: false }, io);
+  expect(await hiddenOf(pad, "a.md")).toBeUndefined();
+  // anything other than an explicit false still means hide
+  await persistFileHidden([pad], { padDir: pad.dir, filePath: "a.md", hidden: "no" }, io);
+  expect(await hiddenOf(pad, "a.md")).toBe(true);
+});
+
 test("ignores unknown pads, files, and junk payloads", async () => {
   const pad = await makePad();
   await persistFileHidden([pad], null, io);

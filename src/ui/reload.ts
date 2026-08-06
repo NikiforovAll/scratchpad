@@ -7,7 +7,7 @@
 import { loadConfig } from "../config.ts";
 import type { Pad } from "../discovery.ts";
 import { readManifest } from "../manifest.ts";
-import { bundleNeeds, buildView, payloadJson, renderHtml } from "./render.ts";
+import { bundleNeeds, buildView, payloadJson, renderHtml, revealKey } from "./render.ts";
 import { createWatcher, type Watcher } from "./watch.ts";
 
 export interface Snapshot {
@@ -23,6 +23,12 @@ export interface Reloader {
   rebuild(): Promise<Snapshot>;
   /** Watch the open pads for on-disk changes, firing onChange (debounced). */
   watch(onChange: () => void): Watcher;
+  /** Session-only reveal of a manifest-hidden file (never persisted). */
+  reveal(padDir: string, filePath: string): void;
+  /** Undo a reveal (e.g. the file was re-hidden from the viewer). */
+  conceal(padDir: string, filePath: string): void;
+  /** Reveal/conceal every hidden file across all pads for this session. */
+  setRevealAll(on: boolean): void;
 }
 
 export function createReloader(pads: Pad[], rootLabel: string): Reloader {
@@ -33,6 +39,10 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
   let haveMermaid = false;
   let haveMath = false;
   let primed = false;
+  // Session-only reveal state: hidden manifest entries the viewer asked to see.
+  // Lives here (not in the manifest) so a relaunch hides them again.
+  const revealed = new Set<string>();
+  let revealAll = false;
 
   async function rebuild(): Promise<Snapshot> {
     // Re-read manifests from disk so newly-registered files / edited metadata are
@@ -45,7 +55,7 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
         fresh.push(p); // manifest unreadable mid-write → keep the last good one
       }
     }
-    const view = await buildView(fresh);
+    const view = await buildView(fresh, { revealed, revealAll });
     const needs = bundleNeeds(view);
     const full =
       primed &&
@@ -67,5 +77,11 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
   // The reloader already owns `pads`, so it owns watching them too — transports
   // just supply what to do on a change (push a patch / broadcast) without
   // re-threading the pad list through their own signatures.
-  return { rebuild, watch: (onChange) => createWatcher(pads, onChange) };
+  return {
+    rebuild,
+    watch: (onChange) => createWatcher(pads, onChange),
+    reveal: (padDir, filePath) => void revealed.add(revealKey(padDir, filePath)),
+    conceal: (padDir, filePath) => void revealed.delete(revealKey(padDir, filePath)),
+    setRevealAll: (on) => void (revealAll = on),
+  };
 }

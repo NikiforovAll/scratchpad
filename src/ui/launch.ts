@@ -59,27 +59,63 @@ export async function persistFileComments(pads: Pad[], payload: unknown, io: IO)
   }
 }
 
-// Mark a file hidden in its pad manifest, posted by the viewer page (WebView2
-// __scratch_hide / POST /hide) — metadata-only, the mirror of
+// Set or clear a file's hidden flag in its pad manifest, posted by the viewer
+// page (WebView2 __scratch_hide / POST /hide) — metadata-only, the mirror of
 // persistFileComments. A hidden entry stays registered but never reaches the
-// viewer (render.ts filters it). This is one-way by design: the viewer offers no
-// "unhide", so undo means editing scratchpad.json by hand. The manifest is
-// re-read from disk first so concurrent metadata edits aren't clobbered.
-export async function persistFileHidden(pads: Pad[], payload: unknown, io: IO): Promise<void> {
-  if (!payload || typeof payload !== "object") return;
-  const p = payload as { padDir?: unknown; filePath?: unknown };
-  if (typeof p.padDir !== "string" || typeof p.filePath !== "string") return;
+// viewer (render.ts filters it). Ctrl+Alt+H toggles: on a visible file it hides
+// (the default, hidden omitted); on a session-revealed hidden file it sends
+// hidden:false to unhide for good. The manifest is re-read from disk first so
+// concurrent metadata edits aren't clobbered. Returns the validated target when
+// the write went through (so callers can sync session state — the reveal
+// conceal in launchViewer), null otherwise.
+export async function persistFileHidden(
+  pads: Pad[],
+  payload: unknown,
+  io: IO,
+): Promise<{ padDir: string; filePath: string } | null> {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as { padDir?: unknown; filePath?: unknown; hidden?: unknown };
+  if (typeof p.padDir !== "string" || typeof p.filePath !== "string") return null;
   const pad = pads.find((x) => x.dir === p.padDir);
-  if (!pad) return;
+  if (!pad) return null;
   try {
     const m = await readManifest(pad.dir);
     const entry = m.files.find((f) => f.path === p.filePath);
-    if (!entry) return;
-    entry.hidden = true;
+    if (!entry) return null;
+    if (p.hidden === false) delete entry.hidden;
+    else entry.hidden = true;
     await writeManifest(pad.dir, m);
+    return { padDir: p.padDir, filePath: p.filePath };
   } catch (e) {
     note(io, `hiding file failed (${(e as Error).message.split("\n")[0]}).`);
+    return null;
   }
+}
+
+// Apply a reveal request posted by the viewer page (WebView2 __scratch_reveal /
+// POST /reveal): one hidden file ({padDir, filePath} — a link to it was
+// followed; + conceal:true to undo when the user navigates away) or all of them
+// ({all} — the 'h' toggle). Unlike its persist* siblings this touches NO
+// manifest: reveals are session state on the Reloader, gone on relaunch.
+// Returns whether the page needs a data patch. A conceal returns false: it
+// delivers nothing new to the client (the page already splices the file out
+// itself), so it only has to land in the Reloader for the NEXT rebuild.
+export function applyReveal(reloader: Reloader, payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return false;
+  const p = payload as { padDir?: unknown; filePath?: unknown; all?: unknown; conceal?: unknown };
+  if (typeof p.all === "boolean") {
+    reloader.setRevealAll(p.all);
+    return true;
+  }
+  if (typeof p.padDir === "string" && typeof p.filePath === "string") {
+    if (p.conceal === true) {
+      reloader.conceal(p.padDir, p.filePath);
+      return false;
+    }
+    reloader.reveal(p.padDir, p.filePath);
+    return true;
+  }
+  return false;
 }
 
 // Toggle a GFM task checkbox in a file's CONTENT, posted by the viewer page
@@ -220,7 +256,12 @@ export async function launchViewer(
   const persist: Persisters = {
     comments: (payload) => persistFileComments(pads, payload, io),
     checkbox: (payload) => persistFileCheckbox(pads, payload, io),
-    hidden: (payload) => persistFileHidden(pads, payload, io),
+    // Hiding also drops any session reveal of that file, so a revealed file that
+    // gets re-hidden (Ctrl+Alt+H) actually disappears on the next rebuild.
+    hidden: async (payload) => {
+      const target = await persistFileHidden(pads, payload, io);
+      if (target) reloader.conceal(target.padDir, target.filePath);
+    },
   };
 
   // Native glimpse is the default; --browser forces the browser viewer. When the
@@ -433,6 +474,19 @@ async function tryGlimpse(
         await persist.hidden(d.__scratch_hide);
         return;
       }
+      // Session reveal of hidden files (a link to a hidden doc, or the 'h'
+      // toggle). Reloader-only state — nothing is written to the manifest —
+      // answered with a quiet data patch that now carries the hidden content.
+      if (d && d.__scratch_reveal) {
+        if (applyReveal(reloader, d.__scratch_reveal)) {
+          try {
+            await pushReload(true);
+          } catch (e) {
+            note(io, `reveal failed (${(e as Error).message.split("\n")[0]}).`);
+          }
+        }
+        return;
+      }
       // Save-a-copy: the page can't open its own save dialog (non-secure origin),
       // so it asks us to. Echo the result back so it can clear its dirty flag.
       if (d && d.__scratch_save) {
@@ -538,6 +592,15 @@ async function serveBrowser(
   // The watcher already rebuilds to learn `full`; cache that snapshot's payload so
   // the follow-up GET /data serves it instead of rebuilding the view a second time.
   let lastPayload: string | null = null;
+  // Server-initiated push (the browser mirror of tryGlimpse's pushReload):
+  // rebuild once, stash the payload for GET /data, and tell every open page to
+  // come get it (or hard-reload on vendor growth). Shared by the watcher and
+  // any handler that changes what a rebuild returns (e.g. /reveal).
+  const pushPatch = async () => {
+    const s = await reloader.rebuild();
+    lastPayload = s.payloadJson;
+    broadcast(s.full);
+  };
   const server = Bun.serve({
     port: 0,
     async fetch(req) {
@@ -560,6 +623,17 @@ async function serveBrowser(
       // Hide-file write-back — browser mirror of __scratch_hide.
       if (req.method === "POST" && url.pathname === "/hide") {
         await persist.hidden(await req.json().catch(() => null));
+        return new Response(null, { status: 204 });
+      }
+      // Session reveal — browser mirror of __scratch_reveal. When the reveal
+      // changes what the page should show, push it through the auto-reload
+      // channel (SSE + /data), which every open page already listens on.
+      if (req.method === "POST" && url.pathname === "/reveal") {
+        if (applyReveal(reloader, await req.json().catch(() => null))) {
+          await pushPatch().catch((e) =>
+            note(io, `reveal failed (${(e as Error).message.split("\n")[0]}).`),
+          );
+        }
         return new Response(null, { status: 204 });
       }
       // Auto-reload event stream. The page opens EventSource('/events'); on a
@@ -624,13 +698,9 @@ async function serveBrowser(
   // hard-reloads on vendor growth) — the browser mirror of the native push.
   const watcher: Watcher | null = autoReload
     ? reloader.watch(() => {
-        void reloader
-          .rebuild()
-          .then((s) => {
-            lastPayload = s.payloadJson;
-            broadcast(s.full);
-          })
-          .catch((e) => note(io, `auto-reload failed (${(e as Error).message.split("\n")[0]}).`));
+        void pushPatch().catch((e) =>
+          note(io, `auto-reload failed (${(e as Error).message.split("\n")[0]}).`),
+        );
       })
     : null;
   const url = `http://localhost:${server.port}/`;

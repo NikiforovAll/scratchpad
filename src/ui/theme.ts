@@ -655,6 +655,10 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 .frow.active { color: var(--ink-1); background: var(--hover);
   box-shadow: inset 2px 0 0 var(--ember); border-radius: 0 5px 5px 0; }
 .frow.unreg { color: var(--ink-muted); font-style: italic; }
+/* Session-revealed hidden file: semi-transparent so it reads as "here on
+   loan" — the manifest still marks it hidden and a relaunch hides it again. */
+.frow.revealed { opacity: 0.55; }
+.frow.revealed.active { opacity: 0.8; }
 /* file-kind glyph: currentColor so it dims with the row and lights up on the
    active row (ember), sitting a step muted at rest. align-self:center since the
    row baseline-aligns its text. */
