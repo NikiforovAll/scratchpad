@@ -290,16 +290,11 @@ function needsMath(view: PadView[]): boolean {
 
 /** Viewer settings embedded into the page (persisted in the user config file).
  * Derived from ScratchConfig.ui so the shapes can't drift; frameless is a
- * launch-time concern, and zoom / starredThemes / gridStyle / wideMode are
- * optional here (renderHtml defaults them: 1 / [] / dots / false) so partial
- * call sites keep working. */
-export type UiSettings = Omit<
-  ScratchConfig["ui"],
-  "frameless" | "zoom" | "starredThemes" | "gridStyle" | "wideMode" | "autoReload"
-> &
-  Partial<
-    Pick<ScratchConfig["ui"], "zoom" | "starredThemes" | "gridStyle" | "wideMode" | "autoReload">
-  >;
+ * launch-time concern, only the theme pair is required, and everything else is
+ * optional here (renderHtml defaults each) so partial call sites keep working —
+ * and new ui fields become optional automatically. */
+export type UiSettings = Pick<ScratchConfig["ui"], "themeMode" | "colorTheme"> &
+  Partial<Omit<ScratchConfig["ui"], "themeMode" | "colorTheme" | "frameless">>;
 
 const DEFAULT_UI: UiSettings = {
   themeMode: "system",
@@ -307,6 +302,8 @@ const DEFAULT_UI: UiSettings = {
   starredThemes: [],
   gridStyle: "dots",
   wideMode: false,
+  sidebarCollapsed: false,
+  topbarCollapsed: false,
   autoReload: true,
 };
 
@@ -329,6 +326,10 @@ export async function renderHtml(
   const zoom = opts.exportMode ? 1 : (ui.zoom ?? 1);
   const gridStyle = ui.gridStyle ?? "dots";
   const wideMode = ui.wideMode ?? false;
+  // Collapsed panes are baked into the boot markup (not applied by the client)
+  // so a remembered-collapsed sidebar/topbar never flashes open on first paint.
+  const sidebarCollapsed = ui.sidebarCollapsed ?? false;
+  const topbarCollapsed = ui.topbarCollapsed ?? false;
   // Theme axes the exporter chose EXPLICITLY (`scratch export --theme/--mode`), as
   // opposed to inherited from its config: the client skips its localStorage seed for
   // these (see the SETTINGS comment for why that matters on file://). Boot seed only —
@@ -356,6 +357,8 @@ export async function renderHtml(
     starredThemes: ui.starredThemes ?? [],
     gridStyle,
     wideMode,
+    sidebarCollapsed,
+    topbarCollapsed,
     zoom,
     autoReload: ui.autoReload ?? true,
   }).replace(/</g, "\\u003c");
@@ -438,7 +441,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
 </head>
 <body>
 <div class="app">
-  <header class="topbar" id="topbar">
+  <header class="topbar${topbarCollapsed ? " collapsed" : ""}" id="topbar">
     <div class="brand">
       <span class="wordmark">scratch<span class="dot">.</span></span>
       <span class="padname" id="padname"></span>
@@ -470,7 +473,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
     </div>
   </header>
   <div class="body">
-    <div class="sidebar" id="sidebar">
+    <div class="sidebar${sidebarCollapsed ? " collapsed" : ""}" id="sidebar">
       <button class="icon-btn" id="sidebarToggle" title="Collapse sidebar ([)" aria-label="Collapse sidebar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
       </button>
@@ -484,41 +487,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
     </button>
   </div>
-  <div class="modal-scrim" id="helpModal" style="display:none">
-    <div class="modal">
-      <div class="modal-head"><span>Keyboard shortcuts</span><button class="icon-btn" id="helpClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
-      <dl class="shortcuts">
-        <div class="sc-group">Navigate</div>
-        <div><dt><kbd>↑</kbd><kbd>↓</kbd></dt><dd>Next / previous file</dd></div>
-        <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Collapse / expand group</dd></div>
-        <div class="sc-group">Scroll</div>
-        <div><dt><kbd>j</kbd><kbd>k</kbd></dt><dd>Down / up</dd></div>
-        <div><dt><kbd>d</kbd><kbd>u</kbd></dt><dd>Half page down / up</dd></div>
-        <div><dt><kbd>g</kbd><kbd>G</kbd></dt><dd>Top / bottom</dd></div>
-        <div class="sc-group">View</div>
-        <div><dt><kbd>v</kbd></dt><dd>Toggle raw / rendered (markdown)</dd></div>
-        <div><dt><kbd>f</kbd></dt><dd>Expand the embed under the cursor (html / mermaid) · <kbd>Esc</kbd> exits</dd></div>
-        <div><dt><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Scale that embed in / out / back to fit</dd></div>
-        <div><dt><kbd>o</kbd></dt><dd>Toggle table of contents</dd></div>
-        <div><dt><kbd>c</kbd></dt><dd>Toggle comments</dd></div>
-        <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy comments (JSON)</dd></div>
-        <div class="sc-live"><dt><kbd>Shift</kbd><span class="sc-plus">+</span><kbd>C</kbd></dt><dd>Copy active file path</dd></div>
-        <div class="sc-live"><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>P</kbd></dt><dd>Copy manifest path</dd></div>
-        <div class="sc-live"><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>Alt</kbd><span class="sc-plus">+</span><kbd>H</kbd></dt><dd>Hide file from viewer</dd></div>
-        <div><dt><kbd>t</kbd></dt><dd>Toggle theme</dd></div>
-        <div><dt><kbd>[</kbd></dt><dd>Toggle sidebar</dd></div>
-        <div><dt><kbd>]</kbd></dt><dd>Toggle top bar</dd></div>
-        <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd></dt><dd>Zoom in / out / reset</dd></div>
-        <div><dt><kbd>Ctrl</kbd><span class="sc-plus">+</span><kbd>S</kbd></dt><dd>Save / export a copy to a file</dd></div>
-        <div class="sc-group">General</div>
-        <div class="sc-live"><dt><kbd>r</kbd></dt><dd>Reload from disk</dd></div>
-        <div><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
-        <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
-        <div class="sc-live"><dt><kbd>q</kbd></dt><dd>Quit (close window)</dd></div>
-        <div><dt><kbd>Esc</kbd></dt><dd>Close dialogs</dd></div>
-      </dl>
-    </div>
-  </div>
+  ${HELP_MODAL_HTML}
   ${SETTINGS_MODAL_HTML}
   ${GALLERY_MODAL_HTML}
   <div class="modal-scrim" id="diagramModal" style="display:none">
@@ -618,8 +587,118 @@ function settingsModalHtml(): string {
   </div>`;
 }
 
-// Depends only on the static theme registry, so build it once at module load
-// instead of on every render.
+/** One help-modal shortcut row: keycaps + label. `combo` joins the keys with a
+ * plus (a chord) instead of listing them as alternatives; `live` marks rows
+ * that only work against a live host (hidden in file:// exports via .sc-live). */
+type ShortcutRow = { keys: string[]; label: string; combo?: boolean; live?: boolean };
+type ShortcutGroup = { title: string; rows: ShortcutRow[] };
+
+// The help modal's content, in reading order. Each entry pairs a left and a
+// right group onto the same grid rows, so their headings sit level and the
+// shorter group of a pair just leaves empty rows.
+const SHORTCUT_PAIRS: [ShortcutGroup, ShortcutGroup][] = [
+  [
+    {
+      title: "Navigate",
+      rows: [
+        { keys: ["↑", "↓"], label: "Next / previous file" },
+        { keys: ["←", "→"], label: "Collapse / expand group" },
+      ],
+    },
+    {
+      title: "Zoom",
+      rows: [
+        { keys: ["Ctrl", "+"], combo: true, label: "Zoom in" },
+        { keys: ["Ctrl", "−"], combo: true, label: "Zoom out" },
+        { keys: ["Ctrl", "0"], combo: true, label: "Reset zoom" },
+      ],
+    },
+  ],
+  [
+    {
+      title: "Scroll",
+      rows: [
+        { keys: ["j", "k"], label: "Down / up" },
+        { keys: ["d", "u"], label: "Half page down / up" },
+        { keys: ["g", "G"], label: "Top / bottom" },
+      ],
+    },
+    {
+      title: "Copy",
+      rows: [
+        { keys: ["Ctrl", "Alt", "C"], combo: true, label: "This page's comments (JSON)" },
+        { keys: ["Ctrl", "Shift", "Alt", "C"], combo: true, label: "All comments (JSON)" },
+        { keys: ["Shift", "C"], combo: true, live: true, label: "Active file path" },
+        { keys: ["Ctrl", "Alt", "P"], combo: true, live: true, label: "Manifest path" },
+      ],
+    },
+  ],
+  [
+    {
+      title: "View",
+      rows: [
+        { keys: ["v"], label: "Toggle raw / rendered markdown" },
+        { keys: ["f"], label: "Expand embed under cursor" },
+        { keys: ["+", "−", "0"], label: "Scale that embed in / out / fit" },
+        { keys: ["o"], label: "Toggle table of contents" },
+        { keys: ["c"], label: "Toggle comments" },
+        { keys: ["t"], label: "Toggle theme" },
+        { keys: ["["], label: "Toggle sidebar" },
+        { keys: ["]"], label: "Toggle top bar" },
+      ],
+    },
+    {
+      title: "General",
+      rows: [
+        { keys: ["Ctrl", "S"], combo: true, label: "Save / export a copy" },
+        { keys: ["Ctrl", "Alt", "H"], combo: true, live: true, label: "Hide file from viewer" },
+        { keys: ["r"], live: true, label: "Reload from disk" },
+        { keys: ["s"], label: "Settings" },
+        { keys: ["?"], label: "Show this help" },
+        { keys: ["q"], live: true, label: "Quit (close window)" },
+        { keys: ["Esc"], label: "Close dialogs" },
+      ],
+    },
+  ],
+];
+
+// Interleaves each pair's rows left-then-right so CSS grid auto-placement lands
+// them on shared row tracks (see .shortcuts in theme.ts).
+function helpModalHtml(): string {
+  const kbd = (k: string) => `<kbd>${k}</kbd>`;
+  const keysHtml = (r: ShortcutRow) =>
+    r.keys.map(kbd).join(r.combo ? '<span class="sc-plus">+</span>' : "");
+  const cells: string[] = [];
+  SHORTCUT_PAIRS.forEach(([left, right], pair) => {
+    const first = pair === 0 ? " sc-first" : "";
+    cells.push(
+      `<div class="sc-group sc-l${first}">${left.title}</div><div class="sc-group sc-r${first}">${right.title}</div>`,
+    );
+    for (let i = 0; i < Math.max(left.rows.length, right.rows.length); i++) {
+      for (const [group, side] of [
+        [left, "sc-l"],
+        [right, "sc-r"],
+      ] as const) {
+        const row = group.rows[i];
+        if (!row) continue;
+        const cls = row.live ? `${side} sc-live` : side;
+        cells.push(`<dt class="${cls}">${keysHtml(row)}</dt><dd class="${cls}">${row.label}</dd>`);
+      }
+    }
+  });
+  return `<div class="modal-scrim" id="helpModal" style="display:none">
+    <div class="modal modal-help">
+      <div class="modal-head"><span>Keyboard shortcuts</span><button class="icon-btn" id="helpClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <dl class="shortcuts">
+        ${cells.join("\n        ")}
+      </dl>
+    </div>
+  </div>`;
+}
+
+// Both depend only on static data, so build them once at module load instead
+// of on every render.
+const HELP_MODAL_HTML = helpModalHtml();
 const SETTINGS_MODAL_HTML = settingsModalHtml();
 
 // Theme gallery: every theme, each card with a star toggle (max 3 starred —
@@ -1684,27 +1763,55 @@ function copyManifestPath() {
 // delete mutate); commentsExport is a render-time snapshot we only borrow the
 // resolved fields from, by id. So a comment deleted this session is gone here,
 // and one added/edited live falls back to the minimal shape until a reload.
-function copyPageComments() {
-  const ref = currentRef;
-  if (!ref || !ref.f) return;
+function commentItems(f) {
   const resolved = {};
-  (ref.f.commentsExport || []).forEach((it) => { resolved[it.id] = it; });
-  const items = (ref.f.comments || []).map((c) => {
+  (f.commentsExport || []).forEach((it) => { resolved[it.id] = it; });
+  return (f.comments || []).map((c) => {
     const r = resolved[c.id];
     const quote = (c.anchor && c.anchor.quote ? c.anchor.quote : '').replace(/\s+/g, ' ').trim();
     return r && r.comment === c.body && r.quote === quote
       ? r // unchanged since render — use the fully-resolved snapshot
       : {
-          id: c.id, file: ref.f.path, comment: c.body, quote,
+          id: c.id, file: f.path, comment: c.body, quote,
           matched: false, line: null, section_heading: null, context: null, context_lines: null,
         };
   });
+}
+// Drop null-valued keys (unmatched comments carry line/heading/context = null)
+// so the copied JSON stays compact — absent key reads the same as null downstream.
+function commentsJson(value) {
+  return JSON.stringify(value, (_k, v) => v === null ? undefined : v, 2);
+}
+function copiedToast(n) {
+  return n + (n === 1 ? ' comment copied' : ' comments copied');
+}
+function copyPageComments() {
+  const ref = currentRef;
+  if (!ref || !ref.f) return;
+  const items = commentItems(ref.f);
   if (!items.length) { showToast('No comments on this page'); return; }
-  // Drop null-valued keys (unmatched comments carry line/heading/context = null)
-  // so the copied JSON stays compact — absent key reads the same as null downstream.
-  const json = JSON.stringify({ pad: ref.pad.name, comments: items }, (_k, v) => v === null ? undefined : v, 2);
-  copyText(json)
-    .then(() => showToast(items.length + (items.length === 1 ? ' comment copied' : ' comments copied'), 'success'))
+  copyText(commentsJson({ pad: ref.pad.name, comments: items }))
+    .then(() => showToast(copiedToast(items.length), 'success'))
+    .catch(() => showToast('Copy failed'));
+}
+
+// Copy EVERY open pad's comments as JSON (Ctrl+Shift+Alt+C) — the whole-view
+// counterpart to copyPageComments, matching 'scratch comments <pad> --json'
+// (files in tree order, each item carrying its own 'file' key). A multi-pad view
+// can't fit that shape, so it nests under a 'pads' array instead.
+function copyAllComments() {
+  const byPad = [];
+  ITEMS.forEach((it) => {
+    const items = commentItems(it.f);
+    if (!items.length) return;
+    let bucket = byPad.find((b) => b.pad === it.pad.name);
+    if (!bucket) { bucket = { pad: it.pad.name, comments: [] }; byPad.push(bucket); }
+    bucket.comments.push(...items);
+  });
+  const total = byPad.reduce((n, b) => n + b.comments.length, 0);
+  if (!total) { showToast('No comments'); return; }
+  copyText(commentsJson(byPad.length === 1 ? byPad[0] : { pads: byPad }))
+    .then(() => showToast(copiedToast(total), 'success'))
     .catch(() => showToast('Copy failed'));
 }
 
@@ -2225,7 +2332,7 @@ const SETTINGS = (function () {
   // tocVisible is deliberately NOT persisted — the TOC is on-demand and always
   // boots hidden, toggled ('o' / settings) for the current session only. So it's
   // absent from the embedded snapshot / localStorage / saveConfig, unlike the rest.
-  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, tocVisible: false, zoom: 1, autoReload: true };
+  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // With no host the embedded snapshot is whatever the exporting machine had
   // saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -2244,6 +2351,10 @@ const SETTINGS = (function () {
       const g = localStorage.getItem('scratch.gridStyle');
       const w = localStorage.getItem('scratch.wideMode');
       const z = parseFloat(localStorage.getItem('scratch.zoom'));
+      const sc = localStorage.getItem('scratch.sidebarCollapsed');
+      const tc = localStorage.getItem('scratch.topbarCollapsed');
+      if (sc === '1' || sc === '0') s.sidebarCollapsed = sc === '1';
+      if (tc === '1' || tc === '0') s.topbarCollapsed = tc === '1';
       if (PINNED.indexOf('themeMode') < 0 && (m === 'dark' || m === 'light' || m === 'system')) s.themeMode = m;
       if (PINNED.indexOf('colorTheme') < 0 && c) s.colorTheme = c;
       if (st) s.starredThemes = st;
@@ -2276,7 +2387,7 @@ function postToHost(key, path, payload, onFail) {
   return false;
 }
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
   if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
@@ -2285,6 +2396,10 @@ function persistSettings() {
     localStorage.setItem('scratch.gridStyle', SETTINGS.gridStyle);
     localStorage.setItem('scratch.wideMode', String(SETTINGS.wideMode));
     localStorage.setItem('scratch.zoom', String(SETTINGS.zoom));
+    // '1'/'0' (not String(bool)): keeps reading values that older exports wrote
+    // when these keys were localStorage-only.
+    localStorage.setItem('scratch.sidebarCollapsed', SETTINGS.sidebarCollapsed ? '1' : '0');
+    localStorage.setItem('scratch.topbarCollapsed', SETTINGS.topbarCollapsed ? '1' : '0');
   } catch (_) {}
 }
 function resolvedMode() {
@@ -2596,11 +2711,15 @@ window.__scratchSettings = function (cfg) {
   if ((cfg.gridStyle === 'off' || cfg.gridStyle === 'dots' || cfg.gridStyle === 'lines') && cfg.gridStyle !== SETTINGS.gridStyle) { SETTINGS.gridStyle = cfg.gridStyle; drift = true; }
   if (typeof cfg.wideMode === 'boolean' && cfg.wideMode !== SETTINGS.wideMode) { SETTINGS.wideMode = cfg.wideMode; drift = true; }
   if (typeof cfg.autoReload === 'boolean' && cfg.autoReload !== SETTINGS.autoReload) { SETTINGS.autoReload = cfg.autoReload; drift = true; }
+  if (typeof cfg.sidebarCollapsed === 'boolean' && cfg.sidebarCollapsed !== SETTINGS.sidebarCollapsed) { SETTINGS.sidebarCollapsed = cfg.sidebarCollapsed; drift = true; }
+  if (typeof cfg.topbarCollapsed === 'boolean' && cfg.topbarCollapsed !== SETTINGS.topbarCollapsed) { SETTINGS.topbarCollapsed = cfg.topbarCollapsed; drift = true; }
   if (typeof cfg.zoom === 'number' && cfg.zoom >= 0.5 && cfg.zoom <= 2 && cfg.zoom !== SETTINGS.zoom) { SETTINGS.zoom = cfg.zoom; drift = true; }
   if (!drift) return;
   renderStarredGrid();
   applyTheme();
   applyZoom();
+  setBar(sidebarEl, SETTINGS.sidebarCollapsed, false);
+  setBar(topbarEl, SETTINGS.topbarCollapsed, false);
   // A mode flip swaps the mermaid palette → re-render the open file.
   if (currentRef) renderPreview(currentRef.pad, currentRef.f);
 };
@@ -2795,41 +2914,35 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
   });
 })();
 
-// Collapsible sidebar (in-pane panel button / '['). Like the resizable width
-// (scratch.treeW above), this is per-machine window geometry — localStorage,
-// not the config file.
+// Collapsible sidebar (in-pane panel button / '[') and top bar (']'), persisted
+// through SETTINGS like every other viewer preference. renderHtml bakes the
+// collapsed class into the boot markup, so setBar below is a no-op at boot with
+// a host; it only has work to do on an export, where the reader's localStorage
+// seed can disagree with the baked-in state.
 const sidebarEl = document.getElementById('sidebar');
+const topbarEl = document.getElementById('topbar');
+function setBar(el, collapsed, animate) {
+  if (el.classList.contains('collapsed') === collapsed) return;
+  // Restore closed/open without the slide animation playing at boot.
+  if (!animate) { el.style.transition = 'none'; setTimeout(() => { el.style.transition = ''; }, 0); }
+  el.classList.toggle('collapsed', collapsed);
+}
 function toggleSidebar() {
-  const c = sidebarEl.classList.toggle('collapsed');
-  try { localStorage.setItem('scratch.sidebarCollapsed', c ? '1' : '0'); } catch (_) {}
+  SETTINGS.sidebarCollapsed = !SETTINGS.sidebarCollapsed;
+  setBar(sidebarEl, SETTINGS.sidebarCollapsed, true);
+  persistSettings();
+}
+function toggleTopbar() {
+  SETTINGS.topbarCollapsed = !SETTINGS.topbarCollapsed;
+  setBar(topbarEl, SETTINGS.topbarCollapsed, true);
+  persistSettings();
 }
 document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
 // The in-pane toggle collapses away with the pane; this floater (top-left of
 // the body, shown by CSS only while collapsed) is the way back.
 document.getElementById('sidebarOpen').addEventListener('click', toggleSidebar);
-try {
-  if (localStorage.getItem('scratch.sidebarCollapsed') === '1') {
-    // Restore closed without the slide-shut animation playing at boot.
-    sidebarEl.style.transition = 'none';
-    sidebarEl.classList.add('collapsed');
-    setTimeout(() => { sidebarEl.style.transition = ''; }, 0);
-  }
-} catch (_) {}
-
-// Collapsible top bar (']' key). Per-machine window geometry, same as the
-// sidebar above — localStorage, not the config file.
-const topbarEl = document.getElementById('topbar');
-function toggleTopbar() {
-  const c = topbarEl.classList.toggle('collapsed');
-  try { localStorage.setItem('scratch.topbarCollapsed', c ? '1' : '0'); } catch (_) {}
-}
-try {
-  if (localStorage.getItem('scratch.topbarCollapsed') === '1') {
-    topbarEl.style.transition = 'none';
-    topbarEl.classList.add('collapsed');
-    setTimeout(() => { topbarEl.style.transition = ''; }, 0);
-  }
-} catch (_) {}
+setBar(sidebarEl, SETTINGS.sidebarCollapsed, false);
+setBar(topbarEl, SETTINGS.topbarCollapsed, false);
 
 // Keyboard shortcuts (see the help modal). Ignored while typing in a field.
 const previewEl = document.getElementById('preview');
@@ -2854,7 +2967,9 @@ document.addEventListener('keydown', (e) => {
   // Ctrl+Alt copies (not Ctrl+Shift+C — that's the browser's inspect-element).
   // Alt is excluded from the block above, so handle these here.
   if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'c' || e.key === 'C')) {
-    e.preventDefault(); copyPageComments(); return;
+    // Shift widens the same copy from this page to every open pad. Note the key
+    // itself is 'C' either way once Shift is down, so test the modifier, not the case.
+    e.preventDefault(); e.shiftKey ? copyAllComments() : copyPageComments(); return;
   }
   if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'p' || e.key === 'P')) {
     e.preventDefault(); copyManifestPath(); return;

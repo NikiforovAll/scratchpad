@@ -1321,6 +1321,35 @@ test("inside the WebView2 host, settings changes post __scratch_settings", async
   }
 });
 
+test("'[' / ']' collapse the panes and persist through the host", async () => {
+  const html = await renderPad();
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    const sidebar = document.getElementById("sidebar")!;
+    const topbar = document.getElementById("topbar")!;
+    expect(sidebar.classList.contains("collapsed")).toBe(false);
+    expect(topbar.classList.contains("collapsed")).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "[" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "]" }));
+    expect(sidebar.classList.contains("collapsed")).toBe(true);
+    expect(topbar.classList.contains("collapsed")).toBe(true);
+
+    const msg = posted.filter((m) => m && m.__scratch_settings).pop();
+    expect(msg.__scratch_settings.sidebarCollapsed).toBe(true);
+    expect(msg.__scratch_settings.topbarCollapsed).toBe(true);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "[" }));
+    expect(sidebar.classList.contains("collapsed")).toBe(false);
+    expect(posted.filter((m) => m && m.__scratch_settings).pop().__scratch_settings.sidebarCollapsed).toBe(false);
+  } finally {
+    await teardown();
+  }
+});
+
 test("after a native reload, __scratchSettings re-applies config saved since launch", async () => {
   // Page presented at launch with default settings (dark-first system + ember +
   // dots); a WebView2 reload re-runs this same HTML, so the island is stale.
@@ -1560,6 +1589,40 @@ function cmt(over: Partial<Comment> = {}): Comment {
     ...over,
   };
 }
+
+test("Ctrl+Alt+C copies this page's comments; Ctrl+Shift+Alt+C copies every file's", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  const body = "# Heading\n\nText **bold** here.\n\nMore prose.\n";
+  await writeFile(join(dir, "a.md"), body, "utf8");
+  await writeFile(join(dir, "b.md"), body, "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "a.md", title: "A", type: "note", comments: [cmt({ id: "c-a", body: "on a" })] });
+  m.files.push({ path: "b.md", title: "B", type: "note", comments: [cmt({ id: "c-b", body: "on b" })] });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  await boot(await renderHtml(await buildView([pad]), "P"));
+  try {
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (t: string) => { copied = t; return Promise.resolve(); } },
+    });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", ctrlKey: true, altKey: true }));
+    let out = JSON.parse(copied);
+    expect(out.pad).toBe("P");
+    expect(out.comments.map((c: any) => c.comment)).toEqual(["on a"]);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "C", ctrlKey: true, altKey: true, shiftKey: true }));
+    out = JSON.parse(copied);
+    expect(out.pad).toBe("P"); // single pad → same shape as `scratch comments --json`
+    expect(out.comments.map((c: any) => c.comment)).toEqual(["on a", "on b"]);
+    expect(out.comments.map((c: any) => c.file)).toEqual(["a.md", "b.md"]);
+  } finally {
+    await teardown();
+  }
+});
 
 test("a stored comment renders a highlight; clicking it opens the popover", async () => {
   const html = await renderPadWithComments([cmt()]);

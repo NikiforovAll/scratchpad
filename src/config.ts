@@ -36,6 +36,10 @@ export interface ScratchConfig {
     gridStyle: GridStyle;
     /** Wide reading column: roomier card that still leaves a margin (default false). */
     wideMode: boolean;
+    /** Sidebar (file tree) collapsed away — toggled with '[' or the pane button. */
+    sidebarCollapsed: boolean;
+    /** Top bar collapsed away — toggled with ']'. */
+    topbarCollapsed: boolean;
     /** Viewer zoom factor (CSS zoom on the root), 0.5–2. Neither WebView2 nor a
      * random-port browser origin remembers zoom across launches, so we own it. */
     zoom: number;
@@ -54,6 +58,8 @@ const DEFAULTS: ScratchConfig = {
     starredThemes: [],
     gridStyle: "dots",
     wideMode: false,
+    sidebarCollapsed: false,
+    topbarCollapsed: false,
     zoom: 1,
     autoReload: true,
   },
@@ -95,12 +101,12 @@ export function configPath(): string {
 
 /** Load + merge over defaults. A missing or malformed file is non-fatal (defaults). */
 export async function loadConfig(): Promise<ScratchConfig> {
+  const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
   try {
     const raw = await Bun.file(configPath()).json();
     return {
       ui: {
-        frameless:
-          typeof raw?.ui?.frameless === "boolean" ? raw.ui.frameless : DEFAULTS.ui.frameless,
+        frameless: bool(raw?.ui?.frameless, DEFAULTS.ui.frameless),
         themeMode: validThemeMode(raw?.ui?.themeMode) ? raw.ui.themeMode : DEFAULTS.ui.themeMode,
         colorTheme: validColorTheme(raw?.ui?.colorTheme)
           ? raw.ui.colorTheme
@@ -109,11 +115,11 @@ export async function loadConfig(): Promise<ScratchConfig> {
         gridStyle: validGridStyle(raw?.ui?.gridStyle)
           ? raw.ui.gridStyle
           : DEFAULTS.ui.gridStyle,
-        wideMode:
-          typeof raw?.ui?.wideMode === "boolean" ? raw.ui.wideMode : DEFAULTS.ui.wideMode,
+        wideMode: bool(raw?.ui?.wideMode, DEFAULTS.ui.wideMode),
+        sidebarCollapsed: bool(raw?.ui?.sidebarCollapsed, DEFAULTS.ui.sidebarCollapsed),
+        topbarCollapsed: bool(raw?.ui?.topbarCollapsed, DEFAULTS.ui.topbarCollapsed),
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
-        autoReload:
-          typeof raw?.ui?.autoReload === "boolean" ? raw.ui.autoReload : DEFAULTS.ui.autoReload,
+        autoReload: bool(raw?.ui?.autoReload, DEFAULTS.ui.autoReload),
       },
     };
   } catch {
@@ -145,6 +151,8 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (starred) ui.starredThemes = starred;
   if (validGridStyle(patch.gridStyle)) ui.gridStyle = patch.gridStyle;
   if (typeof patch.wideMode === "boolean") ui.wideMode = patch.wideMode;
+  if (typeof patch.sidebarCollapsed === "boolean") ui.sidebarCollapsed = patch.sidebarCollapsed;
+  if (typeof patch.topbarCollapsed === "boolean") ui.topbarCollapsed = patch.topbarCollapsed;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;
   if (typeof patch.autoReload === "boolean") ui.autoReload = patch.autoReload;
   raw.ui = ui;

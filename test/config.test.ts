@@ -99,6 +99,32 @@ describe("loadConfig", () => {
     expect((await loadConfig()).ui.wideMode).toBe(false); // non-boolean → default
   });
 
+  test("sidebarCollapsed/topbarCollapsed: default false; read booleans; reject garbage", async () => {
+    process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
+    let cfg = await loadConfig();
+    expect(cfg.ui.sidebarCollapsed).toBe(false);
+    expect(cfg.ui.topbarCollapsed).toBe(false);
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { sidebarCollapsed: true, topbarCollapsed: true } }), "utf8");
+    cfg = await loadConfig();
+    expect(cfg.ui.sidebarCollapsed).toBe(true);
+    expect(cfg.ui.topbarCollapsed).toBe(true);
+    await writeFile(f, JSON.stringify({ ui: { sidebarCollapsed: 1, topbarCollapsed: "yes" } }), "utf8");
+    cfg = await loadConfig();
+    expect(cfg.ui.sidebarCollapsed).toBe(false);
+    expect(cfg.ui.topbarCollapsed).toBe(false);
+  });
+
+  test("saveConfig persists the collapsed panes", async () => {
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await saveConfig({ sidebarCollapsed: true, topbarCollapsed: true });
+    const cfg = await loadConfig();
+    expect(cfg.ui.sidebarCollapsed).toBe(true);
+    expect(cfg.ui.topbarCollapsed).toBe(true);
+  });
+
   test("starredThemes: defaults to []; sanitizes unknown ids, dupes, and clamps to 3", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     expect((await loadConfig()).ui.starredThemes).toEqual([]);

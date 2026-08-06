@@ -282,6 +282,26 @@ describe("renderHtml", () => {
     expect(plain).toContain('"wideMode":false');
   });
 
+  test("collapsed panes are baked into the boot markup", async () => {
+    const pad = await seedPad();
+    const view = await buildView([pad]);
+    const collapsed = await renderHtml(view, "Notes", {
+      themeMode: "system",
+      colorTheme: "ember",
+      sidebarCollapsed: true,
+      topbarCollapsed: true,
+    });
+    expect(collapsed).toContain('<div class="sidebar collapsed" id="sidebar">');
+    expect(collapsed).toContain('<header class="topbar collapsed" id="topbar">');
+    expect(collapsed).toContain('"sidebarCollapsed":true');
+    expect(collapsed).toContain('"topbarCollapsed":true');
+    const plain = await renderHtml(view, "Notes");
+    expect(plain).toContain('<div class="sidebar" id="sidebar">');
+    expect(plain).toContain('<header class="topbar" id="topbar">');
+    expect(plain).toContain('"sidebarCollapsed":false');
+    expect(plain).toContain('"topbarCollapsed":false');
+  });
+
   test("zoom ≠ 1 is baked as an inline style; default 1 leaves <html> clean", async () => {
     const pad = await seedPad();
     const view = await buildView([pad]);

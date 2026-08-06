@@ -471,12 +471,36 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
 .modal-head { display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px; border-bottom: 1px solid var(--border);
   font-family: var(--serif); font-size: 16px; color: var(--ink-1); }
-.shortcuts { margin: 0; padding: 4px 18px 18px; }
-.shortcuts > div { display: flex; align-items: center; gap: 14px; padding: 3px 0; }
-.shortcuts dt { flex: 0 0 132px; margin: 0; display: flex; align-items: center; gap: 4px; }
-.shortcuts dd { margin: 0; font-size: 13px; color: var(--ink-2); }
-.shortcuts .sc-group { padding: 12px 0 4px; font-size: 10px; font-weight: 600;
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted); }
+/* Paper (surface) rather than the near-white --elevated the other modals use —
+   at this size the flat white sheet was harsh; keycaps swap to --elevated so
+   they still read as raised against it. */
+.modal-help { max-width: 1180px; background: var(--surface); }
+.modal-help kbd { background: var(--elevated); }
+/* No rule under the title here — the group headings already rule the columns. */
+.modal-help .modal-head { border-bottom: none; }
+/* One shared grid for both halves (key | label | spacer | key | label): each key
+   gutter is sized by its column's widest combo, and left/right rows share row
+   tracks, so paired groups line up — a shorter group just leaves empty rows.
+   Cells opt into a half via sc-l / sc-r; the markup is generated from
+   SHORTCUT_PAIRS in render.ts. */
+.shortcuts { margin: 0; padding: 4px 18px 18px; display: grid;
+  grid-template-columns: max-content 1fr 24px max-content 1fr; column-gap: 14px; }
+.shortcuts dt.sc-l { grid-column: 1; }
+.shortcuts dd.sc-l { grid-column: 2; }
+.shortcuts dt.sc-r { grid-column: 4; }
+.shortcuts dd.sc-r { grid-column: 5; }
+.shortcuts .sc-group.sc-l { grid-column: 1 / 3; }
+.shortcuts .sc-group.sc-r { grid-column: 4 / 6; }
+.shortcuts dt { margin: 0; display: flex; align-items: center; align-self: center;
+  gap: 4px; padding: 3px 0; }
+.shortcuts dd { margin: 0; font-size: 13px; color: var(--ink-2); align-self: center;
+  padding: 3px 0; }
+/* Section headings carry the column: full-width rule + ink-1, so the eye finds
+   Navigate / Zoom / Copy before it reads any single row. */
+.shortcuts .sc-group { padding: 18px 0 6px; margin-bottom: 6px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-1);
+  border-bottom: 1px solid var(--border); }
+.shortcuts .sc-group.sc-first { padding-top: 2px; }
 /* keycap chips: surface fill + thicker bottom border reads as a key */
 .shortcuts kbd { display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box;

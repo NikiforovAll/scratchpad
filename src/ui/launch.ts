@@ -26,24 +26,7 @@ import type { Watcher } from "./watch.ts";
 async function persistViewerSettings(payload: unknown, io: IO): Promise<void> {
   if (!payload || typeof payload !== "object") return;
   try {
-    const p = payload as {
-      themeMode?: unknown;
-      colorTheme?: unknown;
-      starredThemes?: unknown;
-      gridStyle?: unknown;
-      wideMode?: unknown;
-      zoom?: unknown;
-      autoReload?: unknown;
-    };
-    await saveConfig({
-      themeMode: p.themeMode as any,
-      colorTheme: p.colorTheme as any,
-      starredThemes: p.starredThemes as any,
-      gridStyle: p.gridStyle as any,
-      wideMode: p.wideMode as any,
-      zoom: p.zoom as any,
-      autoReload: p.autoReload as any,
-    });
+    await saveConfig(payload as Parameters<typeof saveConfig>[0]);
   } catch (e) {
     note(io, `saving settings failed (${(e as Error).message.split("\n")[0]}).`);
   }
