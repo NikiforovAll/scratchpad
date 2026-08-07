@@ -665,6 +665,65 @@ test("footnotes: [^id] refs are numbered and linked to a definitions list ([^id]
   }
 });
 
+test("blockquotes render nested blocks: heading, table, list, fence — not literal markdown", async () => {
+  const html = await renderPadWithContent(
+    [
+      "> ## ⚠️ Partly superseded",
+      ">",
+      "> | Claim | Corrected by | Now |",
+      "> | --- | --- | --- |",
+      "> | Prod cut Jul 28 | E17 | **Wrong mechanism.** |",
+      ">",
+      "> - a quoted bullet",
+      ">",
+      "> ```ts",
+      "> const x = 1;",
+      "> ```",
+      "",
+      "Outside the quote.",
+      "",
+    ].join("\n"),
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    // One quote for the whole run, not one per line.
+    const quotes = md.querySelectorAll("blockquote");
+    expect(quotes.length).toBe(1);
+    const q = quotes[0]!;
+    expect(q.querySelector("h2")?.textContent).toContain("Partly superseded");
+    const table = q.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(table!.querySelectorAll("thead th").length).toBe(3);
+    expect(table!.querySelectorAll("tbody tr").length).toBe(1);
+    expect(table!.querySelector("tbody strong")?.textContent).toBe("Wrong mechanism.");
+    expect(q.querySelector("ul li")?.textContent).toBe("a quoted bullet");
+    expect(q.querySelector("pre code.language-ts")?.textContent).toContain("const x = 1;");
+    // The separator row never leaks as text.
+    expect(md.textContent).not.toContain("| --- |");
+    // Content after the quote is not swallowed by it.
+    expect(q.textContent).not.toContain("Outside the quote.");
+    expect(md.textContent).toContain("Outside the quote.");
+  } finally {
+    await teardown();
+  }
+});
+
+test("a task checkbox inside a blockquote keeps its ABSOLUTE source line index", async () => {
+  const html = await renderPadWithContent(
+    ["intro", "", "- [ ] top-level task", "", "> - [ ] quoted task", ""].join("\n"),
+  );
+  await boot(html);
+  try {
+    const tasks = document.querySelectorAll("#preview .md li.task");
+    expect(tasks.length).toBe(2);
+    expect(tasks[0]!.getAttribute("data-line")).toBe("2");
+    expect(tasks[1]!.getAttribute("data-line")).toBe("4");
+  } finally {
+    await teardown();
+  }
+});
+
 test("backslash escapes: \\$ \\* \\_ render the literal punctuation (GFM), without triggering math/emphasis", async () => {
   const html = await renderPadWithContent(
     [

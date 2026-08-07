@@ -1210,15 +1210,16 @@ function normLang(lang) {
   const k = lang.toLowerCase();
   return LANG_ALIAS[k] || k;
 }
-function renderMarkdown(src) {
-  const lines = src.replace(/\r\n/g, '\n').split('\n');
+// The block-level pass. Recursive (a blockquote body is rendered as blocks), so
+// it deliberately owns NO per-render state: the footnote registry belongs to the
+// one outermost renderMarkdown call, which frames this.
+// base is the source-line index of lines[0], keeping task-checkbox data-line
+// absolute. A scalar offset works only because stripping "> " leaves one output
+// line per source line — a nested construct that drops or adds lines would need
+// a per-line index map instead.
+function renderBlocks(lines, base) {
   let html = '', i = 0, inUl = false, inOl = false;
   const closeLists = () => { if (inUl) { html += '</ul>'; inUl = false; } if (inOl) { html += '</ol>'; inOl = false; } };
-  // Pre-pass: collect footnote definitions ([^id]: text) so inline refs can be
-  // numbered and a definitions list rendered at the end. Lines are NOT removed —
-  // task-checkbox data-line uses the source index — the main loop skips them.
-  FN = { defs: {}, order: [], seen: {} };
-  for (const ln of lines) { const d = ln.match(/^\[\^([^\]\s]+)\]:\s*(.*)$/); if (d) FN.defs[d[1]] = d[2]; }
   while (i < lines.length) {
     let line = lines[i];
     if (/^\[\^[^\]\s]+\]:/.test(line)) { i++; continue; } // a footnote def — collected above
@@ -1276,7 +1277,17 @@ function renderMarkdown(src) {
     let m;
     if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { closeLists(); html += '<h' + m[1].length + '>' + mdInline(m[2]) + '</h' + m[1].length + '>'; i++; continue; }
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { closeLists(); html += '<hr/>'; i++; continue; }
-    if ((m = line.match(/^\s*>\s?(.*)$/))) { closeLists(); html += '<blockquote>' + mdInline(m[1]) + '</blockquote>'; i++; continue; }
+    // Blockquote: take the whole run of "> " lines, strip one marker level, and
+    // re-render the body as blocks — headings, tables, lists, fences and nested
+    // quotes all work inside a quote. Rendering line-by-line inline (the old
+    // behaviour) left a quoted table as literal "| --- | --- |" text.
+    if ((m = line.match(/^\s*>\s?(.*)$/))) {
+      closeLists();
+      const start = i, buf = [];
+      do { buf.push(m[1]); i++; } while (i < lines.length && (m = lines[i].match(/^\s*>\s?(.*)$/)));
+      html += '<blockquote>' + renderBlocks(buf, base + start) + '</blockquote>';
+      continue;
+    }
     if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
       if (!inUl) { closeLists(); html += '<ul>'; inUl = true; }
       // GFM task list item: "- [ ] todo" / "- [x] done". Checked → green box.
@@ -1286,7 +1297,7 @@ function renderMarkdown(src) {
       const task = m[1].match(/^\[([ xX])\]\s+(.*)$/);
       if (task) {
         const done = task[1] !== ' ';
-        html += '<li class="task' + (done ? ' done' : '') + '" data-line="' + i + '"><span class="chk" role="checkbox" tabindex="0" aria-checked="' + done + '">' + (done ? '✓' : '') + '</span>' + mdInline(task[2]) + '</li>';
+        html += '<li class="task' + (done ? ' done' : '') + '" data-line="' + (base + i) + '"><span class="chk" role="checkbox" tabindex="0" aria-checked="' + done + '">' + (done ? '✓' : '') + '</span>' + mdInline(task[2]) + '</li>';
       } else { html += '<li>' + mdInline(m[1]) + '</li>'; }
       i++; continue;
     }
@@ -1295,6 +1306,16 @@ function renderMarkdown(src) {
     closeLists(); html += '<p>' + mdInline(line) + '</p>'; i++;
   }
   closeLists();
+  return html;
+}
+function renderMarkdown(src) {
+  const lines = src.replace(/\r\n/g, '\n').split('\n');
+  // Pre-pass: collect footnote definitions ([^id]: text) so inline refs can be
+  // numbered and a definitions list rendered at the end. Lines are NOT removed —
+  // task-checkbox data-line uses the source index — the block loop skips them.
+  FN = { defs: {}, order: [], seen: {} };
+  for (const ln of lines) { const d = ln.match(/^\[\^([^\]\s]+)\]:\s*(.*)$/); if (d) FN.defs[d[1]] = d[2]; }
+  let html = renderBlocks(lines, 0);
   // Footnote definitions list, in reference order, each with a ↩ back-link.
   if (FN.order.length) {
     const ids = FN.order.slice(); // snapshot — a def may itself reference a footnote
