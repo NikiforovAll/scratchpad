@@ -128,7 +128,7 @@ export function applyReveal(reloader: Reloader, payload: unknown): boolean {
 // drifted line is skipped rather than corrupted, and unrelated content (incl.
 // line endings elsewhere) is untouched. The file is resolved via the manifest
 // (linked `src` honored), so writes stay scoped to pad-registered files.
-const TASK_MARKER = /^(\s*[-*+]\s+\[)([ xX])(\].*)$/;
+const TASK_MARKER = /^(\s*(?:[-*+]\s+|#{1,6}\s+`?)\[)([ xX])(\].*)$/;
 export async function persistFileCheckbox(pads: Pad[], payload: unknown, io: IO): Promise<void> {
   if (!payload || typeof payload !== "object") return;
   const p = payload as { padDir?: unknown; filePath?: unknown; line?: unknown; checked?: unknown };

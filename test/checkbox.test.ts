@@ -47,6 +47,13 @@ test("unchecks a checked box", async () => {
   expect(await read(pad)).toBe("# Todos\n\n- [ ] one\n- [ ] two\n- not a task\n");
 });
 
+test("flips a task HEADING marker, plain and code-span forms", async () => {
+  const pad = await makePad("## [ ] plain\n\n## `[x] coded`\n");
+  await persistFileCheckbox([pad], { padDir: pad.dir, filePath: "todo.md", line: 0, checked: true }, io);
+  await persistFileCheckbox([pad], { padDir: pad.dir, filePath: "todo.md", line: 2, checked: false }, io);
+  expect(await read(pad)).toBe("## [x] plain\n\n## `[ ] coded`\n");
+});
+
 test("preserves CRLF line endings", async () => {
   const pad = await makePad("- [ ] a\r\n- [ ] b\r\n");
   await persistFileCheckbox([pad], { padDir: pad.dir, filePath: "todo.md", line: 1, checked: true }, io);

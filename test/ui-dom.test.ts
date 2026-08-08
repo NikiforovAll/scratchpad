@@ -2211,6 +2211,40 @@ test("clicking a task checkbox toggles it and posts __scratch_checkbox with the 
   }
 });
 
+test("a task HEADING renders a clickable checkbox and posts its source line", async () => {
+  // 0 "# Doc", 1 "", 2 "## [ ] plain", 3 "", 4 "## `[x] coded`", 5 "", 6 "## normal".
+  const html = await renderPadWithTasks(
+    ["# Doc", "", "## [ ] plain", "", "## `[x] coded`", "", "## normal", ""].join("\n"),
+  );
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    const heads = Array.from(document.querySelectorAll("#preview .md h2"));
+    expect(heads.length).toBe(3);
+    const [plain, coded, normal] = heads as HTMLElement[];
+    expect(plain!.classList.contains("task")).toBe(true);
+    expect(plain!.dataset.line).toBe("2");
+    expect(coded!.classList.contains("done")).toBe(true);
+    expect(coded!.dataset.line).toBe("4");
+    // The code-span title stays a code span, minus the marker.
+    expect(coded!.querySelector("code")!.textContent).toBe("coded");
+    expect(normal!.classList.contains("task")).toBe(false);
+    expect(normal!.querySelector(".chk")).toBeNull();
+
+    (plain!.querySelector(".chk") as any).click();
+    expect(plain!.classList.contains("done")).toBe(true);
+    const msg = posted.find((m) => m && m.__scratch_checkbox);
+    expect(msg.__scratch_checkbox).toMatchObject({ filePath: "doc.md", line: 2, checked: true });
+
+    // The ✓ must not leak into the outline label or the heading's GFM id.
+    expect(coded!.id).toBe("coded");
+  } finally {
+    await teardown();
+  }
+});
+
 // The standalone .html preview marks comments INSIDE its sandboxed frame, so that
 // code never runs in the host document and the boot() harness above cannot reach
 // it (happy-dom does not execute iframe srcdoc). Evaluate the injected frame

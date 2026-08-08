@@ -1210,6 +1210,28 @@ function normLang(lang) {
   const k = lang.toLowerCase();
   return LANG_ALIAS[k] || k;
 }
+// A GFM task marker: "[ ] text" / "[x] text", returned as {done, body} with the
+// body already inline-rendered. allowCode also accepts the whole title wrapped in
+// ONE code span ("\`[ ] text\`") — the shape task HEADINGS are commonly written in;
+// list items stay strict GFM. A title with an inner backtick ("\`[ ] a\`, \`[ ] b\`")
+// is rejected: two markers, no single one for the checkbox to own.
+function matchTask(text, allowCode) {
+  let m = text.match(/^\[([ xX])\]\s+(.*)$/);
+  if (m) return { done: m[1] !== ' ', body: mdInline(m[2]) };
+  if (!allowCode) return null;
+  m = text.match(/^\`\[([ xX])\]\s+([^\`]*)\`\s*$/);
+  return m ? { done: m[1] !== ' ', body: '<code>' + esc(m[2]) + '</code>' } : null;
+}
+// Wrap a matched task as <tag> with the hanging checkbox (shared by list items and
+// task headings — one markup contract for the CSS and the click handler).
+// data-line carries the 0-based source line index so a checkbox click can toggle
+// the exact "[ ]"/"[x]" marker back in the file (see the checkbox click handler —
+// the one place the read-only viewer writes file content).
+function taskEl(tag, t, line) {
+  return '<' + tag + ' class="task' + (t.done ? ' done' : '') + '" data-line="' + line +
+    '"><span class="chk" role="checkbox" tabindex="0" aria-checked="' + t.done + '">' +
+    (t.done ? '✓' : '') + '</span>' + t.body + '</' + tag + '>';
+}
 // The block-level pass. Recursive (a blockquote body is rendered as blocks), so
 // it deliberately owns NO per-render state: the footnote registry belongs to the
 // one outermost renderMarkdown call, which frames this.
@@ -1275,7 +1297,15 @@ function renderBlocks(lines, base) {
       continue;
     }
     let m;
-    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { closeLists(); html += '<h' + m[1].length + '>' + mdInline(m[2]) + '</h' + m[1].length + '>'; i++; continue; }
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
+      closeLists();
+      const lvl = m[1].length;
+      // A heading can itself be a GFM task ("## [ ] todo") — same clickable
+      // checkbox as a list task, same data-line contract.
+      const t = matchTask(m[2], true);
+      html += t ? taskEl('h' + lvl, t, base + i) : '<h' + lvl + '>' + mdInline(m[2]) + '</h' + lvl + '>';
+      i++; continue;
+    }
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { closeLists(); html += '<hr/>'; i++; continue; }
     // Blockquote: take the whole run of "> " lines, strip one marker level, and
     // re-render the body as blocks — headings, tables, lists, fences and nested
@@ -1291,14 +1321,9 @@ function renderBlocks(lines, base) {
     if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
       if (!inUl) { closeLists(); html += '<ul>'; inUl = true; }
       // GFM task list item: "- [ ] todo" / "- [x] done". Checked → green box.
-      // data-line carries the 0-based source line index so a checkbox click can
-      // toggle the exact "[ ]"/"[x]" marker back in the file (see the checkbox
-      // click handler — the one place the read-only viewer writes file content).
-      const task = m[1].match(/^\[([ xX])\]\s+(.*)$/);
-      if (task) {
-        const done = task[1] !== ' ';
-        html += '<li class="task' + (done ? ' done' : '') + '" data-line="' + (base + i) + '"><span class="chk" role="checkbox" tabindex="0" aria-checked="' + done + '">' + (done ? '✓' : '') + '</span>' + mdInline(task[2]) + '</li>';
-      } else { html += '<li>' + mdInline(m[1]) + '</li>'; }
+      const task = matchTask(m[1], false);
+      if (task) { html += taskEl('li', task, base + i); }
+      else { html += '<li>' + mdInline(m[1]) + '</li>'; }
       i++; continue;
     }
     if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) { if (!inOl) { closeLists(); html += '<ol>'; inOl = true; } html += '<li>' + mdInline(m[1]) + '</li>'; i++; continue; }
@@ -2690,6 +2715,13 @@ function updateToc() {
 // Runs after each preview render (file switch, raw↔rendered, reload) — it
 // (re)assigns heading ids, wires smooth-scroll links indented by level, and a
 // scroll-spy observer that lights the active section.
+// A task heading carries a checkbox span; its ✓ must not leak into the slug or
+// the outline label.
+function headText(h) {
+  const chk = h.querySelector('.chk');
+  if (!chk) return h.textContent;
+  return Array.prototype.filter.call(h.childNodes, (n) => n !== chk).map((n) => n.textContent).join('');
+}
 function buildToc() {
   const toc = document.getElementById('toc');
   if (!toc) return;
@@ -2707,14 +2739,15 @@ function buildToc() {
   };
   // Assign GFM heading ids before the <2-heading early return, so in-page anchor
   // links ([x](#heading)) resolve even on docs with too few headings for a TOC.
-  heads.forEach((h) => { if (!h.id) h.id = slug(h.textContent); });
+  const labels = heads.map(headText);
+  heads.forEach((h, hi) => { if (!h.id) h.id = slug(labels[hi]); });
   if (heads.length < 2) { toc.innerHTML = ''; updateToc(); return; }
   let html = '<div class="toc-head">On this page</div><nav class="toc-nav">';
   const links = {};
-  heads.forEach((h) => {
-    const id = h.id;
+  heads.forEach((h, hi) => {
+    const id = h.id, label = labels[hi];
     html += '<a class="toc-link toc-' + h.tagName.toLowerCase() + '" href="#' + id +
-      '" data-tid="' + id + '" title="' + esc(h.textContent) + '">' + esc(h.textContent) + '</a>';
+      '" data-tid="' + id + '" title="' + esc(label) + '">' + esc(label) + '</a>';
   });
   toc.innerHTML = html + '</nav>';
   // Move the .active class between two links rather than rescanning every entry
@@ -3296,21 +3329,22 @@ previewEl.addEventListener('click', (e) => {
 
 // ---------------------------------------------------------------------------
 // Clickable task checkboxes. The viewer is read-only EXCEPT here: clicking a
-// rendered "- [ ]" / "- [x]" toggles that marker in the source FILE (not the
-// manifest). The edit is line-addressed — li.dataset.line is the source line —
-// and persists through the same channel fan-out as settings/comments
-// (WebView2 __scratch_checkbox / POST /checkbox). The TASK_MARKER regex mirrors
-// the host's (launch.ts persistFileCheckbox) so both flip the same char.
-const TASK_MARKER = /^(\s*[-*+]\s+\[)([ xX])(\].*)$/;
+// rendered "- [ ]" / "- [x]" — or a task HEADING ("## [ ] todo") — toggles that
+// marker in the source FILE (not the manifest). The edit is line-addressed —
+// el.dataset.line is the source line — and persists through the same channel
+// fan-out as settings/comments (WebView2 __scratch_checkbox / POST /checkbox).
+// The TASK_MARKER regex mirrors the host's (launch.ts persistFileCheckbox) so
+// both flip the same char.
+const TASK_MARKER = /^(\s*(?:[-*+]\s+|#{1,6}\s+\`?)\[)([ xX])(\].*)$/;
 function persistCheckbox(line, checked) {
   if (!currentRef) return false;
   const payload = { padDir: currentRef.pad.dir, filePath: currentRef.f.path, line: line, checked: checked };
   return postToHost('__scratch_checkbox', '/checkbox', payload, () => showToast('Saving checkbox failed'));
 }
 previewEl.addEventListener('click', (e) => {
-  const chk = e.target.closest && e.target.closest('.md li.task .chk');
+  const chk = e.target.closest && e.target.closest('.md .task > .chk');
   if (!chk) return;
-  const li = chk.closest('li.task');
+  const li = chk.closest('.task');
   const f = currentRef && currentRef.f;
   if (!li || !f || f.kind !== 'markdown' || f.content == null) return;
   const line = parseInt(li.dataset.line, 10);

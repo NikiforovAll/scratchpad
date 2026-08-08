@@ -711,15 +711,18 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
    AND each inline <code>) its own flex item, scattering the sentence. The text
    must flow as normal inline content; only the checkbox hangs (absolute). */
 .md li.task { list-style: none; margin-left: -1.4em; padding-left: 1.6em; position: relative; }
-.md li.task .chk { position: absolute; left: 0; top: 0.28em;
+/* A heading can be a task too ("## [ ] todo") — same hanging checkbox, sized in
+   em so it tracks the heading's own font-size. */
+.md :is(h1,h2,h3,h4,h5,h6).task { padding-left: 1.4em; position: relative; }
+.md .task > .chk { position: absolute; left: 0; top: 0.28em;
   display: inline-flex; align-items: center; justify-content: center;
   width: 1.05em; height: 1.05em;
   border: 1.5px solid var(--ink-muted); border-radius: 3px; font-size: 0.8em; color: transparent;
   cursor: pointer; transition: border-color 0.12s, background 0.12s; }
-.md li.task .chk:hover { border-color: var(--ok); }
-.md li.task.done .chk { background: var(--ok); border-color: var(--ok); color: var(--ok-on); }
-.md li.task.done .chk:hover { background: var(--ok-strong); border-color: var(--ok-strong); }
-.md li.task.done { color: var(--ink-3); }
+.md .task > .chk:hover { border-color: var(--ok); }
+.md .task.done > .chk { background: var(--ok); border-color: var(--ok); color: var(--ok-on); }
+.md .task.done > .chk:hover { background: var(--ok-strong); border-color: var(--ok-strong); }
+.md .task.done { color: var(--ink-3); }
 .md blockquote { border-left: 2px solid var(--border); margin: 0.8em 0; padding: 0 0 0 14px; color: var(--ink-3); }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.4em 0; }
 .md code { font-family: var(--mono); font-size: 0.9em;
