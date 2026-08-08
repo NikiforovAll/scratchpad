@@ -1210,6 +1210,72 @@ function normLang(lang) {
   const k = lang.toLowerCase();
   return LANG_ALIAS[k] || k;
 }
+// Hand-drawn box-drawing trees (the call stacks these notes get written in) are
+// SNIFFED, never opted into with a fence tag: the source must stay plain text so
+// it renders identically in an MR, in Confluence, or in another agent's context,
+// and so nothing new has to be authored or taught. Recognition is lossy in the
+// safe direction — whatever isn't confidently classified is left exactly as
+// typed, and no line is ever reflowed.
+const CS_GUIDE = '─│┌┐└┘├┤┬┴┼►';
+// Spaces and guides, greedy but forced to END on a guide — so it backtracks to
+// exactly the last guide char, leaving the spaces after it outside the span.
+const CS_LEAD_RE = new RegExp('^[ \\t' + CS_GUIDE + ']*[' + CS_GUIDE + ']');
+const CS_LINE_RE = new RegExp('^[ \\t]*[' + CS_GUIDE + ']', 'gm');
+const CS_RUN_RE = new RegExp('[' + CS_GUIDE + ']{2,}', 'g');
+// Fences the sniffer is allowed to touch: unlabelled or explicitly plain. A real
+// grammar always keeps its hljs highlighting. A regex, not an object-as-set: the
+// latter inherits Object.prototype, so a fence tagged "constructor" would pass.
+const CS_PLAIN_RE = /^(|text|txt|plaintext|none)$/;
+function looksLikeStack(body) {
+  // The branch-char test first: it is one scan and rejects most plain fences
+  // before the per-line count has to run at all.
+  return /[├└]/.test(body) && (body.match(CS_LINE_RE) || []).length >= 2;
+}
+function csDim(s) { return '<span class="cs-g">' + s + '</span>'; }
+// The badge keeps the source arrow and its gap in the DOM, collapsed to zero
+// width by .cs-x, so textContent still reproduces the file byte for byte — the
+// copy button and the line gutter both read it.
+function csBadge(gap, text) {
+  const cls = /^(new|added)\b/i.test(text) ? 'cs-new'
+    : /^(removed|deleted|gone|dropped)\b/i.test(text) ? 'cs-del'
+    : 'cs-mod';
+  return '<span class="cs-b ' + cls + '"><span class="cs-x">' + gap + '</span>' + text + '</span>';
+}
+function paintStack(body) {
+  return body.split('\n').map(function (raw) {
+    // esc first, then paint: none of the patterns below can match inside an
+    // entity (&amp; &lt; &gt; &quot; &#39;), so the order is safe and saves
+    // having to escape each fragment separately.
+    const line = esc(raw);
+    const cut = (CS_LEAD_RE.exec(line) || [''])[0].length;
+    const head = line.slice(0, cut);
+    let tail = line.slice(cut);
+    // Interior guide runs (the ─┐ / ─┴─► joins that trail a label, and the long
+    // ───► flow arrows) plus standalone arrows.
+    tail = tail.replace(CS_RUN_RE, csDim)
+      .replace(/(^|\s)([→►])(?=\s|$)/g, function (_m, p, a) { return p + csDim(a); });
+    // The change marker: the LAST ← on the line, and only when column-padded off
+    // the label by 2+ spaces. A ← that turned out to head an arrow run (already
+    // dimmed, so the text now starts with a tag) is art, not a marker.
+    let marked = false;
+    tail = tail.replace(/(\s\s+)(←\s*)(\S.*)$/, function (m0, sp, gap, txt) {
+      if (txt.charAt(0) === '<') return m0;
+      marked = true;
+      return sp + csBadge(gap, txt);
+    });
+    // A trailing aside needs two things: a space-preceded ( — which is what keeps
+    // From(doc, topic, users) from reading as a note — and more than one word
+    // inside, which keeps a lone argument (switch (topic)) out of it.
+    if (!marked) tail = tail.replace(/(\s)(\([^()]*\s[^()]*\))\s*$/, '$1<span class="cs-note">$2</span>');
+    // The one rule keyed on language rather than on box-drawing structure, and a
+    // deliberate terminal stop: these three are the branch OUTCOMES a call stack
+    // draws, not the start of a grammar. Nothing else gets highlighted here — the
+    // block opted out of hljs precisely so it would not be syntax-coloured.
+    tail = tail.replace(/(^|[\s(\[])(null|true|false)(?=[\s,)\]]|$)/g,
+      function (_m, p, w) { return p + '<span class="cs-lit">' + w + '</span>'; });
+    return (head ? csDim(head) : '') + tail;
+  }).join('\n');
+}
 // A GFM task marker: "[ ] text" / "[x] text", returned as {done, body} with the
 // body already inline-rendered. allowCode also accepts the whole title wrapped in
 // ONE code span ("\`[ ] text\`") — the shape task HEADINGS are commonly written in;
@@ -1250,8 +1316,15 @@ function renderBlocks(lines, base) {
       closeLists(); const lang = normLang(fence[1] || ''); i++; let buf = [];
       while (i < lines.length && !/^\s*\`\`\`\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
       i++;
-      if (lang === 'mermaid') html += '<div class="mermaid">' + esc(buf.join('\n')) + '</div>';
-      else html += '<pre><code' + (lang ? ' class="language-' + lang + '"' : '') + '>' + esc(buf.join('\n')) + '</code></pre>';
+      const body = buf.join('\n');
+      if (lang === 'mermaid') html += '<div class="mermaid">' + esc(body) + '</div>';
+      // hl-done keeps highlightElement off the painted block — it rewrites
+      // innerHTML and would drop the spans. textContent is untouched, so the
+      // copy button and line gutter still see the exact source.
+      else if (CS_PLAIN_RE.test(lang) && looksLikeStack(body))
+        html += '<pre><code class="hljs hl-done cs' + (lang ? ' language-' + lang : '') + '">' +
+          paintStack(body) + '</code></pre>';
+      else html += '<pre><code' + (lang ? ' class="language-' + lang + '"' : '') + '>' + esc(body) + '</code></pre>';
       continue;
     }
     // Display math block: a line that STARTS with $$. Scan forward to the matching
@@ -1729,7 +1802,10 @@ function decorateCodeBlocks(container) {
     const m = (code.className || '').match(/language-([\w-]+)/);
     const lang = m ? m[1] : '';
     const isMdSrc = code.classList.contains('mdsrc');
-    const text = code.textContent.replace(/\n$/, ''); // shared by gutter + copy
+    // Shared by gutter + copy — and a load-bearing fidelity contract: a painted
+    // stack (paintStack) hides its source arrows with font-size:0 rather than
+    // dropping them precisely so this stays byte-exact. Keep it textContent.
+    const text = code.textContent.replace(/\n$/, '');
 
     const fig = document.createElement('figure');
     fig.className = 'cb';

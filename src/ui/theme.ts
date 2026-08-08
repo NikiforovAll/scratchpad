@@ -349,6 +349,10 @@ const BASE_CSS = `
   --ok: #2ea043;
   --ok-strong: #3fb950;
   --ok-on: #fff;
+  /* Two more semantic states, same reasoning as --ok: a "changed" and a "removed"
+     marker read universally in amber/red, so they stay off the accent ramp. */
+  --warn: #d29922;
+  --danger: #f85149;
   /* Canvas behind a kit-themed md embed's iframe ELEMENT. Taken from kit.ts so it
      stays equal to its --color-background-primary pair: the frame's scrollbar track is
      transparent on purpose (kit.ts), so this element background is what paints
@@ -376,6 +380,8 @@ const BASE_CSS = `
   --ok: #1a7f37;
   --ok-strong: #2ea043;
   --ok-on: #fff;
+  --warn: #8a5000;
+  --danger: #b3261e;
   --embed-paper: ${KIT_BG.light};
 }
 
@@ -733,6 +739,26 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0; }
 .md pre code { background: none; border: 0; padding: 0; font-size: 14px; line-height: 1.7; }
+/* Sniffed box-drawing trees (paintStack): the guides recede so the identifiers
+   carry the line, and the trailing change markers come forward as badges. Scoped
+   to code.cs so no other fenced block is affected. */
+code.cs .cs-g { color: color-mix(in srgb, var(--ink-muted) 60%, transparent); }
+code.cs .cs-note { color: var(--ink-muted); font-style: italic; }
+code.cs .cs-lit { color: var(--ink-3); }
+/* One badge formula parameterized by --cs, so the 16%/35% tint ratio is a single
+   edit rather than three. --cs-fg exists only for cs-new, whose text needs the
+   brighter green to clear the tint. */
+code.cs .cs-b { --cs: var(--warn); border-radius: 3px; padding: 0 0.45em;
+  font-size: 0.85em; font-weight: 600;
+  color: var(--cs-fg, var(--cs));
+  background: color-mix(in srgb, var(--cs) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cs) 35%, transparent); }
+code.cs .cs-new { --cs: var(--ok); --cs-fg: var(--ok-strong); }
+code.cs .cs-mod { --cs: var(--warn); }
+code.cs .cs-del { --cs: var(--danger); }
+/* The source arrow, kept in the DOM for copy fidelity but taken out of the
+   painted line. font-size:0 (not display:none) so it still copies. */
+code.cs .cs-x { font-size: 0; }
 /* width:max-content (not 100%) so a wide table widens the fit-content card like a
    code block, then scrolls once the card hits its cap. */
 .md table { border-collapse: collapse; margin: 1em 0; font-size: 13px; width: max-content; max-width: 100%; display: block; overflow-x: auto; }

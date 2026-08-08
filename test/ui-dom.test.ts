@@ -1116,6 +1116,78 @@ test("fence languages with special chars normalize to hljs grammar names", async
   }
 });
 
+// A ```text fence of hand-drawn box-drawing art. Doubles as the expected source
+// text: the painter must reproduce it byte for byte.
+const STACK = [
+  "# H",
+  "",
+  "```text",
+  "IndexDocumentJob.IndexDocumentAsync",
+  "└─ PublishAsync(doc)                      ← restructured",
+  "   ├─ GetTopic(doc)",
+  "   │     └─ null  ─────────────────► return (layer 1: silence)",
+  "   ├─ IsPublishable(doc, topic)           ← NEW",
+  "   │     └─ switch (topic)",
+  "   ├─ From(doc, topic, users)",
+  "   └─ From(doc, users)                    ← REMOVED overload",
+  "```",
+  "",
+].join("\n");
+
+test("a plain fence of box-drawing art is sniffed and painted; source text is untouched", async () => {
+  await boot(await renderPadWithContent(STACK));
+  try {
+    const code = document.querySelector("#preview pre code.cs") as HTMLElement;
+    expect(code).not.toBeNull();
+    // Opted out of hljs so highlightElement cannot overwrite the spans.
+    expect(code.classList.contains("hl-done")).toBe(true);
+    // The one hard invariant: painting must never alter a single character.
+    expect(code.textContent).toBe(STACK.split("\n").slice(3, 11).join("\n"));
+
+    const badges = Array.from(code.querySelectorAll(".cs-b")).map((b) => [
+      b.className.replace("cs-b ", ""),
+      b.textContent,
+    ]);
+    expect(badges).toEqual([
+      ["cs-mod", "← restructured"],
+      ["cs-new", "← NEW"],
+      ["cs-del", "← REMOVED overload"],
+    ]);
+    // Every ← lives inside a .cs-x, which is what makes the byte-for-byte
+    // textContent above compatible with hiding the arrow visually.
+    expect(Array.from(code.querySelectorAll(".cs-x")).map((x) => x.textContent)).toEqual([
+      "← ", "← ", "← ",
+    ]);
+
+    expect(code.querySelectorAll(".cs-g").length).toBeGreaterThan(3);
+    expect(Array.from(code.querySelectorAll(".cs-lit")).map((l) => l.textContent)).toEqual(["null"]);
+    // An aside is space-preceded AND multi-word: From(doc, topic, users) fails the
+    // first test, switch (topic) the second. Neither is a note.
+    expect(Array.from(code.querySelectorAll(".cs-note")).map((n) => n.textContent)).toEqual([
+      "(layer 1: silence)",
+    ]);
+  } finally {
+    await teardown();
+  }
+});
+
+// The two fences that must NOT be painted: a labelled grammar whose body happens
+// to contain art, and a plain block with no tree in it.
+test("the stack sniffer leaves labelled grammars and ordinary plain text alone", async () => {
+  await boot(
+    await renderPadWithContent(
+      "# H\n\n```ts\nconst x = 1; // └─ not art\n```\n\n```text\njust two\nplain lines\n```\n",
+    ),
+  );
+  try {
+    expect(document.querySelector("#preview pre code.cs")).toBeNull();
+    const langs = Array.from(document.querySelectorAll("#preview pre code")).map((c) => c.className);
+    expect(langs.some((c) => c.includes("language-ts"))).toBe(true);
+  } finally {
+    await teardown();
+  }
+});
+
 test("raw/rendered toggle swaps between source and rendered markdown", async () => {
   const html = await renderPad();
   await boot(html);
