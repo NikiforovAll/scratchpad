@@ -1,0 +1,51 @@
+{
+  "skill_name": "scratch (callstack)",
+  "grader": "scripts/grade.ts — renders each note through the real viewer and boots it in happy-dom, so assertions about painting are answered by the renderer the user actually looks at.",
+  "evals": [
+    {
+      "id": 0,
+      "name": "change-path-with-sigils",
+      "prompt": "I refactored our checkout flow today and want it written down before I forget. It used to be: handleCheckout called chargeCard(cart) directly. Now handleCheckout goes through RiskEngine.assess(cart, user) first — that one calls FraudRules.evaluate(cart) and Velocity.check(user), and if it comes back false we bail out and return null. Only if it passes do we hit chargeCard, which now takes an idempotency key it didn't take before. I also deleted the old legacyChargeCard path entirely. Write me a scratchpad note showing the call path with what changed along it.",
+      "expected_output": "A callstack-tagged fence tracing handleCheckout, with + on the new RiskEngine gate, - on legacyChargeCard, ~ on the changed chargeCard signature.",
+      "assertions": [
+        "Tags the fence ```callstack so the viewer paints it",
+        "Draws with box-drawing guides, not ASCII art the painter cannot read",
+        "Every ← annotation actually renders as a badge",
+        "At most one ← note per line, at the end",
+        "Sigils are drawn only from + - ~",
+        "Marks the added gate green (+), the deleted path red (-) and the reworked call amber (~)",
+        "Keeps lines under ~100 chars so annotations do not scroll off-screen",
+        "Painting is lossless — the block copies back byte-for-byte"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "plain-trace-no-changes",
+      "prompt": "A new teammate asked how a request travels through our ingestion service. Nothing has changed, I just want the path written down for them in a scratchpad note. It goes: ingest_view receives the POST and calls IngestService.submit(payload). That validates with SchemaGuard.check(payload) — raises on a bad schema — then runs Normalizer.run(payload) to get a record, then Repo.save(record), which ends in session.commit().",
+      "expected_output": "A callstack-tagged fence tracing the path with no change sigils, since nothing changed.",
+      "assertions": [
+        "Tags the fence ```callstack so the viewer paints it",
+        "Draws with box-drawing guides, not ASCII art the painter cannot read",
+        "Every ← annotation actually renders as a badge",
+        "At most one ← note per line, at the end",
+        "Sigils are drawn only from + - ~",
+        "Uses no change sigils — nothing changed, so a trace claims nothing",
+        "Keeps lines under ~100 chars so annotations do not scroll off-screen",
+        "Painting is lossless — the block copies back byte-for-byte"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "restraint-shape-not-path",
+      "prompt": "Write up our system architecture in a scratchpad note so I can share it. We have a web app talking to an API gateway, which fans out to three backend services — orders, billing and search. Orders and billing both share a Postgres instance; search has its own Elasticsearch cluster, and everything reads from a shared Redis cache.",
+      "expected_output": "A mermaid diagram. This is the shape of a system, not a call path, so a callstack fence would be the wrong tool.",
+      "assertions": [
+        "Does not reach for a call stack — this is system shape, not a call path",
+        "Uses a mermaid diagram for the shape of the system"
+      ],
+      "files": []
+    }
+  ]
+}

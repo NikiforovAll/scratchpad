@@ -1,0 +1,37 @@
+{
+  "skill_name": "scratch (callstack)",
+  "summary": {
+    "evals": 3,
+    "evals_fully_passed": 3,
+    "assertions_passed": 18,
+    "assertions_total": 18,
+    "total_tokens": 99472,
+    "total_duration_s": 158.8
+  },
+  "runs": [
+    {
+      "eval": "change-path-with-sigils",
+      "passed": 8,
+      "total": 8,
+      "failed": [],
+      "tokens": 33452,
+      "ms": 55909
+    },
+    {
+      "eval": "plain-trace-no-changes",
+      "passed": 8,
+      "total": 8,
+      "failed": [],
+      "tokens": 32516,
+      "ms": 45600
+    },
+    {
+      "eval": "restraint-shape-not-path",
+      "passed": 2,
+      "total": 2,
+      "failed": [],
+      "tokens": 33504,
+      "ms": 57244
+    }
+  ]
+}

@@ -24,6 +24,14 @@ docs/.vitepress/cache/
 .DS_Store
 Thumbs.db
 
+# eval runs: the harness (evals.json, scripts/, README) and the benchmark
+# scoreboard are source and stay tracked. The runs themselves are model samples —
+# a rerun produces different text, so there is no useful diff, only churn. Commit
+# an individual outputs/ deliberately when a run is worth keeping as a fixture.
+_evals/**/outputs/
+_evals/**/grading.json
+_evals/**/timing.json
+
 # scratch / throwaway
 _ui-check.mjs
 *.tmp
