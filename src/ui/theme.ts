@@ -735,19 +735,36 @@ html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
   background: color-mix(in srgb, var(--ink-muted) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   border-radius: 3px; padding: 1px 5px; }
+/* The code metrics live on <pre>, not on <pre><code>, because the line-number
+   gutter is a SIBLING of <code> — putting them a level down leaves the gutter on
+   the .md body size and it drifts a fraction of a line per row. */
 .md pre { background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0; }
-.md pre code { background: none; border: 0; padding: 0; font-size: 14px; line-height: 1.7; }
-/* Sniffed box-drawing trees (paintStack): the guides recede so the identifiers
+  border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0;
+  font-size: 14px; line-height: 1.7; }
+/* inherit, not a value: .md code's 0.9em would otherwise shrink fenced code. */
+.md pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+/* Fences tagged \`callstack\` (paintStack): the guides recede so the identifiers
    carry the line, and the trailing change markers come forward as badges. Scoped
-   to code.cs so no other fenced block is affected. */
+   to code.cs so no other fenced block is affected.
+   --cs-type is the qualifier ink. It lives here rather than in the palette because
+   only this block uses it, and it is cool on purpose: it has to sit opposite both
+   the accent and --ok/--warn/--danger, or a type starts reading as a change. */
+code.cs { --cs-type: #7fb3e3; }
+:root[data-theme="light"] code.cs { --cs-type: #2f6099; }
 code.cs .cs-g { color: color-mix(in srgb, var(--ink-muted) 60%, transparent); }
 code.cs .cs-note { color: var(--ink-muted); font-style: italic; }
+/* Identifier shape. The call name takes the accent because it is the one thing
+   the reader tracks down the tree; the qualifier takes the cool type ink; the
+   arguments recede furthest. Declared before .cs-lit so a literal sitting inside
+   an argument list still takes its own accent. */
+code.cs .cs-arg { color: color-mix(in srgb, var(--ink-muted) 85%, transparent); }
+code.cs .cs-q { color: var(--cs-type); }
+code.cs .cs-m { color: var(--accent-text); font-weight: 500; }
 code.cs .cs-lit { color: var(--ink-3); }
 /* One badge formula parameterized by --cs, so the 16%/35% tint ratio is a single
-   edit rather than three. --cs-fg exists only for cs-new, whose text needs the
-   brighter green to clear the tint. */
+   edit rather than three. --cs-fg is the opt-out, for the two states whose text
+   cannot ride the tint: cs-new needs a brighter green, cs-neu has no fill at all. */
 code.cs .cs-b { --cs: var(--warn); border-radius: 3px; padding: 0 0.45em;
   font-size: 0.85em; font-weight: 600;
   color: var(--cs-fg, var(--cs));
@@ -756,6 +773,10 @@ code.cs .cs-b { --cs: var(--warn); border-radius: 3px; padding: 0 0.45em;
 code.cs .cs-new { --cs: var(--ok); --cs-fg: var(--ok-strong); }
 code.cs .cs-mod { --cs: var(--warn); }
 code.cs .cs-del { --cs: var(--danger); }
+/* No sigil = no claim about change. Ink rather than a colour, and no fill, so a
+   page of plain annotations does not read as a page of warnings. */
+code.cs .cs-neu { --cs: var(--ink-muted); --cs-fg: var(--ink-2);
+  background: transparent; }
 /* The source arrow, kept in the DOM for copy fidelity but taken out of the
    painted line. font-size:0 (not display:none) so it still copies. */
 code.cs .cs-x { font-size: 0; }

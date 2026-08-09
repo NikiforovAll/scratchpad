@@ -1116,25 +1116,25 @@ test("fence languages with special chars normalize to hljs grammar names", async
   }
 });
 
-// A ```text fence of hand-drawn box-drawing art. Doubles as the expected source
-// text: the painter must reproduce it byte for byte.
+// A ```callstack fence of hand-drawn box-drawing art. Doubles as the expected
+// source text: the painter must reproduce it byte for byte.
 const STACK = [
   "# H",
   "",
-  "```text",
-  "IndexDocumentJob.IndexDocumentAsync",
-  "└─ PublishAsync(doc)                      ← restructured",
-  "   ├─ GetTopic(doc)",
-  "   │     └─ null  ─────────────────► return (layer 1: silence)",
-  "   ├─ IsPublishable(doc, topic)           ← NEW",
-  "   │     └─ switch (topic)",
-  "   ├─ From(doc, topic, users)",
-  "   └─ From(doc, users)                    ← REMOVED overload",
+  "```callstack",
+  "OrderJob.RunAsync",
+  "└─ SubmitAsync(order)                     ← ~restructured",
+  "   ├─ Quote(order)",
+  "   │     └─ null  ─────────────────► return (nothing to charge)",
+  "   ├─ CanSubmit(order, quote)             ← +NEW (guards the write)",
+  "   │     └─ switch (tier)",
+  "   ├─ From(order, quote, items)           ← now behind the gate",
+  "   └─ From(order, items)                  ← -REMOVED overload",
   "```",
   "",
 ].join("\n");
 
-test("a plain fence of box-drawing art is sniffed and painted; source text is untouched", async () => {
+test("a ```callstack fence is painted; source text is untouched", async () => {
   await boot(await renderPadWithContent(STACK));
   try {
     const code = document.querySelector("#preview pre code.cs") as HTMLElement;
@@ -1148,41 +1148,159 @@ test("a plain fence of box-drawing art is sniffed and painted; source text is un
       b.className.replace("cs-b ", ""),
       b.textContent,
     ]);
+    // The sigil classifies; no sigil makes no claim and stays neutral.
     expect(badges).toEqual([
-      ["cs-mod", "← restructured"],
-      ["cs-new", "← NEW"],
-      ["cs-del", "← REMOVED overload"],
+      ["cs-mod", "← ~restructured"],
+      ["cs-new", "← +NEW (guards the write)"],
+      ["cs-neu", "← now behind the gate"],
+      ["cs-del", "← -REMOVED overload"],
     ]);
-    // Every ← lives inside a .cs-x, which is what makes the byte-for-byte
-    // textContent above compatible with hiding the arrow visually.
+    // Every ← lives inside a .cs-x — and so does its sigil, which is why the
+    // byte-for-byte textContent above still holds with both hidden.
     expect(Array.from(code.querySelectorAll(".cs-x")).map((x) => x.textContent)).toEqual([
-      "← ", "← ", "← ",
+      "← ~", "← +", "← ", "← -",
     ]);
 
     expect(code.querySelectorAll(".cs-g").length).toBeGreaterThan(3);
     expect(Array.from(code.querySelectorAll(".cs-lit")).map((l) => l.textContent)).toEqual(["null"]);
-    // An aside is space-preceded AND multi-word: From(doc, topic, users) fails the
-    // first test, switch (topic) the second. Neither is a note.
+    // An aside is space-preceded AND multi-word: From(order, quote, items) fails
+    // the first test, switch (tier) the second. Neither is a note.
+    // The second one is INSIDE a badge: a qualifier after the marker word renders
+    // as a quiet aside rather than being swallowed into the chip.
     expect(Array.from(code.querySelectorAll(".cs-note")).map((n) => n.textContent)).toEqual([
-      "(layer 1: silence)",
+      "(nothing to charge)",
+      "(guards the write)",
     ]);
+    expect(code.querySelector(".cs-b .cs-note")).not.toBeNull();
   } finally {
     await teardown();
   }
 });
 
-// The two fences that must NOT be painted: a labelled grammar whose body happens
-// to contain art, and a plain block with no tree in it.
-test("the stack sniffer leaves labelled grammars and ordinary plain text alone", async () => {
+// A body that is unmistakably a call stack. It exists to prove that being
+// stack-SHAPED earns nothing: without the tag, none of these fences paint.
+const STACK_BODY = [
+  "OrderJob.RunAsync",
+  "└─ SubmitAsync(order)                     ← ~restructured",
+  "   ├─ Quote(order)",
+  "   └─ From(order, items)                  ← -REMOVED overload",
+].join("\n");
+
+test("only the ```callstack tag paints — no fence is sniffed by shape", async () => {
+  // A real grammar carrying art, the plain tags a heuristic would have accepted,
+  // and the alias spellings that were deliberately not implemented.
+  const tags = ["ts", "", "text", "txt", "plaintext", "none", "call-stack", "stack"];
   await boot(
     await renderPadWithContent(
-      "# H\n\n```ts\nconst x = 1; // └─ not art\n```\n\n```text\njust two\nplain lines\n```\n",
+      "# H\n\n" + tags.map((t) => "```" + t + "\n" + STACK_BODY + "\n```\n").join("\n"),
     ),
   );
   try {
     expect(document.querySelector("#preview pre code.cs")).toBeNull();
     const langs = Array.from(document.querySelectorAll("#preview pre code")).map((c) => c.className);
     expect(langs.some((c) => c.includes("language-ts"))).toBe(true);
+  } finally {
+    await teardown();
+  }
+});
+
+test("the same body tagged ```callstack does paint — the tag is the whole rule", async () => {
+  await boot(await renderPadWithContent("# H\n\n```callstack\n" + STACK_BODY + "\n```\n"));
+  try {
+    const code = document.querySelector("#preview pre code.cs") as HTMLElement;
+    expect(code).not.toBeNull();
+    expect(code.classList.contains("hl-done")).toBe(true);
+    expect(code.className).toContain("language-callstack");
+    expect(code.textContent).toBe(STACK_BODY);
+    expect(code.querySelectorAll(".cs-b").length).toBe(2);
+    expect(code.querySelectorAll(".cs-g").length).toBeGreaterThan(0);
+  } finally {
+    await teardown();
+  }
+});
+
+// A shape no heuristic would have accepted: one branch line, then an arrow table
+// with no branch chars at all. The tag carries it regardless.
+const FLAT_STACK = [
+  "CancelAsync(id, reason, ct)                   ← +NEW private (the one write site)",
+  "   └─ WriteAsync(id, { State = Cancelled })",
+  "",
+  "callers",
+  "   SubmitAsync               (retry path)     → the same write",
+].join("\n");
+
+test("a ```callstack fence paints shapes that carry no tree at all", async () => {
+  await boot(await renderPadWithContent("# H\n\n```callstack\n" + FLAT_STACK + "\n```\n"));
+  try {
+    const code = document.querySelector("#preview pre code.cs") as HTMLElement;
+    expect(code).not.toBeNull();
+    expect(code.textContent).toBe(FLAT_STACK);
+    expect(Array.from(code.querySelectorAll(".cs-b")).map((b) => b.className)).toEqual([
+      "cs-b cs-new",
+    ]);
+  } finally {
+    await teardown();
+  }
+});
+
+// Two rules the author used to have to remember, now gone: alignment is not a
+// condition of being painted, and an aside is the same rule wherever it sits.
+const LOOSE_STACK = [
+  "root",
+  "├─ a() ← +one space is enough",
+  "└─ Call(a, b) (before the marker)          ← ~changed",
+].join("\n");
+
+test("a marker needs only whitespace, and an aside paints on either side of it", async () => {
+  await boot(await renderPadWithContent("# H\n\n```callstack\n" + LOOSE_STACK + "\n```\n"));
+  try {
+    const code = document.querySelector("#preview pre code.cs") as HTMLElement;
+    expect(code.textContent).toBe(LOOSE_STACK);
+    expect(Array.from(code.querySelectorAll(".cs-b")).map((b) => b.className)).toEqual([
+      "cs-b cs-new",
+      "cs-b cs-mod",
+    ]);
+    // The aside sits BEFORE the marker here — outside the chip, still dimmed.
+    expect(Array.from(code.querySelectorAll(".cs-note")).map((n) => n.textContent)).toEqual([
+      "(before the marker)",
+    ]);
+    expect(code.querySelector(".cs-b .cs-note")).toBeNull();
+    // Call(a, b) has no space before its ( — still not an aside.
+    expect(code.textContent).toContain("Call(a, b)");
+  } finally {
+    await teardown();
+  }
+});
+
+// Identifier shape: qualifier / call name / argument list, keyed on structure
+// alone. The negative cases are the point — a space before "(" is prose, not
+// arguments, and generics are neither.
+const IDENT_STACK = [
+  "OrderJob.RunAsync",
+  "├─ Bare()",
+  "├─ A.B.C.Method(x, y)",
+  "├─ switch (quote.Tier)",
+  "├─ plain (two words)",
+  "├─ Method(null, true, false)",
+  "└─ Task<Result<TKey, TValue>>",
+].join("\n");
+
+test("call stack paints qualifier, call name and argument list by shape", async () => {
+  await boot(await renderPadWithContent("# H\n\n```callstack\n" + IDENT_STACK + "\n```\n"));
+  try {
+    const code = document.querySelector("#preview pre code.cs") as HTMLElement;
+    expect(code.textContent).toBe(IDENT_STACK);
+    const txt = (sel: string) => Array.from(code.querySelectorAll(sel)).map((n) => n.textContent);
+    expect(txt(".cs-q")).toEqual(["OrderJob.", "A.B.C.", "quote."]);
+    expect(txt(".cs-m")).toEqual(["RunAsync", "Bare", "Method", "Tier", "Method"]);
+    // Bare() is empty, so there is no argument list to paint.
+    expect(txt(".cs-arg")).toEqual(["(x, y)", "(null, true, false)"]);
+    // A space before "(" makes prose: one word stays plain, two make an aside.
+    expect(txt(".cs-note")).toEqual(["(two words)"]);
+    // Literals keep their own accent inside an argument list.
+    expect(code.querySelectorAll(".cs-arg .cs-lit").length).toBe(3);
+    // Generics are not an argument list — nothing painted on that line.
+    expect(code.innerHTML).toContain("Task&lt;Result&lt;TKey, TValue&gt;&gt;");
   } finally {
     await teardown();
   }

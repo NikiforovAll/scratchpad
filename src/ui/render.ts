@@ -1210,36 +1210,96 @@ function normLang(lang) {
   const k = lang.toLowerCase();
   return LANG_ALIAS[k] || k;
 }
-// Hand-drawn box-drawing trees (the call stacks these notes get written in) are
-// SNIFFED, never opted into with a fence tag: the source must stay plain text so
-// it renders identically in an MR, in Confluence, or in another agent's context,
-// and so nothing new has to be authored or taught. Recognition is lossy in the
+// Hand-drawn box-drawing trees, painted ONLY when the author tags the fence
+// \`\`\`callstack — never sniffed from shape, so the author decides. The tag stays
+// portable: no other renderer knows it, so in an MR or in another agent's context
+// the block degrades to the plain fence it already is. Painting is lossy in the
 // safe direction — whatever isn't confidently classified is left exactly as
 // typed, and no line is ever reflowed.
 const CS_GUIDE = '─│┌┐└┘├┤┬┴┼►';
 // Spaces and guides, greedy but forced to END on a guide — so it backtracks to
 // exactly the last guide char, leaving the spaces after it outside the span.
 const CS_LEAD_RE = new RegExp('^[ \\t' + CS_GUIDE + ']*[' + CS_GUIDE + ']');
-const CS_LINE_RE = new RegExp('^[ \\t]*[' + CS_GUIDE + ']', 'gm');
 const CS_RUN_RE = new RegExp('[' + CS_GUIDE + ']{2,}', 'g');
-// Fences the sniffer is allowed to touch: unlabelled or explicitly plain. A real
-// grammar always keeps its hljs highlighting. A regex, not an object-as-set: the
-// latter inherits Object.prototype, so a fence tagged "constructor" would pass.
-const CS_PLAIN_RE = /^(|text|txt|plaintext|none)$/;
-function looksLikeStack(body) {
-  // The branch-char test first: it is one scan and rejects most plain fences
-  // before the per-line count has to run at all.
-  return /[├└]/.test(body) && (body.match(CS_LINE_RE) || []).length >= 2;
-}
+const CS_ARROW_RE = /(^|\s)([→►])(?=\s|$)/g;
+// The change marker: the LAST ← on the line — [^←] is what forces that, since a
+// match starting at an earlier arrow cannot span a later one. Any whitespace ahead
+// of it is enough; alignment is the author's business, not a condition of being
+// painted. Trailing spaces are a separate group so they can be emitted OUTSIDE the
+// badge; inside, they would render as a run of coloured padding whose width is an
+// accident of the author's alignment.
+const CS_MARK_RE = /(\s+)(←\s*)([^←]*?)(\s*)$/;
+// The one rule keyed on language rather than on box-drawing structure, and a
+// deliberate terminal stop: these three are the branch OUTCOMES a call stack
+// draws, not the start of a grammar. Nothing else gets highlighted here — the
+// block opted out of hljs precisely so it would not be syntax-coloured.
+// Lookaround, not consuming groups: this pass runs LAST, so a literal can sit
+// flush against markup already injected ("← ~was true</span>"). ">" and "<" are
+// therefore boundaries, and "," is one too — without it the second half of
+// "(true, false)" never painted.
+const CS_LIT_RE = /(?<=^|[\s(\[,>])(?:null|true|false)(?=[\s,)\]<]|$)/g;
+// The one tag that opts a fence in. Deliberately no aliases ("call-stack",
+// "stack"): a second spelling is a second thing to document and to get wrong,
+// and it buys nothing the first spelling doesn't already do.
+const CS_TAG = 'callstack';
 function csDim(s) { return '<span class="cs-g">' + s + '</span>'; }
 // The badge keeps the source arrow and its gap in the DOM, collapsed to zero
 // width by .cs-x, so textContent still reproduces the file byte for byte — the
 // copy button and the line gutter both read it.
+// The sigil is the whole classification rule: one character the author types,
+// rather than a word list guessing at intent. Colour therefore means something —
+// an unsigilled marker makes no claim about change and stays neutral. The sigil
+// joins the arrow inside .cs-x, so it is authored, copied, and invisible.
+const CS_SIGIL = { '+': 'cs-new', '-': 'cs-del', '~': 'cs-mod' };
+// A trailing aside needs two things: a space-preceded ( — which is what keeps
+// From(order, quote, items) from reading as a note — and more than one word
+// inside, which keeps a lone argument (switch (tier)) out of it. ONE function,
+// applied to the label and to the marker text alike, so an aside is the same
+// rule wherever it sits on the line.
+const CS_ASIDE_RE = /(\s)(\([^()]*\s[^()]*\))(\s*)$/;
+function csAside(s) {
+  return s.replace(CS_ASIDE_RE, '$1<span class="cs-note">$2</span>$3');
+}
+function csWrap(cls, s) { return '<span class="' + cls + '">' + s + '</span>'; }
+// Identifier shape, not language: a dotted prefix is a qualifier, the name after
+// it (or the name glued to an opening paren) is the call, and the paren group is
+// its arguments — true in C#, TS, Java or Python alike, with no word list and no
+// language detection. The arg rule is the exact complement of csAside: no space
+// before "(" means arguments, a space before it means prose. The three run in
+// order and see each other's output, which is why ">" appears in the second and
+// third lookarounds: a name this function already wrapped has a tag between it
+// and its parens, and the boundaries have to account for that.
+const CS_QUAL_RE = /((?:[A-Za-z_$][\w$]*\.)+)([A-Za-z_$][\w$]*)/g;
+const CS_CALL_RE = /(?<![\w$.>])[A-Za-z_$][\w$]*(?=\()/g;
+const CS_ARGS_RE = /(?<=[\w$>])\([^()]*\)/g;
+function csIdent(s) {
+  return s
+    // A dotted prefix and the name it qualifies, taken as one pair so the split
+    // point is unambiguous: everything up to the last dot is the qualifier.
+    .replace(CS_QUAL_RE, function (_m, q, name) { return csWrap('cs-q', q) + csWrap('cs-m', name); })
+    // An unqualified call: a name glued to its opening paren.
+    .replace(CS_CALL_RE, function (name) { return csWrap('cs-m', name); })
+    .replace(CS_ARGS_RE, function (a) { return a.length > 2 ? csWrap('cs-arg', a) : a; });
+}
+// Apply fn only to the text this function has not already wrapped. The spans in
+// play here (guides, aside) are flat, so a non-greedy tag match is enough to skip
+// each one whole rather than re-painting inside it.
+const CS_SPAN_RE = /<span\b[^>]*>[\s\S]*?<\/span>/g;
+function csOutside(s, fn) {
+  let out = '', last = 0, m;
+  CS_SPAN_RE.lastIndex = 0;
+  while ((m = CS_SPAN_RE.exec(s))) {
+    out += fn(s.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  return out + fn(s.slice(last));
+}
+function csLabel(s) { return csOutside(csAside(s), csIdent); }
+const CS_SIGIL_RE = /^([+\-~])\s*/;
 function csBadge(gap, text) {
-  const cls = /^(new|added)\b/i.test(text) ? 'cs-new'
-    : /^(removed|deleted|gone|dropped)\b/i.test(text) ? 'cs-del'
-    : 'cs-mod';
-  return '<span class="cs-b ' + cls + '"><span class="cs-x">' + gap + '</span>' + text + '</span>';
+  const sig = CS_SIGIL_RE.exec(text) || ['', ''];
+  return csWrap('cs-b ' + (CS_SIGIL[sig[1]] || 'cs-neu'),
+    csWrap('cs-x', gap + sig[0]) + csAside(text.slice(sig[0].length)));
 }
 function paintStack(body) {
   return body.split('\n').map(function (raw) {
@@ -1253,26 +1313,17 @@ function paintStack(body) {
     // Interior guide runs (the ─┐ / ─┴─► joins that trail a label, and the long
     // ───► flow arrows) plus standalone arrows.
     tail = tail.replace(CS_RUN_RE, csDim)
-      .replace(/(^|\s)([→►])(?=\s|$)/g, function (_m, p, a) { return p + csDim(a); });
-    // The change marker: the LAST ← on the line, and only when column-padded off
-    // the label by 2+ spaces. A ← that turned out to head an arrow run (already
-    // dimmed, so the text now starts with a tag) is art, not a marker.
-    let marked = false;
-    tail = tail.replace(/(\s\s+)(←\s*)(\S.*)$/, function (m0, sp, gap, txt) {
-      if (txt.charAt(0) === '<') return m0;
-      marked = true;
-      return sp + csBadge(gap, txt);
-    });
-    // A trailing aside needs two things: a space-preceded ( — which is what keeps
-    // From(doc, topic, users) from reading as a note — and more than one word
-    // inside, which keeps a lone argument (switch (topic)) out of it.
-    if (!marked) tail = tail.replace(/(\s)(\([^()]*\s[^()]*\))\s*$/, '$1<span class="cs-note">$2</span>');
-    // The one rule keyed on language rather than on box-drawing structure, and a
-    // deliberate terminal stop: these three are the branch OUTCOMES a call stack
-    // draws, not the start of a grammar. Nothing else gets highlighted here — the
-    // block opted out of hljs precisely so it would not be syntax-coloured.
-    tail = tail.replace(/(^|[\s(\[])(null|true|false)(?=[\s,)\]]|$)/g,
-      function (_m, p, w) { return p + '<span class="cs-lit">' + w + '</span>'; });
+      .replace(CS_ARROW_RE, function (_m, p, a) { return p + csDim(a); });
+    const m = CS_MARK_RE.exec(tail);
+    // An already-dimmed guide run means this arrow heads a flow line ("← ──►"), so
+    // it is art, not a marker. Tested on the injected span rather than a bare "<":
+    // after esc() a source "<" is "&lt;", so this can only ever be ours.
+    const marked = !!(m && m[3] && !m[3].startsWith('<span'));
+    // Splitting label from marker is what lets ONE aside rule serve both.
+    tail = marked
+      ? csLabel(tail.slice(0, m.index)) + m[1] + csBadge(m[2], m[3]) + m[4]
+      : csLabel(tail);
+    tail = tail.replace(CS_LIT_RE, function (w) { return csWrap('cs-lit', w); });
     return (head ? csDim(head) : '') + tail;
   }).join('\n');
 }
@@ -1321,9 +1372,12 @@ function renderBlocks(lines, base) {
       // hl-done keeps highlightElement off the painted block — it rewrites
       // innerHTML and would drop the spans. textContent is untouched, so the
       // copy button and line gutter still see the exact source.
-      else if (CS_PLAIN_RE.test(lang) && looksLikeStack(body))
-        html += '<pre><code class="hljs hl-done cs' + (lang ? ' language-' + lang : '') + '">' +
+      else if (lang === CS_TAG) {
+        // The tag is kept verbatim in the class, so the block's chip reads
+        // "callstack". hljs never sees it — the block carries hl-done.
+        html += '<pre><code class="hljs hl-done cs language-' + CS_TAG + '">' +
           paintStack(body) + '</code></pre>';
+      }
       else html += '<pre><code' + (lang ? ' class="language-' + lang + '"' : '') + '>' + esc(body) + '</code></pre>';
       continue;
     }
