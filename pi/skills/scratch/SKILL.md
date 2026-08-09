@@ -119,6 +119,15 @@ is what makes a diagram come out unreadable.
 When mermaid can't express it (bespoke layout, a chart, interactivity), embed an
 HTML diagram instead (below).
 
+## Call stacks
+
+A fenced ` ```callstack ` block renders a hand-drawn tree of a code path, with
+what changed along it marked inline. Use it when the *sequence* of calls is the
+point — mermaid draws shape, a call stack draws a path.
+
+Read `references/CALLSTACK_GUIDE.md` before writing one. The annotation rules
+fail silently when guessed.
+
 ## Math notation (TeX)
 
 Markdown docs may use TeX/LaTeX math — inline `$…$` and display `$$…$$` — rendered
