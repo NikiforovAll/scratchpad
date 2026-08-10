@@ -1751,6 +1751,66 @@ test("j/k, d/u, g/G scroll the preview; arrows still switch files", async () => 
   }
 });
 
+// Three files, ungrouped and in manifest order, so wrap-around is observable
+// without a layout's group ordering confounding the nav sequence.
+async function renderThreeFilePad(): Promise<string> {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  for (const n of ["a.md", "b.md", "c.md"]) await writeFile(join(dir, n), "# " + n + "\n", "utf8");
+  const m = newManifest("P");
+  for (const [p, t] of [["a.md", "A"], ["b.md", "B"], ["c.md", "C"]]) m.files.push({ path: p, title: t, type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  return renderHtml(await buildView([pad]), "P");
+}
+
+test("Ctrl+Tab / Ctrl+Shift+Tab cycle files with wrap in the WebView2 host", async () => {
+  const html = await renderThreeFilePad();
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: () => {} } };
+  });
+  try {
+    const activeTitle = () => document.querySelector(".frow.active")?.textContent ?? "";
+    const tab = (shift = false) => {
+      const e = new KeyboardEvent("keydown", { key: "Tab", ctrlKey: true, shiftKey: shift, cancelable: true });
+      document.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(activeTitle()).toContain("A");
+    expect(tab()).toBe(true);
+    expect(activeTitle()).toContain("B");
+    tab();
+    expect(activeTitle()).toContain("C");
+    tab(); // past the end wraps to the first file
+    expect(activeTitle()).toContain("A");
+    tab(true); // and backwards off the front wraps to the last
+    expect(activeTitle()).toContain("C");
+    // The host-only help row is unlocked here.
+    expect(document.documentElement.hasAttribute("data-native")).toBe(true);
+  } finally {
+    await teardown();
+  }
+});
+
+test("Ctrl+Tab is left to the browser in the fallback transport", async () => {
+  const html = await renderThreeFilePad();
+  await boot(html); // no window.chrome.webview → browser fallback
+  try {
+    const activeTitle = () => document.querySelector(".frow.active")?.textContent ?? "";
+    expect(activeTitle()).toContain("A");
+    const e = new KeyboardEvent("keydown", { key: "Tab", ctrlKey: true, cancelable: true });
+    document.dispatchEvent(e);
+    // Untouched: the real browser tab accelerator must still fire.
+    expect(e.defaultPrevented).toBe(false);
+    expect(activeTitle()).toContain("A");
+    expect(document.documentElement.hasAttribute("data-native")).toBe(false);
+    // …and the help modal hides the row that would be a lie here.
+    expect(document.querySelectorAll(".sc-native").length).toBeGreaterThan(0);
+  } finally {
+    await teardown();
+  }
+});
+
 test("Ctrl+Alt+H posts __scratch_hide and drops the file from the tree without reload", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });

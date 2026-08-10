@@ -449,6 +449,9 @@ body {
 /* Exports have no host: hide the reload button and the help rows for
    shortcuts that are dead there (.sc-live = live-viewer-only). */
 html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
+/* .sc-native = bound only inside the WebView2 host (data-native, set at boot);
+   in a browser those keys stay the browser's own tab accelerators. */
+html:not([data-native]) .sc-native { display: none; }
 #closeBtn:hover { background: var(--ember); color: #fff; border-color: var(--ember); }
 
 /* shortcuts modal */

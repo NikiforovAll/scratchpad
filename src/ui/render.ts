@@ -623,8 +623,10 @@ function settingsModalHtml(): string {
 
 /** One help-modal shortcut row: keycaps + label. `combo` joins the keys with a
  * plus (a chord) instead of listing them as alternatives; `live` marks rows
- * that only work against a live host (hidden in file:// exports via .sc-live). */
-type ShortcutRow = { keys: string[]; label: string; combo?: boolean; live?: boolean };
+ * that only work against a live host (hidden in file:// exports via .sc-live);
+ * `native` marks rows bound only inside the WebView2 host — in a browser those
+ * keys ARE the browser's own accelerators and we leave them alone (.sc-native). */
+type ShortcutRow = { keys: string[]; label: string; combo?: boolean; live?: boolean; native?: boolean };
 type ShortcutGroup = { title: string; rows: ShortcutRow[] };
 
 // The help modal's content, in reading order. Each entry pairs a left and a
@@ -637,6 +639,7 @@ const SHORTCUT_PAIRS: [ShortcutGroup, ShortcutGroup][] = [
       rows: [
         { keys: ["↑", "↓"], label: "Next / previous file" },
         { keys: ["←", "→"], label: "Collapse / expand group" },
+        { keys: ["Ctrl", "Tab"], combo: true, native: true, label: "Next file, wrapping (Shift: previous)" },
       ],
     },
     {
@@ -716,7 +719,7 @@ function helpModalHtml(): string {
       ] as const) {
         const row = group.rows[i];
         if (!row) continue;
-        const cls = row.live ? `${side} sc-live` : side;
+        const cls = side + (row.live ? " sc-live" : "") + (row.native ? " sc-native" : "");
         cells.push(`<dt class="${cls}">${keysHtml(row)}</dt><dd class="${cls}">${row.label}</dd>`);
       }
     }
@@ -3132,6 +3135,9 @@ diagramStage.addEventListener('dblclick', dgReset);
 const webview = window.chrome && window.chrome.webview;
 const closeWindow = webview ? () => webview.postMessage({ __glimpse_close: true })
   : (window.glimpse && window.glimpse.close ? () => window.glimpse.close() : null);
+// Unlocks the host-only shortcuts (see .sc-native) — set after PRISTINE is
+// captured, so a saved copy never inherits it.
+if (webview) document.documentElement.setAttribute('data-native', '');
 
 // Manual reload (button + 'r'). Reload is on-demand, not automatic — a watcher
 // that re-rendered on every disk change blinked. In the WebView2 host we ask the
@@ -3259,6 +3265,16 @@ setBar(topbarEl, SETTINGS.topbarCollapsed, false);
 
 // Keyboard shortcuts (see the help modal). Ignored while typing in a field.
 const previewEl = document.getElementById('preview');
+
+// Browser-tab-style switching over ITEMS (Ctrl+Tab). Wraps, unlike ↑/↓, because
+// that's what a tab strip does.
+function switchTab(n) {
+  if (!ITEMS.length) return;
+  const last = ITEMS.length - 1;
+  n = n < 0 ? last : (n > last ? 0 : n);
+  if (n === curIdx) return; // one file: wrapping lands back where we already are
+  renderPreview(ITEMS[n].pad, ITEMS[n].f);
+}
 document.addEventListener('keydown', (e) => {
   // A trusted event came from the host page, so any frame recorded by the relay
   // (which dispatches an UNtrusted synthetic event) is stale — don't let it decide
@@ -3269,6 +3285,11 @@ document.addEventListener('keydown', (e) => {
     // so moving it here would change nothing on screen and then jump the page on exit.
     // Send the accelerator to the embed — that IS the page in front of you.
     if (focusedFrame && scaleKey(e.key)) { e.preventDefault(); return; }
+    // Tab switching, WebView2 host ONLY. The host has no tab strip, so these keys
+    // are dead there and free to take. In the browser fallback (and in exports)
+    // they are the browser's real tab accelerators — Chromium reserves them and
+    // wouldn't yield them anyway, so we never claim or preventDefault them.
+    if (webview && e.key === 'Tab') { e.preventDefault(); switchTab(curIdx + (e.shiftKey ? -1 : 1)); return; }
     // Take over the host's zoom accelerators so OUR (persisted) zoom is the one
     // that moves, instead of Chromium's forgotten-on-relaunch page zoom.
     if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoom(SETTINGS.zoom + 0.1); return; }
