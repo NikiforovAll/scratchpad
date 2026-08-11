@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildView, renderHtml } from "../src/ui/render.ts";
-import { KIT_BG } from "../src/ui/kit.ts";
+import { KIT_BG, KIT_CSS } from "../src/ui/kit.ts";
 import { newManifest, writeManifest } from "../src/manifest.ts";
 import { readManifest } from "../src/manifest.ts";
 import type { Pad } from "../src/discovery.ts";
@@ -420,6 +420,14 @@ describe("in-frame comment plumbing", () => {
     const view = await buildView([{ dir, manifest: await readManifest(dir) } as Pad]);
     return renderHtml(view, "Pad");
   }
+
+  // A wheel over an embed must be able to carry on scrolling the article behind it,
+  // and overscroll-behavior:contain in either frame's CSS is what used to stop it —
+  // the frames are the only place the property was ever set.
+  test("no frame CSS contains the wheel out of the embed", async () => {
+    expect(await page()).not.toContain("overscroll-behavior");
+    expect(KIT_CSS).not.toContain("overscroll-behavior");
+  });
 
   test("the matcher is defined once and shipped to the frame as source", async () => {
     const html = await page();

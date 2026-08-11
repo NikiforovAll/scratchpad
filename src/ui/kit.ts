@@ -62,10 +62,14 @@ export const KIT_CSS = `
   --c-coral-line: #e8835e;
   --c-coral-text: light-dark(#a44f28, #f0a987);
 }
-/* overscroll-behavior: a wheel that reaches the end of THIS page must not carry on
-   scrolling the viewer's article behind it — full window especially, where the frame
-   covers the article and the reader can't see what moved until they leave. */
-html { box-sizing: border-box; scrollbar-width: thin; overscroll-behavior: contain;
+/* Deliberately NO overscroll containment here: an embed sized to its content never
+   scrolls, so containing it only meant "this embed swallows the wheel" — the article
+   behind it would not move and the reader could not scroll past the embed at all.
+   Native scroll chaining is what an inline embed wants. Full window is already covered
+   without it: the one case where the frame hides the article has
+   :root[data-focus] .preview{overflow:hidden} (theme.ts), so there is nothing behind
+   the frame left to chain into. */
+html { box-sizing: border-box; scrollbar-width: thin;
   scrollbar-color: var(--color-border-secondary) transparent; }
 *, *::before, *::after { box-sizing: inherit; }
 body {

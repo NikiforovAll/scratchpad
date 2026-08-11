@@ -978,7 +978,9 @@ const KEY_RELAY_SCRIPT = frameScript(false);
 // properties inherit, so this reaches their inner scrollers too). Theme-neutral gray
 // because, unlike htmlFrameDoc, we must not force color-scheme here: that would repaint
 // an author page that never opted into dark, and light-dark() would resolve light-only.
-const FRAME_SCROLLBAR = '<style>html{scrollbar-width:thin;overscroll-behavior:contain;scrollbar-color:rgba(136,136,136,0.55) transparent}</style>';
+// No overscroll containment (see the kit's html rule for the reasoning): it only
+// dead-ended the wheel at the frame's end instead of letting the article carry on.
+const FRAME_SCROLLBAR = '<style>html{scrollbar-width:thin;scrollbar-color:rgba(136,136,136,0.55) transparent}</style>';
 // Comments inside a STANDALONE .html preview. The host cannot read that frame's
 // selection or text (opaque origin), so the frame does its own capture, matching
 // and marking, and talks to the host over postMessage — the same relay the key
