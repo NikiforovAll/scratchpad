@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>research-auth · session dashboard</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11, 11, 11, 0.10);
+    --delta-good:     #006300;
+    --series-1:       #2a78d6;  /* note */
+    --series-2:       #eb6834;  /* snippet */
+    --series-3:       #1baf7a;  /* output */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255, 255, 255, 0.10);
+      --delta-good:     #0ca30c;
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --series-3:       #199e70;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --page:           #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255, 255, 255, 0.10);
+    --delta-good:     #0ca30c;
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --series-3:       #199e70;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  .viz-root {
+    min-height: 100vh;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 24px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+
+  header h1 { font-size: 18px; margin: 0 0 2px; font-weight: 650; }
+  header p  { font-size: 13px; margin: 0; color: var(--text-secondary); }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tile {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .tile .label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  .tile .value { font-size: 28px; font-weight: 650; line-height: 1.1; }
+  .tile .delta { font-size: 12px; color: var(--delta-good); margin-top: 4px; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 2px; font-weight: 650; }
+  .card .sub { font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; }
+
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+  svg { display: block; width: 100%; height: auto; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .baseline  { stroke: var(--baseline); stroke-width: 1; }
+  .tick { font-size: 11px; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .day  { font-size: 11px; fill: var(--text-muted); }
+  .total { font-size: 11px; fill: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .stack { transition: opacity 0.12s ease; }
+  svg.hovering .stack:not(.hot) { opacity: 0.45; }
+
+  .tip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    padding: 8px 10px;
+    font-size: 12px;
+    display: none;
+    min-width: 130px;
+    z-index: 2;
+  }
+  .tip .t-day { font-weight: 650; margin-bottom: 4px; }
+  .tip .t-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-secondary); }
+  .tip .t-row b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+  details { font-size: 12px; color: var(--text-secondary); }
+  details summary { cursor: pointer; }
+  table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 3px 10px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <div class="wrap">
+    <header>
+      <h1>research-auth — session dashboard</h1>
+      <p>An HTML artifact registered into the pad. The viewer embeds it; press <code>f</code> for full window.</p>
+    </header>
+
+    <div class="tiles">
+      <div class="tile"><div class="label">Files registered</div><div class="value">30</div><div class="delta">↑ 12 this week</div></div>
+      <div class="tile"><div class="label">Inline comments</div><div class="value">9</div><div class="delta">↑ 7 resolved</div></div>
+      <div class="tile"><div class="label">Agent sessions</div><div class="value">7</div><div class="delta">↑ 3 with feedback</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Files registered per day</h2>
+      <p class="sub">One agent week, by file type</p>
+      <div class="legend">
+        <span><i style="background:var(--series-1)"></i>note</span>
+        <span><i style="background:var(--series-2)"></i>snippet</span>
+        <span><i style="background:var(--series-3)"></i>output</span>
+      </div>
+      <svg id="chart" viewBox="0 0 680 270" role="img" aria-label="Stacked bar chart of files registered per day by type"></svg>
+      <div class="tip" id="tip"></div>
+      <details>
+        <summary>Data table</summary>
+        <table id="dataTable"><thead><tr><th>Day</th><th>note</th><th>snippet</th><th>output</th><th>total</th></tr></thead><tbody></tbody></table>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+  const DATA = [
+    { day: "Mon", note: 2, snippet: 1, output: 1 },
+    { day: "Tue", note: 3, snippet: 2, output: 1 },
+    { day: "Wed", note: 1, snippet: 1, output: 0 },
+    { day: "Thu", note: 4, snippet: 1, output: 2 },
+    { day: "Fri", note: 2, snippet: 2, output: 1 },
+    { day: "Sat", note: 1, snippet: 0, output: 1 },
+    { day: "Sun", note: 3, snippet: 1, output: 0 },
+  ];
+  const SERIES = [
+    { key: "note", color: "var(--series-1)" },
+    { key: "snippet", color: "var(--series-2)" },
+    { key: "output", color: "var(--series-3)" },
+  ];
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("chart");
+  const tip = document.getElementById("tip");
+  const card = tip.parentElement;
+
+  const M = { top: 16, right: 12, bottom: 28, left: 30 };
+  const W = 680, H = 270;
+  const plotW = W - M.left - M.right, plotH = H - M.top - M.bottom;
+  const yMax = 8, GAP = 2, BAR = 42;
+  const y = (v) => M.top + plotH - (v / yMax) * plotH;
+  const el = (tag, attrs) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  };
+
+  for (let v = 0; v <= yMax; v += 2) {
+    svg.appendChild(el("line", { x1: M.left, x2: W - M.right, y1: y(v), y2: y(v), class: v === 0 ? "baseline" : "grid-line" }));
+    const t = el("text", { x: M.left - 8, y: y(v) + 4, "text-anchor": "end", class: "tick" });
+    t.textContent = v;
+    svg.appendChild(t);
+  }
+
+  DATA.forEach((d, i) => {
+    const cx = M.left + (plotW / DATA.length) * (i + 0.5);
+    const g = el("g", { class: "stack" });
+    let acc = 0, topSeg = null;
+    SERIES.forEach((s) => {
+      const v = d[s.key];
+      if (!v) return;
+      const y1 = y(acc + v), y0 = y(acc);
+      const h = Math.max(0, y0 - y1 - (acc > 0 ? GAP : 0)); // 2px surface gap between segments
+      const rect = el("rect", { x: cx - BAR / 2, y: y1, width: BAR, height: h, fill: s.color });
+      g.appendChild(rect);
+      topSeg = rect;
+      acc += v;
+    });
+    if (topSeg) { topSeg.setAttribute("rx", 4); topSeg.setAttribute("ry", 4); } // rounded data-end
+    const total = el("text", { x: cx, y: y(acc) - 6, "text-anchor": "middle", class: "total" });
+    total.textContent = acc;
+    g.appendChild(total);
+    const day = el("text", { x: cx, y: H - 8, "text-anchor": "middle", class: "day" });
+    day.textContent = d.day;
+    g.appendChild(day);
+    // hit target bigger than the mark: full column
+    const hit = el("rect", { x: cx - plotW / DATA.length / 2, y: M.top, width: plotW / DATA.length, height: plotH, fill: "transparent" });
+    hit.addEventListener("mouseenter", () => {
+      svg.classList.add("hovering");
+      g.classList.add("hot");
+      tip.innerHTML =
+        '<div class="t-day">' + d.day + "</div>" +
+        SERIES.map((s) => '<div class="t-row"><span><i style="background:' + s.color + '"></i>' + s.key + "</span><b>" + d[s.key] + "</b></div>").join("") +
+        '<div class="t-row"><span>total</span><b>' + acc + "</b></div>";
+      tip.style.display = "block";
+      const cardW = card.clientWidth;
+      const px = (cx / W) * cardW;
+      tip.style.left = Math.min(px + 14, cardW - tip.offsetWidth - 8) + "px";
+      tip.style.top = "70px";
+    });
+    hit.addEventListener("mouseleave", () => {
+      svg.classList.remove("hovering");
+      g.classList.remove("hot");
+      tip.style.display = "none";
+    });
+    g.appendChild(hit);
+    svg.appendChild(g);
+  });
+
+  const tbody = document.querySelector("#dataTable tbody");
+  DATA.forEach((d) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + d.day + "</td><td>" + d.note + "</td><td>" + d.snippet + "</td><td>" + d.output + "</td><td>" + (d.note + d.snippet + d.output) + "</td>";
+    tbody.appendChild(tr);
+  });
+</script>
+</body>
+</html>

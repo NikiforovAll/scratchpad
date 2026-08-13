@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font-family: var(--font-sans); }
+  .steps button { flex: 1; text-align: left; }
+  .steps button.active {
+    border-color: var(--color-border-primary);
+    background: var(--color-background-tertiary);
+  }
+  .panes { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
+  @media (max-width: 560px) { .panes { grid-template-columns: 1fr; } }
+  .pane-body {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre;
+    overflow-x: auto;
+    min-height: 150px;
+  }
+  .new { color: var(--color-text-success); }
+  .cmdline {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    background: var(--color-background-secondary);
+  }
+  .cmdline .p { color: var(--color-text-tertiary); user-select: none; }
+</style>
+</head>
+<body>
+<div class="stack">
+  <div class="row sm steps" id="steps"></div>
+  <div class="cmdline" id="cmd"></div>
+  <div class="panes">
+    <div class="card soft stack sm">
+      <span class="ts dim">folder</span>
+      <div class="pane-body" id="fs"></div>
+    </div>
+    <div class="card soft stack sm">
+      <span class="ts dim">scratchpad.json</span>
+      <div class="pane-body" id="mf"></div>
+    </div>
+  </div>
+  <span class="dim" id="note" style="font-size: 12.5px;"></span>
+</div>
+<script>
+  var STEPS = [
+    {
+      label: '1. new',
+      cmd: 'scratch new "demo" --dir _scratchpads',
+      note: 'The CLI creates a folder plus a manifest. The folder path is the pad’s identity — no central store.',
+      fs: [
+        ['demo/', 'new'],
+        ['└─ scratchpad.json', 'new']
+      ],
+      mf: '{\n  "version": 1,\n  "name": "demo",\n  "files": []\n}'
+    },
+    {
+      label: '2. write',
+      cmd: 'echo "# Findings" > demo/notes.md',
+      note: 'You write files with your normal tools. The CLI never authors content — the manifest does not change yet.',
+      fs: [
+        ['demo/', ''],
+        ['├─ scratchpad.json', ''],
+        ['└─ notes.md', 'new']
+      ],
+      mf: '{\n  "version": 1,\n  "name": "demo",\n  "files": []\n}'
+    },
+    {
+      label: '3. add',
+      cmd: 'scratch add "demo" notes.md --desc "why it exists"',
+      note: 'Registering records what the file is and why it exists — metadata only, the file itself is untouched.',
+      fs: [
+        ['demo/', ''],
+        ['├─ scratchpad.json', ''],
+        ['└─ notes.md', '']
+      ],
+      mf: '{\n  "version": 1,\n  "name": "demo",\n  "files": [{\n    "path": "notes.md",\n    "type": "note",\n    "desc": "why it exists"\n  }]\n}'
+    },
+    {
+      label: '4. ui',
+      cmd: 'scratch ui "demo"',
+      note: 'The read-only viewer renders it all for humans — the page you are reading right now.',
+      fs: [
+        ['demo/', ''],
+        ['├─ scratchpad.json', ''],
+        ['└─ notes.md → rendered', 'new']
+      ],
+      mf: '{\n  "version": 1,\n  "name": "demo",\n  "files": [{\n    "path": "notes.md",\n    "type": "note",\n    "desc": "why it exists"\n  }]\n}'
+    }
+  ];
+
+  var stepsEl = document.getElementById('steps');
+  var cur = 0, timer = null;
+
+  STEPS.forEach(function (s, i) {
+    var b = document.createElement('button');
+    b.textContent = s.label;
+    b.onclick = function () { stop(); show(i); };
+    stepsEl.appendChild(b);
+  });
+
+  function esc(t) {
+    return t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  }
+
+  function show(i) {
+    cur = i;
+    var s = STEPS[i];
+    Array.prototype.forEach.call(stepsEl.children, function (b, j) {
+      b.classList.toggle('active', j === i);
+    });
+    document.getElementById('cmd').innerHTML = '<span class="p">$ </span>' + esc(s.cmd);
+    document.getElementById('fs').innerHTML = s.fs.map(function (l) {
+      return '<span class="' + l[1] + '">' + esc(l[0]) + '</span>';
+    }).join('\n');
+    document.getElementById('mf').textContent = s.mf;
+    document.getElementById('note').textContent = s.note;
+  }
+
+  function stop() {
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  show(0);
+  timer = setInterval(function () { show((cur + 1) % STEPS.length); }, 3500);
+</script>
+</body>
+</html>

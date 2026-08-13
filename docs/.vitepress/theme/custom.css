@@ -13,13 +13,6 @@
   --vp-home-hero-name-color: transparent;
   --vp-home-hero-name-background: linear-gradient(120deg, #b85a20 30%, #e86f33);
 
-  /* Glow behind the hero image */
-  --vp-home-hero-image-background-image: linear-gradient(
-    -45deg,
-    rgba(232, 111, 51, 0.5) 30%,
-    rgba(240, 160, 112, 0.5)
-  );
-  --vp-home-hero-image-filter: blur(44px);
 }
 
 .dark {
@@ -51,43 +44,114 @@
   }
 }
 
-/* Bigger hero preview image (landscape screenshot, not a square logo).
-   Keep VitePress's sized, centered container — just enlarge it. */
+/* ---- Hero terminal — CSS-animated agent session, replaces the screenshot ---- */
+
+/* Give the hero image slot a landscape stage (it defaults to a small square). */
+.VPHero .image-container {
+  width: 100%;
+  max-width: 560px;
+  height: auto;
+  transform: none;
+}
 @media (min-width: 960px) {
   .VPHero .image-container {
     width: 560px;
-    height: 380px;
-    transform: translate(0, 40px);
-  }
-  .VPHero .image-bg {
-    width: 100%;
-    height: 100%;
-    border-radius: 16px;
-  }
-  .VPHero .VPImage.image-src {
-    max-width: 560px;
-    max-height: 380px;
-    border-radius: 12px;
-    box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.35);
+    transform: translate(0, 20px);
   }
 }
+.VPHero .image-bg {
+  display: none; /* no blurred blob behind the terminal */
+}
 
-/* Demo iframe — centered, capped width */
+.hero-terminal {
+  position: relative;
+  width: 100%;
+}
+.term {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+  box-shadow:
+    0 18px 50px -12px rgba(0, 0, 0, 0.25),
+    0 0 80px -20px rgba(232, 111, 51, 0.35);
+  overflow: hidden;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: left;
+}
+.term-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-alt);
+}
+.term-dot { width: 11px; height: 11px; border-radius: 50%; }
+.td-r { background: #f26d6d; }
+.td-y { background: #f2c94c; }
+.td-g { background: #6fcf7c; }
+.term-title {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--vp-c-text-3);
+  letter-spacing: 0.04em;
+}
+.term-body {
+  padding: 14px 16px 16px;
+}
+.term-body .tl {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--vp-c-text-1);
+  opacity: 0;
+  /* per-line stagger: each line carries its own --d inline */
+  animation: term-line 0.35s ease-out var(--d, 0s) forwards;
+}
+.tp { color: var(--vp-c-brand-1); font-weight: 600; margin-right: 2px; }
+.t-ok { color: #3fa34d; }
+.dark .t-ok { color: #6fcf7c; }
+.t-dim { color: var(--vp-c-text-3); font-style: italic; }
+.t-view { color: var(--vp-c-brand-1); }
+@keyframes term-line {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.term-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: var(--vp-c-brand-1);
+  animation: term-blink 1.1s steps(1) infinite;
+}
+@keyframes term-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .term-body .tl { animation: none; opacity: 1; }
+  .term-cursor { animation: none; }
+}
+@media (max-width: 640px) {
+  .term { font-size: 11px; }
+}
+
+/* Demo page — the exported pad gets the full viewport width */
+.demo-caption {
+  text-align: center;
+  margin: 1rem 1.5rem;
+  color: var(--vp-c-text-2);
+}
 .demo-frame {
   display: block;
-  width: 100%;
-  max-width: 1100px;
-  margin: 0 auto;
-  height: 80vh;
+  width: calc(100% - 3rem);
+  margin: 0 auto 1.5rem;
+  height: calc(100vh - var(--vp-nav-height) - 7rem);
+  min-height: 480px;
   border: 1px solid var(--vp-c-divider);
   border-radius: 12px;
   background: #fff;
-}
-
-/* Clickable hero preview — zoom cursor only, no hover animation */
-.VPHero .image-container a {
-  display: block;
-  cursor: zoom-in;
 }
 
 /* Brand-tinted buttons */

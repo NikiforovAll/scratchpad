@@ -37,18 +37,33 @@ Register an already-present file into the manifest with metadata.
 ## `scratch ls`
 
 ```bash
-scratch ls [<pad>] [--dir <root>]
+scratch ls [<pad>] [--dir <root>] [--json]
 ```
 
-No `<pad>`: list pads under root. With `<pad>`: list its registered files.
+No `<pad>`: list pads under root. With `<pad>`: list its registered files. `--json` emits a machine-readable listing.
 
 ## `scratch show`
 
 ```bash
-scratch show <pad> [<file>] [--dir <root>]
+scratch show <pad> [<file>] [--dir <root>] [--json]
 ```
 
 No `<file>`: print the manifest. With `<file>`: print metadata + content.
+
+## `scratch comments`
+
+```bash
+scratch comments <pad> [<file>] [--dir <root>] [--json]
+```
+
+Read the inline comments left in the [viewer](/viewer#inline-comments) back out — the human-review → agent feedback loop. Each comment prints with its quote, `file:line`, nearest section heading, and surrounding context, so an agent can act on it without re-reading the pad.
+
+| Flag | Meaning |
+|------|---------|
+| `<file>` | Filter: exact path, glob (`*.md`), or case-insensitive substring. |
+| `--json` | Agent-friendly output (same shape the viewer's copy-comments shortcut produces). |
+
+Comments whose quoted text can no longer be found are reported as **orphaned**, never dropped.
 
 ## `scratch rm`
 
@@ -61,13 +76,14 @@ With `<file>`: unregister (file left on disk). Without: delete the pad (requires
 ## `scratch ui`
 
 ```bash
-scratch ui [<pad>] [--dir <root>] [--browser] [--install-native]
+scratch ui [<pad>] [--dir <root>] [--all] [--browser] [--install-native]
 ```
 
 Read-only viewer: glimpse native window by default, browser fallback.
 
 | Flag | Meaning |
 |------|---------|
+| `--all` | Open every pad under the root, tabbed. |
 | `--browser` | Force the browser viewer (always works). |
 | `--install-native` | Build the native host on demand (needs .NET 8 SDK). |
 

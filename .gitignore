@@ -42,3 +42,5 @@ _ui-check.mjs
 # …except the demo export bundled into the docs site
 !docs/public/**/*.html
 !docs/public/*.html
+# …and HTML embeds that are demo-pad content, not exports
+!examples/**/*.html

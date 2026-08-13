@@ -7,11 +7,9 @@
 
 CLI-first tool to organize **agent knowledge** into *scratchpads* — a folder of files plus a `scratchpad.json` manifest — with a read-only visual viewer (native window, browser fallback).
 
-📖 **[Documentation & live demo →](https://nikiforovall.blog/scratchpad/)**
+📖 **[Documentation →](https://nikiforovall.blog/scratchpad/)** · 🔭 **[Live demo →](https://nikiforovall.blog/scratchpad/demo)** — a feature-tour pad where every file demonstrates one feature.
 
 A scratchpad is **just a folder containing `scratchpad.json`**; the folder path is its identity. There is **no central store**. `scratch` is a thin metadata layer over the filesystem: it initializes pads, prints how to use them, and registers files you create. You write/edit files with your normal tools — the CLI never authors, copies, or moves content.
-
-![scratch viewer](https://raw.githubusercontent.com/nikiforovall/scratchpad/main/assets/demo.png)
 
 ## Why
 
@@ -20,7 +18,8 @@ Agents generate a lot of knowledge per session — notes, snippets, command outp
 A scratchpad gives that working memory a deliberate place: a folder + `scratchpad.json` manifest, kept out of your source tree, that captures **what** each file is and **why** it exists.
 
 - **Durable, inspectable agent memory.** The agent writes files and registers them with a `--desc`/`--type`; the knowledge survives the session and stays reviewable.
-- **A human can browse it.** `scratch ui` opens a read-only viewer (markdown, code highlighting, mermaid) so you can see what the agent gathered — no digging through transcripts.
+- **A human can browse it.** `scratch ui` opens a read-only viewer (markdown, code highlighting, mermaid, math) so you can see what the agent gathered — no digging through transcripts.
+- **A feedback loop.** Leave quote-anchored inline comments in the viewer; the agent reads them back with `scratch comments --json` and picks up where you left off.
 - **No lock-in.** It's just files on disk. The CLI never authors or moves content; delete the folder and it's gone.
 
 ## Install
@@ -76,6 +75,10 @@ scratch ls [<pad>] [--dir <root>]
 scratch show <pad> [<file>] [--dir <root>]
     # no <file>: print the manifest.  with <file>: print metadata + content.
 
+scratch comments <pad> [<file>] [--dir <root>] [--json]
+    # read inline comments left in the viewer back out — quote, file:line,
+    # section heading, and context. <file> filters by path, glob, or substring.
+
 scratch rm <pad> [<file>] [--dir <root>] [--force]
     # with <file>: unregister (file left on disk).  without: delete pad (--force).
 
@@ -96,25 +99,13 @@ scratch export [<pad>] [--dir <root>] [--all] [-o <file>] [--offline]
 
 ## Viewer
 
-Read-only, 2-pane (pad/file tree + preview) in a "Lab Notebook" theme that **auto-detects** OS light/dark. Shows **all** files in the pad dir (unregistered ones dimmed). Per-file preview:
+Read-only, 2-pane (pad/file tree + preview), **auto-detects** OS light/dark, 17 color themes, keyboard-driven (`?` for shortcuts), settings persist across launches. Shows **all** files in the pad dir (unregistered ones dimmed). Per-file preview:
 
-- Markdown rendered, with a **raw/rendered toggle**.
-- Code **syntax-highlighted** (highlight.js).
+- Markdown rendered (GFM tables, footnotes, **alerts** like `> [!TIP]`), with a **raw/rendered toggle** and a table of contents.
+- Code **syntax-highlighted** (highlight.js); **math** via KaTeX.
 - **Mermaid** diagrams (` ```mermaid ` fenced blocks).
-- Images inline; binaries / oversized files get a notice.
+- Images inline, HTML embedded; binaries / oversized files get a notice.
+- **Inline comments** — select text, attach a note; quote-anchored, read back via `scratch comments`.
+- GFM **task checkboxes** are clickable and persist to the source file — the viewer's one deliberate write.
 
 Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser.
-
-## Config
-
-User-level viewer preferences live in a single JSON file (machine-wide, not per-pad):
-
-```jsonc
-// ~/.config/scratchpad/config.json
-{
-  "ui": {
-    "frameless": true   // native window without OS title bar/border (page draws
-                        // its own close button + drag strip). Set false for native chrome.
-  }
-}
-```

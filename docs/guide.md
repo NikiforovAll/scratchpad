@@ -38,9 +38,15 @@ scratch show "<name>" <file>
 
 # 5. BROWSE:
 scratch ui "<name>"   # open the read-only viewer
+
+# 6. FEEDBACK (optional): a human leaves inline comments in the viewer,
+#    the agent reads them back:
+scratch comments "<name>" --json
 ```
 
 To extend an existing pad later, skip step 1 — `ls` to find it, write, then `add`.
+
+See it all in action on the [demo page](/demo) — a feature-tour pad where every file demonstrates one feature.
 
 ## Choosing a location (`--dir`)
 

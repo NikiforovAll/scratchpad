@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "name": "feature-tour",
+  "created": "2026-08-13T05:51:03Z",
+  "updated": "2026-08-13T06:52:43Z",
+  "files": [
+    {
+      "path": "welcome.md",
+      "title": "Welcome",
+      "description": "What scratch is and how to read this tour",
+      "tags": [
+        "overview"
+      ],
+      "type": "note",
+      "group": "Start here"
+    },
+    {
+      "path": "cli-workflow.md",
+      "title": "The CLI loop",
+      "description": "create → write → register → browse, plus addressing and cleanup",
+      "tags": [
+        "cli"
+      ],
+      "type": "note",
+      "group": "CLI"
+    },
+    {
+      "path": "linked-files.md",
+      "title": "Linked files",
+      "description": "Reference external files without copying them",
+      "tags": [
+        "cli"
+      ],
+      "type": "note",
+      "group": "CLI"
+    },
+    {
+      "path": "markdown-showcase.md",
+      "title": "Markdown showcase",
+      "description": "GFM tables, task checkboxes that write back, footnotes, KaTeX math",
+      "tags": [
+        "viewer"
+      ],
+      "type": "note",
+      "group": "Viewer"
+    },
+    {
+      "path": "mermaid-diagram.md",
+      "title": "Mermaid diagrams",
+      "description": "Architecture + sequence diagrams from fenced blocks",
+      "tags": [
+        "viewer"
+      ],
+      "type": "note",
+      "group": "Viewer"
+    },
+    {
+      "path": "callstack-trace.md",
+      "title": "Call stacks",
+      "description": "Hand-drawn call trees with colored change annotations",
+      "tags": [
+        "viewer",
+        "callstack"
+      ],
+      "type": "note",
+      "group": "Viewer"
+    },
+    {
+      "path": "snippets/manifest.ts",
+      "title": "Code highlighting",
+      "description": "The real scratchpad.json entry shape, syntax-highlighted",
+      "tags": [
+        "viewer"
+      ],
+      "type": "snippet",
+      "group": "Viewer"
+    },
+    {
+      "path": "themes-and-shortcuts.md",
+      "title": "Themes & shortcuts",
+      "description": "17 color themes, persistent settings, keyboard-driven UI",
+      "tags": [
+        "viewer"
+      ],
+      "type": "note",
+      "group": "Viewer"
+    },
+    {
+      "path": "inline-comments.md",
+      "title": "Inline comments",
+      "description": "Quote-anchored comments and the scratch comments feedback loop",
+      "tags": [
+        "feedback"
+      ],
+      "type": "note",
+      "group": "Feedback",
+      "comments": [
+        {
+          "id": "5b1f0d2e-7c4a-4e9b-9f3d-2a8c6e1d4f70",
+          "body": "Like this! Comments anchor to the quoted text and show up in `scratch comments` for the agent to read.",
+          "anchor": {
+            "quote": "select this sentence and add a comment",
+            "prefix": "Try it: ",
+            "suffix": "."
+          },
+          "created": "2026-08-13T06:00:00Z",
+          "updated": "2026-08-13T06:00:00Z"
+        }
+      ]
+    },
+    {
+      "path": "export-and-share.md",
+      "title": "Export & share",
+      "description": "Single-file HTML export, offline mode, native window vs browser",
+      "tags": [
+        "sharing"
+      ],
+      "type": "note",
+      "group": "Share"
+    },
+    {
+      "path": "integrations.md",
+      "title": "Agent integrations",
+      "description": "Claude Code plugin, pi package, a typical agent session",
+      "tags": [
+        "agents"
+      ],
+      "type": "note",
+      "group": "Share"
+    },
+    {
+      "path": "charts/session-dashboard.html",
+      "title": "HTML embed",
+      "description": "A self-contained dashboard artifact — embedded inline, press f for full window",
+      "tags": [
+        "viewer"
+      ],
+      "type": "artifact",
+      "group": "Viewer"
+    }
+  ]
+}

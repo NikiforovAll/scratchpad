@@ -5,13 +5,13 @@ hero:
   name: scratch
   text: A home for agent knowledge
   tagline: Organize session notes, snippets, and artifacts into scratchpads — a folder + manifest — with a read-only visual viewer. Just files on disk, no central store, no lock-in.
-  image:
-    src: /demo.png
-    alt: scratch viewer
   actions:
     - theme: brand
       text: Get Started
       link: /guide
+    - theme: alt
+      text: Live Demo
+      link: /demo
     - theme: alt
       text: View on GitHub
       link: https://github.com/nikiforovall/scratchpad
@@ -23,7 +23,9 @@ features:
   - title: Durable agent memory
     details: The agent writes files and registers them with a description and type. The knowledge survives the session and stays reviewable — not buried in chat history.
   - title: A human can browse it
-    details: "scratch ui opens a read-only viewer (markdown, syntax highlighting, mermaid) so you can see what the agent gathered — native window, browser fallback."
+    details: "scratch ui opens a read-only viewer (markdown, syntax highlighting, mermaid, math) so you can see what the agent gathered — native window, browser fallback."
+  - title: Feedback loop
+    details: Leave quote-anchored inline comments in the viewer; the agent reads them back with scratch comments --json and picks up where you left off.
   - title: No lock-in
     details: A scratchpad is just a folder containing scratchpad.json. The CLI never authors or moves content. Delete the folder and it's gone.
   - title: Works with your agent

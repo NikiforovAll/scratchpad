@@ -7,7 +7,6 @@ export default defineConfig({
   base: "/scratchpad/",
   cleanUrls: true,
   ignoreDeadLinks: true,
-  appearance: "dark",
   // PUBLISHING.md is a maintainer runbook, not a public docs page.
   srcExclude: ["PUBLISHING.md"],
   head: [
