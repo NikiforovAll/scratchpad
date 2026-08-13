@@ -33,12 +33,14 @@ ${bold("USAGE")}
       No <file>: print the manifest.  With <file>: print metadata + file content.
       --json  with <file>: emit {metadata, content} (metadata null if unregistered).
 
-  ${cyan("scratch comments")} <pad> ${dim("[--file <filter>] [--dir <root>] [--json]")}
+  ${cyan("scratch comments")} <pad> ${dim("[--file <filter>] [--dir <root>] [--json] [--rm <id,..>]")}
       List inline comments with the markdown block each one anchors to, so an
       agent can read and act on viewer feedback. --file narrows to files by
       exact path, glob (*.md), or substring; omit it for all commented files.
       --json  emit {pad, comments:[{id, file, comment, quote, line, section_heading,
               context, context_lines, matched}]} — one flat, self-contained list.
+      --rm <id,..>  delete comments by id (comma-separated) after acting on them —
+              the close of the feedback loop. Ids come from the --json output.
 
   ${cyan("scratch rm")} <pad> [<file>] ${dim("[--dir <root>] [--force]")}
       With <file>: unregister it (file on disk untouched).
@@ -81,6 +83,7 @@ const FLAG_SPEC = {
   link: { type: "boolean" as const },
   as: { type: "string" as const },
   force: { type: "boolean" as const },
+  rm: { type: "string" as const },
   all: { type: "boolean" as const },
   json: { type: "boolean" as const },
   browser: { type: "boolean" as const },
@@ -126,7 +129,7 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
     case "show":
       return cmdShow({ pad: rest[0], file: rest[1], dir: v.dir, json: v.json }, io);
     case "comments":
-      return cmdComments({ pad: rest[0], file: v.file, dir: v.dir, json: v.json }, io);
+      return cmdComments({ pad: rest[0], file: v.file, dir: v.dir, json: v.json, rm: v.rm }, io);
     case "rm":
       return cmdRm({ pad: rest[0], file: rest[1], dir: v.dir, force: v.force }, io);
     case "ui":

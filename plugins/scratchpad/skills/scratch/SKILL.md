@@ -100,8 +100,8 @@ Read-only and **blocking** — keeps a local server alive until Ctrl+C. Always
 launch it **backgrounded** (don't await it) so the session keeps moving, then
 report the URL. Native glimpse window with automatic browser+server fallback
 (`--browser` forces it); shows all files in the pad (unregistered ones dimmed),
-renders markdown/code/`mermaid`, TeX math, embeds HTML diagrams (below),
-raw↔rendered toggle, auto light/dark.
+renders markdown/code/`mermaid`, TeX math, GFM alerts (`> [!TIP]`, uppercase),
+embeds HTML diagrams (below), raw↔rendered toggle, auto light/dark.
 
 ## Diagrams (mermaid)
 
@@ -178,6 +178,9 @@ and the enclosing `context` block to edit (a markdown paragraph/list/quote, or t
 source element for an `.html` file). `matched: false` = the quoted text could not be
 found in the source (edited away, or generated at runtime by a script in an `.html`
 file); reconcile manually.
+
+Comments are transient feedback — once you have acted on one, close the loop by
+deleting it: `scratch comments "<name>" --rm <id>[,<id>...]`
 
 ## Cleanup
 

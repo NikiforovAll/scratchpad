@@ -517,6 +517,49 @@ describe("comments", () => {
     expect(await run(["comments", "Notes", "--file", "nope", "--dir", root], io)).toBe(0);
     expect(all()).toContain('no comments matching "nope"');
   });
+
+  test("--rm deletes by id and drops the emptied comments key", async () => {
+    const padDir = await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--rm", "alpha line here", "--dir", root], io)).toBe(0);
+    expect(all()).toContain("deleted 1 comment");
+    const m = JSON.parse(await readFile(join(padDir, MANIFEST_NAME), "utf8"));
+    expect(m.files.find((f: any) => f.path === "a.md").comments).toBeUndefined();
+    expect(m.files.find((f: any) => f.path === "b.md").comments).toHaveLength(1);
+  });
+
+  test("--rm takes comma-separated ids across files", async () => {
+    const padDir = await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--rm", "alpha line here, beta line here", "--dir", root], io)).toBe(0);
+    expect(all()).toContain("deleted 2 comments");
+    const m = JSON.parse(await readFile(join(padDir, MANIFEST_NAME), "utf8"));
+    expect(m.files.every((f: any) => f.comments === undefined)).toBe(true);
+  });
+
+  test("--rm with an unknown id removes the known ones but exits 1", async () => {
+    const padDir = await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--rm", "alpha line here,ghost-id", "--dir", root], io)).toBe(1);
+    expect(all()).toContain("deleted 1 comment");
+    expect(allErr()).toContain('no comment "ghost-id"');
+    const m = JSON.parse(await readFile(join(padDir, MANIFEST_NAME), "utf8"));
+    expect(m.files.find((f: any) => f.path === "a.md").comments).toBeUndefined();
+  });
+
+  test("--rm with an empty value exits 2", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--rm", " , ", "--dir", root], io)).toBe(2);
+    expect(allErr()).toContain("usage:");
+  });
+
+  test("--rm rejects --json/--file (they don't compose with deletion)", async () => {
+    await seed();
+    log = []; errs = [];
+    expect(await run(["comments", "Notes", "--rm", "alpha line here", "--json", "--dir", root], io)).toBe(2);
+    expect(allErr()).toContain("does not combine");
+  });
 });
 
 describe("errors", () => {

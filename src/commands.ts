@@ -311,7 +311,7 @@ export async function cmdShow(
 /** scratch comments <pad> [<file>] [--dir <root>] [--json] — read inline comments
  * with the markdown section each one anchors to, so an agent can act on them. */
 export async function cmdComments(
-  args: { pad?: string; file?: string; dir?: string; json?: boolean },
+  args: { pad?: string; file?: string; dir?: string; json?: boolean; rm?: string },
   io: IO,
 ): Promise<number> {
   if (!args.pad) {
@@ -326,6 +326,40 @@ export async function cmdComments(
     return 1;
   }
   const m = pad.manifest;
+
+  // --rm <id,..>: delete comments by id — how an agent closes the feedback loop
+  // after acting on them. Ids are minted by the viewer (unique per pad in
+  // practice), and deletion removes every occurrence of an id so a rare
+  // duplicate can't survive. Unknown ids are reported and make the exit code
+  // non-zero so a caller notices a stale/mistyped id even when the others were
+  // removed.
+  if (args.rm !== undefined) {
+    if (args.json || args.file) {
+      fail(io, "--rm does not combine with --file/--json");
+      return 2;
+    }
+    const ids = new Set(args.rm.split(",").map((s) => s.trim()).filter(Boolean));
+    if (!ids.size) {
+      fail(io, "usage: scratch comments <pad> --rm <id>[,<id>...]");
+      return 2;
+    }
+    const found = new Set<string>();
+    for (const f of m.files) {
+      if (!f.comments?.length) continue;
+      f.comments = f.comments.filter((c) => {
+        if (!ids.has(c.id)) return true;
+        found.add(c.id);
+        return false;
+      });
+      if (f.comments.length === 0) delete f.comments;
+    }
+    if (found.size > 0) {
+      await writeManifest(pad.dir, m);
+      ok(io, `deleted ${found.size} comment${found.size === 1 ? "" : "s"} from ${bold(m.name)}`);
+    }
+    for (const id of ids) if (!found.has(id)) fail(io, `no comment "${id}" in ${m.name}`);
+    return found.size === ids.size ? 0 : 1;
+  }
   // Optional file filter: exact path, glob (`*.md`, `**/x`), or case-insensitive
   // substring — whichever the arg looks like. Absent = every commented file.
   const filter = args.file ? toPosix(args.file) : null;
@@ -374,7 +408,7 @@ export async function cmdComments(
       ? `${it.file}:${it.line}${it.section_heading ? " · § " + it.section_heading : ""}`
       : "orphaned — quote not found in source";
     io.out("");
-    io.out(`  ${cyan("▸")} ${it.comment}`);
+    io.out(`  ${cyan("▸")} ${it.comment} ${dim(`(${it.id})`)}`);
     io.out(`    ${dim(`@ "${it.quote.length > 70 ? it.quote.slice(0, 70) + "…" : it.quote}"  [${where}]`)}`);
     if (it.context) {
       io.out(dim(`    ─ context L${it.context_lines} ─`));
