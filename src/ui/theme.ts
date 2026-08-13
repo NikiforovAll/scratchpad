@@ -733,6 +733,22 @@ html:not([data-native]) .sc-native { display: none; }
 .md .task.done > .chk:hover { background: var(--ok-strong); border-color: var(--ok-strong); }
 .md .task.done { color: var(--ink-3); }
 .md blockquote { border-left: 2px solid var(--border); margin: 0.8em 0; padding: 0 0 0 14px; color: var(--ink-3); }
+/* GFM alerts (> [!NOTE] etc): the five GitHub types. Each sets --alert, which
+   tints the border and the icon+title row; the body keeps normal reading ink.
+   tip/warning/caution reuse the semantic tokens so every color theme inherits
+   them; note/important have no palette counterpart, so like code.cs's --cs-type
+   they carry their own blue/purple with a light-mode override for contrast. */
+.md blockquote.alert { --alert: var(--ink-3); border-left: 3px solid var(--alert); color: var(--ink-2); }
+.md .alert-title { display: flex; align-items: center; gap: 8px; margin: 0.7em 0;
+  font-weight: 600; color: var(--alert); }
+.md .alert-title .alert-icon { flex: none; }
+.md blockquote.alert-note { --alert: #4493f8; }
+.md blockquote.alert-important { --alert: #ab7df8; }
+:root[data-theme="light"] .md blockquote.alert-note { --alert: #0969da; }
+:root[data-theme="light"] .md blockquote.alert-important { --alert: #8250df; }
+.md blockquote.alert-tip { --alert: var(--ok-strong); }
+.md blockquote.alert-warning { --alert: var(--warn); }
+.md blockquote.alert-caution { --alert: var(--danger); }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.4em 0; }
 .md code { font-family: var(--mono); font-size: 0.9em;
   background: color-mix(in srgb, var(--ink-muted) 12%, transparent);

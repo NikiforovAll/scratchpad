@@ -709,6 +709,47 @@ test("blockquotes render nested blocks: heading, table, list, fence — not lite
   }
 });
 
+test("GFM alerts: [!TYPE] blockquotes render styled callouts; lowercase/mid-quote markers stay plain", async () => {
+  const html = await renderPadWithContent(
+    [
+      "> [!TIP]",
+      "> Use `scratch add` to register files.",
+      "",
+      "> [!WARNING]",
+      "",
+      "> [!tip]",
+      "> lowercase is not GitHub syntax",
+      "",
+      "> plain quote",
+      "> [!NOTE] not on the first line",
+      "",
+    ].join("\n"),
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    const tip = md.querySelector("blockquote.alert.alert-tip")!;
+    expect(tip).not.toBeNull();
+    const title = tip.querySelector(".alert-title")!;
+    expect(title.textContent).toBe("Tip");
+    expect(title.querySelector("svg.alert-icon")).not.toBeNull();
+    // The marker line never leaks into the body.
+    expect(tip.textContent).not.toContain("[!TIP]");
+    expect(tip.querySelector("code")?.textContent).toBe("scratch add");
+    // Title-only alert (no body) still renders its title row.
+    const warn = md.querySelector("blockquote.alert-warning")!;
+    expect(warn).not.toBeNull();
+    expect(warn.querySelector(".alert-title")?.textContent).toBe("Warning");
+    // Lowercase marker and a marker past the first line are NOT alerts.
+    expect(md.querySelectorAll("blockquote").length).toBe(4);
+    expect(md.querySelectorAll("blockquote.alert").length).toBe(2);
+    expect(md.textContent).toContain("[!tip]");
+    expect(md.textContent).toContain("[!NOTE] not on the first line");
+  } finally {
+    await teardown();
+  }
+});
+
 test("a task checkbox inside a blockquote keeps its ABSOLUTE source line index", async () => {
   const html = await renderPadWithContent(
     ["intro", "", "- [ ] top-level task", "", "> - [ ] quoted task", ""].join("\n"),
