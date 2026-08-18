@@ -940,23 +940,38 @@ const KEY_RELAY = 'addEventListener("keydown",function(e){var x=e.target;if(x&&(
 // knows the frame's box — and the frame applies it and reports its NATURAL size back.
 // transform:scale, not CSS zoom: zoom reflows, so fitting a wide table would re-wrap
 // it into a tall one instead of shrinking it, and layout metrics stay natural under a
-// transform, so one measurement serves every factor. overflow-x is pinned only when
-// the SCALED content really fits, so the 1px of rounding slack can't leave a scrollbar
-// behind — a factor that hit the host's floor (a table many times wider than the box)
-// keeps its scrollbar instead of hiding the part it cannot show.
+// transform, so one measurement serves every factor. M() is that one measurement, and
+// P() posts it: the overflow decision below and the height the host sizes the frame to
+// must never disagree about how tall this document is.
+// Overflow is then pinned per axis, and the two axes know different things:
+//   x — only when the SCALED width really fits, so the 1px of rounding slack can't
+//       leave a scrollbar behind. A factor that hit the host's floor (a table many
+//       times wider than the box) keeps its scrollbar rather than hide what it can't
+//       show.
+//   y — whenever the frame is NOT boxed, i.e. the host sizes it from the height
+//       reported below. That resize makes the scaled page fit by construction, so
+//       there is nothing to measure: a transform leaves the document's layout height
+//       untouched, and without the pin the shorter frame scrolled its own full-size
+//       document — a phantom scrollbar over content already entirely visible. A boxed
+//       frame (full window, standalone preview) is sized by CSS instead, where tall
+//       content really is cut off, so it keeps its scrollbar.
 const FRAME_ZOOM = 'var Z=1;'
-  + 'function P(){var d=document.documentElement,b=document.body,'
-  + 'h=Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0),'
-  + 'w=Math.max(d.scrollWidth,b?b.scrollWidth:0);'
+  + 'function M(){var d=document.documentElement,b=document.body;return{'
+  + 'h:Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0),'
+  + 'w:Math.max(d.scrollWidth,b?b.scrollWidth:0)};}'
   // z tags the report with the factor it was measured at — the host needs it to spot a
   // report that is already stale (see the size handler).
-  + 'parent.postMessage({__scratchFrame:1,h:Math.ceil(h*Z),w:w,z:Z},"*");}'
+  + 'function P(){var m=M();parent.postMessage({__scratchFrame:1,h:Math.ceil(m.h*Z),w:m.w,z:Z},"*");}'
   + 'addEventListener("message",function(e){var d=e.data;if(!d||d.__scratchZoom!==1)return;'
   + 'Z=d.z;var r=document.documentElement,b=document.body;'
   + 'if(b){b.style.transformOrigin="0 0";b.style.transform=Z===1?"":"scale("+Z+")";}'
-  + 'r.style.overflowX="";'
-  + 'var w=Math.max(r.scrollWidth,b?b.scrollWidth:0);'
-  + 'if(Z<1&&Math.ceil(w*Z)<=r.clientWidth)r.style.overflowX="hidden";P();});'
+  + 'r.style.overflow="";'
+  // Both reads before either write: pinning an axis removes its scrollbar and so widens
+  // the box the other axis would be compared against — one forced layout, and the
+  // narrower (pre-pin) box is the conservative side to round on.
+  + 'if(Z<1){var w=M().w,cw=r.clientWidth;'
+  + 'if(!d.boxed)r.style.overflowY="hidden";'
+  + 'if(Math.ceil(w*Z)<=cw)r.style.overflowX="hidden";}P();});'
   // Ctrl+wheel inside the frame, relayed like a keystroke: unhandled, it reached the
   // browser's OWN page zoom (and, full window, that zoom applied to the host page
   // hiding behind the frame — invisible until you left it). Scaling the embed is what
@@ -1618,10 +1633,14 @@ function armHtmlFrames() {
     const f = frameOf(e.source);
     if (!f) return;
     noteNatW(f, e.data.w);
-    // A focused frame is sized by CSS, and so is a standalone .html preview (75vh) —
-    // don't fight either with content height. (Direct-child test, not closest(): the
-    // CSS contract is .md .htmlembed > .htmlframe, and this runs per resize tick.)
-    if (focusedFrame === f || !f.parentElement.classList.contains('htmlembed')) return;
+    // A zero is never a measurement: Chromium throttles rendering for an iframe that is
+    // still far off-screen, so the first report from an embed low in a long article can
+    // land before its document has laid out at all. Sizing from it collapsed the embed
+    // to 1px, and nothing re-reported until the reader happened to scroll it into view.
+    // Holding the CSS default until a real height arrives keeps the placeholder honest.
+    // (Cheapest test first, and it holds for a width the frame did manage to measure.)
+    if (!e.data.h) return;
+    if (frameIsBoxed(f)) return;
     // Reports measured at a factor we have since left are stale, and one always is:
     // leaving full window shrinks the frame back into the column, and that resize is
     // reported at the OLD (magnified) factor, landing after exitFocus cleared
@@ -1742,14 +1761,26 @@ function exitFocus() {
 // One step for every gesture (keys, host wheel, relayed frame wheel) — they used to
 // carry the pair as three literal expressions with three direction conventions.
 const EMBED_MIN = 0.2, EMBED_MAX = 2, EMBED_STEP = 1.25;
+// Which sizing contract a frame is under — the one question two places must answer the
+// same way: a focused frame is sized by CSS, and so is a standalone .html preview
+// (75vh), while an md embed is sized from the height it reports. So the size handler
+// must not fight either with content height, and the frame must not pin its vertical
+// overflow in either (see FRAME_ZOOM). (Direct-child test, not closest(): the CSS
+// contract is .md .htmlembed > .htmlframe, and this runs per resize tick.)
+function frameIsBoxed(f) {
+  return focusedFrame === f || !f.parentElement.classList.contains('htmlembed');
+}
 // Ask the frame to scale. dataset.ez is the applied factor: it makes the no-op case
 // free (the frame's own ResizeObserver reports after every scale, so without this the
 // answer would be posted straight back into the report that prompted it).
+// boxed rides along because only the host knows it, and a frame that inferred it from
+// its own box would be reading a measurement the host is about to invalidate.
 function setEmbedZoom(frame, z) {
   z = Math.round(Math.min(EMBED_MAX, Math.max(EMBED_MIN, z)) * 100) / 100;
   if (frame.dataset.ez === String(z)) return z;
   frame.dataset.ez = String(z);
-  try { frame.contentWindow.postMessage({ __scratchZoom: 1, z: z }, '*'); } catch (_) {}
+  const msg = { __scratchZoom: 1, z: z, boxed: frameIsBoxed(frame) };
+  try { frame.contentWindow.postMessage(msg, '*'); } catch (_) {}
   return z;
 }
 // Remember what '0' should fit to. The LARGEST width the frame ever reported, not the

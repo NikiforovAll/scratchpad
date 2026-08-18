@@ -912,7 +912,9 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     // '0' fits the embed under the pointer: 900 natural into a 300 box → a third.
     embed.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "0" }));
-    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 0.33 });
+    // boxed says which sizing contract the frame is under — false here (an md embed the
+    // host resizes to the reported height), so the frame may pin its vertical overflow.
+    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 0.33, boxed: false });
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "+" }));
     expect(posts.at(-1).z).toBe(0.41);
     // Bare keys only — Ctrl+= is the reader's page zoom and must not touch the embed.
@@ -939,7 +941,9 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     expect(document.documentElement.style.zoom).toBe("1.3");
     // Leaving full window drops the embed's scale: it was chosen for the viewport, and
     // left in place it shrank the inline embed for the rest of the session.
-    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 1 });
+    // Still boxed at the moment of the reset: exitFocus scales back before it lets go of
+    // the frame. Nothing is pinned at z=1 either way.
+    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 1, boxed: true });
     // The shrink back into the column is reported at the OLD factor and lands after the
     // exit — sizing the embed from it left a tall blank box.
     window.dispatchEvent(new MessageEvent("message", {
@@ -948,6 +952,13 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     expect(embed.style.height).toBe("");   // exitFocus cleared it; the stale report can't set it
     window.dispatchEvent(new MessageEvent("message", {
       data: { __scratchFrame: 1, h: 500, w: 900, z: 1 }, source: embed.contentWindow,
+    } as any));
+    expect(embed.style.height).toBe("501px");
+    // A zero is never a measurement — Chromium throttles rendering for a far off-screen
+    // iframe, so a report can land before its document has laid out at all. Sizing from
+    // it collapsed the embed to 1px; the last real height stands instead.
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { __scratchFrame: 1, h: 0, w: 900, z: 1 }, source: embed.contentWindow,
     } as any));
     expect(embed.style.height).toBe("501px");
 

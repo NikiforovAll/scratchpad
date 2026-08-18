@@ -39,6 +39,10 @@ affordances inside a diagram that expect to reach you; they can't.
   if a standalone-openable file matters to you.)
 - The frame is **~760px wide** and centered; content sizes its own height
   automatically (an injected `ResizeObserver` reports it).
+- The kit gives the page a **16px gutter** (on `html`, so your own `body` padding
+  stacks inside it rather than replacing it). Don't reach for `body { padding: 0 }`
+  to reclaim it — the drawing needs the breathing room. An embed that must bleed to
+  the frame's edge opts out explicitly with `html { padding: 0 }`.
 - `<style>` and `<script>` are allowed. Scripts run in a sandboxed,
   opaque-origin iframe — in-frame JS (animation, toggles, canvas) works; forms,
   popups, top-level navigation, storage, and host access are blocked.

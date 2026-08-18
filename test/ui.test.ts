@@ -148,6 +148,15 @@ describe("renderHtml", () => {
     expect(html).toContain(`light-dark(${KIT_BG.light}, ${KIT_BG.dark})`);
   });
 
+  // The embed gutter belongs to html, not body (why, in kit.ts): the kit is prepended to
+  // the author's own document, so a body padding rule of theirs wins the cascade. Both
+  // halves match against the whole sheet, so a renamed or reformatted rule fails the
+  // test rather than passing on a regex that found nothing.
+  test("the kit's page gutter is on html, and body declares no padding", () => {
+    expect(KIT_CSS).toMatch(/\bhtml \{[^}]*padding: 16px/);
+    expect(KIT_CSS).toMatch(/\bbody \{(?![^}]*padding)[^}]*margin: 0/);
+  });
+
   test("links hljs via CDN (with SRI) when code present, not mermaid", async () => {
     const pad = await seedPad(); // has snippet.ts + ```ts fence, no mermaid
     const html = await renderHtml(await buildView([pad]), "Notes");
@@ -427,6 +436,21 @@ describe("in-frame comment plumbing", () => {
   test("no frame CSS contains the wheel out of the embed", async () => {
     expect(await page()).not.toContain("overscroll-behavior");
     expect(KIT_CSS).not.toContain("overscroll-behavior");
+  });
+
+  // A transform leaves the document's layout size alone, so a scaled-down embed — which
+  // the host resizes to the SCALED height — kept scrolling its full-size document inside
+  // the shorter frame. Both axes are pinned now: x when the scaled width measures as
+  // fitting, y on the host's word that it sizes this frame (boxed: false) — never on a
+  // measurement of the box the frame is about to leave.
+  test("a scaled-down frame pins overflow on both axes, not just x", async () => {
+    const html = await page();
+    expect(html).toContain('r.style.overflowX="hidden"');
+    expect(html).toContain('if(!d.boxed)r.style.overflowY="hidden"');
+    // One measurer serves the overflow decision and the reported height — they must
+    // never disagree about how tall the document is.
+    expect(html).toContain("function M(){");
+    expect(html.match(/Math\.max\(d\.scrollHeight/g)!.length).toBe(1);
   });
 
   test("the matcher is defined once and shipped to the frame as source", async () => {

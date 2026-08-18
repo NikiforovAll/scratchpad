@@ -69,12 +69,19 @@ export const KIT_CSS = `
    without it: the one case where the frame hides the article has
    :root[data-focus] .preview{overflow:hidden} (theme.ts), so there is nothing behind
    the frame left to chain into. */
-html { box-sizing: border-box; scrollbar-width: thin;
+/* The page gutter lives HERE, not on body: the kit is prepended to the author's
+   document, so a body padding rule of theirs wins the cascade — a compact
+   4px-0 (or a 0 reset) left the drawing flush against the frame's edge with
+   nothing to breathe. Authors style body, essentially never html, so the viewer
+   keeps the breathing room and their own padding stacks inside it. Setting
+   html padding 0 is the deliberate opt-out for an embed that must bleed to the
+   edge. The gutter still paints in the page color: html stays background-less,
+   so body's background propagates to the canvas and covers the whole frame. */
+html { box-sizing: border-box; padding: 16px; scrollbar-width: thin;
   scrollbar-color: var(--color-border-secondary) transparent; }
 *, *::before, *::after { box-sizing: inherit; }
 body {
   margin: 0;
-  padding: 16px;
   display: flow-root;
   background: var(--color-background-primary);
   color: var(--color-text-primary);
