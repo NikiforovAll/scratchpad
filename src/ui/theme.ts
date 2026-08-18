@@ -528,8 +528,9 @@ html:not([data-native]) .sc-native { display: none; }
 }
 /* Collapse control rides the pane's top-right corner, next to what it collapses.
    It overlays the tree's first line — a short small-caps group header — so a
-   compact button with the pane's own background never collides with text. */
-#sidebarToggle { position: absolute; top: 8px; right: 8px; z-index: 2;
+   compact button with the pane's own background never collides with text. The
+   right offset clears the tree's scrollbar, which shares that edge. */
+#sidebarToggle { position: absolute; top: 8px; right: 16px; z-index: 2;
   width: 28px; height: 28px; background: var(--surface); }
 #sidebarToggle svg { width: 14px; height: 14px; }
 /* The in-pane toggle disappears with the pane; this floater (hidden unless

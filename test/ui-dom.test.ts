@@ -2719,3 +2719,41 @@ test("html comments render muted: block, multi-line and inline forms; code spans
     await teardown();
   }
 });
+
+test("arrow-key file nav scrolls the sidebar so the active row stays visible", async () => {
+  const html = await renderThreeFilePad();
+  await boot(html);
+  try {
+    // happy-dom has no layout: fake a 100px-tall tree viewport over 40px rows and
+    // track the scrollTop the page sets on it.
+    const tree = document.getElementById("tree") as any;
+    let top = 0;
+    Object.defineProperty(tree, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
+    const ROW_H = 40, VIEW_H = 100;
+    (Element.prototype as any).getBoundingClientRect = function () {
+      if (this.id === "tree") return { top: 0, bottom: VIEW_H, height: VIEW_H, left: 0, right: 0, width: 0 };
+      if (this.classList && this.classList.contains("frow")) {
+        const i = Array.from(document.querySelectorAll(".frow")).indexOf(this);
+        return { top: i * ROW_H - top, bottom: i * ROW_H - top + ROW_H, height: ROW_H, left: 0, right: 0, width: 0 };
+      }
+      return { top: 0, bottom: 0, height: 0, left: 0, right: 0, width: 0 };
+    };
+
+    // B (40..80) is inside the viewport — nothing moves.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
+    expect(document.querySelector(".frow.active")?.textContent).toContain("B");
+    expect(top).toBe(0);
+    // C (80..120) hangs past the fold: scroll by just its overhang plus the 8px gap.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
+    expect(document.querySelector(".frow.active")?.textContent).toContain("C");
+    expect(top).toBe(28);
+    // Back up: B is still in view, A is above the fold and pulls the list to the top.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
+    expect(top).toBe(28);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
+    expect(document.querySelector(".frow.active")?.textContent).toContain("A");
+    expect(top).toBe(0);
+  } finally {
+    await teardown();
+  }
+});

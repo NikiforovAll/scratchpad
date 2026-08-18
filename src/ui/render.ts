@@ -2381,6 +2381,7 @@ function renderPreview(pad, f, nav) {
   buildToc();
   document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
   expandActiveGroup();
+  scrollActiveRowIntoView();
   const wantKey = current;
   // A link with a #fragment lands on the heading — beating the rAF re-apply below,
   // so the scroll-restore is skipped entirely when an anchor target resolves.
@@ -2490,6 +2491,24 @@ function expandActiveGroup() {
   setGroupCollapsed(document.querySelector('.frow.active')?.closest('.ggroup.collapsed'), false);
 }
 
+// Keep the active row inside the tree's own scroll viewport, so walking the list
+// with the arrow keys never leaves the selection above or below the fold. Minimal
+// scroll (nearest edge, never centred) — the list only moves once the selection
+// would go off-screen. Done by hand instead of scrollIntoView(): that walks every
+// scrollable ancestor and drags the preview pane with it under WebView2.
+const ROW_EDGE_GAP = 8;
+function scrollActiveRowIntoView() {
+  const tree = document.getElementById('tree');
+  const row = tree && tree.querySelector('.frow.active');
+  if (!row || typeof row.getBoundingClientRect !== 'function') return;
+  const r = row.getBoundingClientRect(), t = tree.getBoundingClientRect();
+  if (!t.height) return; // collapsed / hidden sidebar: nothing to scroll
+  let d = 0;
+  if (r.top < t.top + ROW_EDGE_GAP) d = r.top - t.top - ROW_EDGE_GAP;
+  else if (r.bottom > t.bottom - ROW_EDGE_GAP) d = r.bottom - t.bottom + ROW_EDGE_GAP;
+  if (d) tree.scrollTop = Math.max(0, tree.scrollTop + d);
+}
+
 function buildTree(preferKey, prevSelJson) {
   const tree = document.getElementById('tree');
   // Single-pad focus: the viewer shows the current pad's files as a flat list —
@@ -2590,6 +2609,7 @@ function buildTree(preferKey, prevSelJson) {
     currentRef = { pad: sel.pad, f: sel.f };
     document.querySelectorAll('.frow').forEach(el => el.classList.toggle('active', el.dataset.key === current));
     expandActiveGroup();
+    scrollActiveRowIntoView();
     return;
   }
   renderPreview(sel.pad, sel.f);
