@@ -1108,6 +1108,15 @@ function mdInline(s) {
   // as a plain $ (consistent with a bare $). Backtick is omitted: code spans own
   // it, and it'd clash with this raw-template delimiter.
   s = s.replace(/\\([\\$*_~\[\]()#+\-.!<>{}|])/g, (_, ch) => hold(esc(ch)));
+  // HTML comments (<!-- … -->) stay VISIBLE — in a pad they're authoring notes
+  // worth reading, not markup to drop — but stashed here so the emphasis/link
+  // passes never chew on their body, and painted muted by .md-comment. Code
+  // spans are already stashed above, so \`<!-- x -->\` stays literal code.
+  // [\\s\\S] (not [^\\n]) is load-bearing: renderBlocks hands the multi-line form
+  // here as one glued string. Note buildHtmlIndex (src/comments.ts) blanks
+  // comments instead — that projection serves .html files, where the browser
+  // really does hide them; markdown here deliberately does not.
+  s = s.replace(/<!--[\s\S]*?-->/g, (raw) => hold('<span class="md-comment">' + esc(raw) + '</span>'));
   // Angle-bracket autolinks (CommonMark): <https://…>, <mailto:…>, or a bare
   // <user@host>. Stashed BEFORE esc — otherwise the < > get HTML-escaped and the
   // whole thing renders as literal text (the footnote-URL bug this fixes). The
@@ -1456,6 +1465,17 @@ function renderBlocks(lines, base) {
       t += '</tr></thead><tbody>';
       rows.forEach(rc => { t += '<tr>'; heads.forEach((_, ci) => { t += '<td' + sty(ci) + '>' + mdInline(rc[ci] || '') + '</td>'; }); t += '</tr>'; });
       html += t + '</tbody></table>';
+      continue;
+    }
+    // A MULTI-LINE HTML comment. mdInline already paints comments (and anything
+    // trailing the close) — it just never sees a --> that landed on a later line,
+    // since the block loop feeds it one line at a time. So this path only glues
+    // the run together; the single-line form needs no case at all.
+    if (/^\s*<!--/.test(line) && line.indexOf('-->') === -1) {
+      closeLists();
+      const buf = [];
+      while (i < lines.length) { buf.push(lines[i]); const closed = lines[i].indexOf('-->') >= 0; i++; if (closed) break; }
+      html += '<p>' + mdInline(buf.join('\n')) + '</p>';
       continue;
     }
     let m;

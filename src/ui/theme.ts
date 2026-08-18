@@ -749,6 +749,11 @@ html:not([data-native]) .sc-native { display: none; }
 .md blockquote.alert-tip { --alert: var(--ok-strong); }
 .md blockquote.alert-warning { --alert: var(--warn); }
 .md blockquote.alert-caution { --alert: var(--danger); }
+/* HTML comments kept visible but set apart — muted and italic, like a source
+   comment. pre-wrap keeps a multi-line comment in the shape it was written in;
+   on the mid-line form it has nothing to preserve. Unrelated to the viewer's own
+   inline-comment feature, which owns the .cmt-* classes. */
+.md .md-comment { color: var(--ink-muted); font-style: italic; white-space: pre-wrap; }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.4em 0; }
 .md code { font-family: var(--mono); font-size: 0.9em;
   background: color-mix(in srgb, var(--ink-muted) 12%, transparent);

@@ -2677,3 +2677,45 @@ test("scrolling inside the frame reports up so the host can dismiss its popover"
     window.dispatchEvent(new Event("scroll"));
     expect(posts.some((p) => p.__scratchCmtScroll === 1)).toBe(true);
   }));
+
+test("html comments render muted: block, multi-line and inline forms; code spans stay literal", async () => {
+  const html = await renderPadWithContent(
+    [
+      "# Doc",
+      "",
+      "<!-- one line per resolved ticket -->",
+      "",
+      "<!-- a note",
+      "spanning two lines -->",
+      "",
+      "prose <!-- aside --> continues",
+      "",
+      "<!-- closed --> tail text",
+      "",
+      "`<!-- literal -->`",
+      "",
+    ].join("\n"),
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    const painted = [...md.querySelectorAll("span.md-comment")].map((n) => n.textContent);
+    expect(painted).toEqual([
+      "<!-- one line per resolved ticket -->",
+      "<!-- a note\nspanning two lines -->",
+      "<!-- aside -->",
+      "<!-- closed -->",
+    ]);
+    // Every form stays inside the prose it was written in: a lone comment is its
+    // own paragraph, a mid-line one leaves the surrounding text alone, and text
+    // after a close keeps its paragraph (and its markdown).
+    const paras = [...md.querySelectorAll("p")].map((p) => p.textContent);
+    expect(paras).toContain("prose <!-- aside --> continues");
+    expect(paras).toContain("<!-- closed --> tail text");
+    // A comment inside a code span is code, not a comment.
+    expect(md.querySelector("code")?.textContent).toBe("<!-- literal -->");
+    expect(md.querySelector("code")?.querySelector(".md-comment")).toBeNull();
+  } finally {
+    await teardown();
+  }
+});

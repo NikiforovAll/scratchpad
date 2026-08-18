@@ -29,7 +29,11 @@ export interface LocatedComment extends Comment {
 
 const HEADING_RE = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 
-/** Strip inline markdown the renderer collapses to plain text. */
+/** Strip inline markdown the renderer collapses to plain text.
+ * HTML comments are deliberately NOT stripped here: the markdown renderer keeps
+ * them visible (painted muted, see .md-comment), so a quote can legitimately
+ * contain one and must still match this projection. buildHtmlIndex blanks them
+ * because a real browser hides them — that divergence is intentional. */
 function stripInline(s: string): string {
   return s
     .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, name, alias) => (alias ?? name).trim()) // wikilinks → display text
