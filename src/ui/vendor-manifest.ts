@@ -88,3 +88,20 @@ export const VENDOR_ASSETS: VendorAsset[] = [
 
 /** Base URL for the KaTeX woff2 fonts referenced (relatively) by katex.min.css. */
 export const KATEX_FONTS_BASE = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/";
+
+// The live viewer's in-place Excalidraw editor loads react + @excalidraw/excalidraw
+// from esm.sh (excalidraw's official browser path: an ESM graph whose react peer
+// deps esm.sh resolves in-URL — responses aren't byte-stable, so no SRI, unlike
+// the script-global vendors above; that's also why this isn't a VendorAsset and
+// has no offline copy). `files` (jsdelivr, serving the npm package verbatim)
+// hosts index.css plus the font/locale chunks excalidraw fetches at runtime via
+// EXCALIDRAW_ASSET_PATH. One `pkg` pin drives both hosts, so a version bump
+// can't mix editor code with another release's assets. render.ts injects this
+// into the live page as the #exca-cdn island — never into an export.
+const EXCA_PKG = "@excalidraw/excalidraw@0.18.1";
+export const EXCA_EDITOR_CDN = {
+  pkg: EXCA_PKG,
+  react: "19.0.0",
+  esm: "https://esm.sh",
+  files: `https://cdn.jsdelivr.net/npm/${EXCA_PKG}/dist/prod/`,
+};

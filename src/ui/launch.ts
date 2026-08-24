@@ -16,7 +16,8 @@ import { type Pad, resolveEntryPath } from "../discovery.ts";
 import type { IO } from "../commands.ts";
 import { bold, cyan, dim, note, ok } from "../colors.ts";
 import { loadConfig, saveConfig } from "../config.ts";
-import { readManifest, sanitizeComments, writeManifest } from "../manifest.ts";
+import { type FileEntry, type Manifest, readManifest, sanitizeComments, writeManifest } from "../manifest.ts";
+import { isExcalidrawPath, parseScene } from "../excalidraw.ts";
 import { createReloader, type Reloader } from "./reload.ts";
 import type { Watcher } from "./watch.ts";
 
@@ -73,23 +74,37 @@ export async function persistFileHidden(
   payload: unknown,
   io: IO,
 ): Promise<{ padDir: string; filePath: string } | null> {
-  if (!payload || typeof payload !== "object") return null;
-  const p = payload as { padDir?: unknown; filePath?: unknown; hidden?: unknown };
-  if (typeof p.padDir !== "string" || typeof p.filePath !== "string") return null;
-  const pad = pads.find((x) => x.dir === p.padDir);
-  if (!pad) return null;
   try {
-    const m = await readManifest(pad.dir);
-    const entry = m.files.find((f) => f.path === p.filePath);
-    if (!entry) return null;
-    if (p.hidden === false) delete entry.hidden;
-    else entry.hidden = true;
-    await writeManifest(pad.dir, m);
-    return { padDir: p.padDir, filePath: p.filePath };
+    const t = await resolveEntryTarget(pads, payload);
+    if (!t) return null;
+    if (t.p.hidden === false) delete t.entry.hidden;
+    else t.entry.hidden = true;
+    await writeManifest(t.pad.dir, t.manifest);
+    return { padDir: t.pad.dir, filePath: t.entry.path };
   } catch (e) {
     note(io, `hiding file failed (${(e as Error).message.split("\n")[0]}).`);
     return null;
   }
+}
+
+// The single trust boundary for every viewer-posted write ({padDir, filePath}
+// payloads): the pad must be one this session scanned, the file must be a
+// manifest-registered entry, and the absolute path only ever comes from
+// resolveEntryPath (linked `src` honored). All persist* siblings start here, so
+// a hardening change (path normalization, case rules) lands once, not thrice.
+async function resolveEntryTarget(
+  pads: Pad[],
+  payload: unknown,
+): Promise<{ p: Record<string, unknown>; pad: Pad; manifest: Manifest; entry: FileEntry; abs: string } | null> {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.padDir !== "string" || typeof p.filePath !== "string") return null;
+  const pad = pads.find((x) => x.dir === p.padDir);
+  if (!pad) return null;
+  const manifest = await readManifest(pad.dir);
+  const entry = manifest.files.find((f) => f.path === p.filePath);
+  if (!entry) return null;
+  return { p, pad, manifest, entry, abs: resolveEntryPath(pad.dir, entry) };
 }
 
 // Apply a reveal request posted by the viewer page (WebView2 __scratch_reveal /
@@ -130,30 +145,44 @@ export function applyReveal(reloader: Reloader, payload: unknown): boolean {
 // (linked `src` honored), so writes stay scoped to pad-registered files.
 const TASK_MARKER = /^(\s*(?:[-*+]\s+|#{1,6}\s+`?)\[)([ xX])(\].*)$/;
 export async function persistFileCheckbox(pads: Pad[], payload: unknown, io: IO): Promise<void> {
-  if (!payload || typeof payload !== "object") return;
-  const p = payload as { padDir?: unknown; filePath?: unknown; line?: unknown; checked?: unknown };
-  if (
-    typeof p.padDir !== "string" || typeof p.filePath !== "string" ||
-    typeof p.line !== "number" || !Number.isInteger(p.line) || p.line < 0 ||
-    typeof p.checked !== "boolean"
-  ) return;
-  const pad = pads.find((x) => x.dir === p.padDir);
-  if (!pad) return;
   try {
-    const m = await readManifest(pad.dir);
-    const entry = m.files.find((f) => f.path === p.filePath);
-    if (!entry) return;
-    const abs = resolveEntryPath(pad.dir, entry);
-    const raw = await readFile(abs, "utf8");
+    const t = await resolveEntryTarget(pads, payload);
+    if (!t) return;
+    const { line, checked } = t.p as { line?: unknown; checked?: unknown };
+    if (typeof line !== "number" || !Number.isInteger(line) || line < 0 || typeof checked !== "boolean") return;
+    const raw = await readFile(t.abs, "utf8");
     const eol = raw.includes("\r\n") ? "\r\n" : "\n";
     const lines = raw.split(/\r?\n/);
-    const target = lines[p.line];
+    const target = lines[line];
     const mt = typeof target === "string" ? target.match(TASK_MARKER) : null;
     if (!mt) return; // line drifted since render — skip rather than corrupt
-    lines[p.line] = mt[1] + (p.checked ? "x" : " ") + mt[3];
-    await writeFile(abs, lines.join(eol), "utf8");
+    lines[line] = mt[1] + (checked ? "x" : " ") + mt[3];
+    await writeFile(t.abs, lines.join(eol), "utf8");
   } catch (e) {
     note(io, `saving checkbox failed (${(e as Error).message.split("\n")[0]}).`);
+  }
+}
+
+// Write an edited Excalidraw scene back to its .excalidraw file, posted by the
+// viewer's in-place editor (WebView2 __scratch_excalidraw / POST /excalidraw).
+// The SECOND content-writing exception (with persistFileCheckbox) to the
+// never-author invariant: the user drew the scene in the embedded editor; we
+// only persist the JSON it serialized. Scoped like the checkbox path — the file
+// resolves through the pad manifest (linked `src` honored), must still BE a
+// .excalidraw target, and the payload must parse as a scene (parseScene) — so
+// a hostile page can't write arbitrary bytes to arbitrary paths. Returns
+// whether the write landed, so callers can push the re-rendered SVG back.
+export async function persistExcalidrawScene(pads: Pad[], payload: unknown, io: IO): Promise<boolean> {
+  try {
+    const t = await resolveEntryTarget(pads, payload);
+    if (!t || typeof t.p.scene !== "string") return false;
+    if (!isExcalidrawPath(t.abs)) return false;
+    parseScene(t.p.scene); // throws unless the payload is a real scene
+    await writeFile(t.abs, t.p.scene, "utf8");
+    return true;
+  } catch (e) {
+    note(io, `saving drawing failed (${(e as Error).message.split("\n")[0]}).`);
+    return false;
   }
 }
 
@@ -239,6 +268,9 @@ interface Persisters {
   comments: (payload: unknown) => Promise<void>;
   checkbox: (payload: unknown) => Promise<void>;
   hidden: (payload: unknown) => Promise<void>;
+  /** Returns true when the scene was written — the caller then pushes a reload
+   * so the page gets the freshly re-rendered SVG through the normal read path. */
+  excalidraw: (payload: unknown) => Promise<boolean>;
 }
 
 export async function launchViewer(
@@ -262,6 +294,7 @@ export async function launchViewer(
       const target = await persistFileHidden(pads, payload, io);
       if (target) reloader.conceal(target.padDir, target.filePath);
     },
+    excalidraw: (payload) => persistExcalidrawScene(pads, payload, io),
   };
 
   // Native glimpse is the default; --browser forces the browser viewer. When the
@@ -474,6 +507,20 @@ async function tryGlimpse(
         await persist.hidden(d.__scratch_hide);
         return;
       }
+      // Edited Excalidraw scene from the in-place editor — write it back, then
+      // push a quiet reload so the page gets the server-re-rendered SVG (the
+      // same read path every other change flows through). Deterministic even
+      // with autoReload off; with it on, the watcher's debounced patch merges.
+      if (d && d.__scratch_excalidraw) {
+        if (await persist.excalidraw(d.__scratch_excalidraw)) {
+          try {
+            await pushReload(true);
+          } catch (e) {
+            note(io, `drawing reload failed (${(e as Error).message.split("\n")[0]}).`);
+          }
+        }
+        return;
+      }
       // Session reveal of hidden files (a link to a hidden doc, or the 'h'
       // toggle). Reloader-only state — nothing is written to the manifest —
       // answered with a quiet data patch that now carries the hidden content.
@@ -623,6 +670,16 @@ async function serveBrowser(
       // Hide-file write-back — browser mirror of __scratch_hide.
       if (req.method === "POST" && url.pathname === "/hide") {
         await persist.hidden(await req.json().catch(() => null));
+        return new Response(null, { status: 204 });
+      }
+      // Excalidraw scene write-back — browser mirror of __scratch_excalidraw.
+      // A landed write pushes the re-rendered SVG through the SSE patch channel.
+      if (req.method === "POST" && url.pathname === "/excalidraw") {
+        if (await persist.excalidraw(await req.json().catch(() => null))) {
+          await pushPatch().catch((e) =>
+            note(io, `drawing reload failed (${(e as Error).message.split("\n")[0]}).`),
+          );
+        }
         return new Response(null, { status: 204 });
       }
       // Session reveal — browser mirror of __scratch_reveal. When the reveal

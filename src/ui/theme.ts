@@ -850,6 +850,19 @@ pre.has-nos > .cb-nos { flex: none; user-select: none; text-align: right;
 pre.has-nos > code { flex: 1 1 auto; min-width: 0; display: block; overflow-x: auto; white-space: pre; }
 
 .imgwrap { display: flex; justify-content: center; padding: 12px 0; }
+/* server-rendered excalidraw SVGs: fill the card width (vector, scales clean) */
+.imgwrap img.excalidraw { width: 100%; }
+
+/* In-place Excalidraw editor overlay (live viewer only; see openExcalidrawEditor) */
+#excaOverlay { position: fixed; inset: 0; z-index: 400; display: flex; flex-direction: column; background: var(--field); }
+#excaOverlay .exca-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+#excaOverlay .exca-file { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+#excaOverlay .exca-actions { display: flex; gap: 6px; }
+#excaOverlay .exca-host { flex: 1; min-height: 0; }
+#excaOverlay .exca-host .notice { padding: 24px; }
+/* empty-scene placeholder: the edit entry point sits centered in the card */
+.exca-empty { display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 56px 0; border: 1px dashed var(--border); border-radius: 6px; color: var(--ink-3); }
 .imgwrap img { max-width: 100%; max-height: 80vh; object-fit: contain;
   border: 1px solid var(--border); border-radius: 6px; background: var(--elevated); }
 .md img.mdimg { max-width: 100%; height: auto; border: 1px solid var(--border);

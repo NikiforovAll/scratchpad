@@ -5,7 +5,7 @@
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import { bold, cyan, dim, red } from "./colors.ts";
-import { cmdAdd, cmdComments, cmdExport, cmdLs, cmdNew, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
+import { cmdAdd, cmdComments, cmdExport, cmdLs, cmdNew, cmdPreview, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
 
 // A function, not a const: styling is decided per call (TTY/NO_COLOR), so it
 // must not be baked in at import time.
@@ -62,6 +62,14 @@ ${bold("USAGE")}
       Without --theme/--mode the export uses your saved config and the reader's own
       remembered choice still wins; passing either pins it for every reader.
       With multiple pads under root, name one or pass --all to merge them.
+
+  ${cyan("scratch preview")} <file.excalidraw> ${dim("[-o <file.png|file.svg|->]")}
+      Render an Excalidraw scene to an image so it can be inspected without the
+      viewer. Default out: a PNG under the OS temp dir (path is printed; named
+      by the source path's hash so re-previews overwrite — the pad dir is never
+      touched). -o <file>.svg writes a self-contained SVG with the scene JSON
+      embedded (excalidraw's .excalidraw.svg twin — still editable);
+      -o - prints that SVG to stdout.
 
 ${bold("ADDRESSING")}
   A pad is a folder containing scratchpad.json; its path is its identity.
@@ -142,6 +150,8 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
         { pad: rest[0], dir: v.dir, all: v.all, out: v.out, offline: v.offline, theme: v.theme, mode: v.mode },
         io,
       );
+    case "preview":
+      return cmdPreview({ file: rest[0], out: v.out }, io);
     default:
       io.err(`${red("error:")} unknown command "${cmd}". run \`scratch --help\`.`);
       return 2;

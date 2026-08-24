@@ -100,8 +100,9 @@ Read-only and **blocking** — keeps a local server alive until Ctrl+C. Always
 launch it **backgrounded** (don't await it) so the session keeps moving, then
 report the URL. Native glimpse window with automatic browser+server fallback
 (`--browser` forces it); shows all files in the pad (unregistered ones dimmed),
-renders markdown/code/`mermaid`, TeX math, GFM alerts (`> [!TIP]`, uppercase),
-embeds HTML diagrams (below), raw↔rendered toggle, auto light/dark.
+renders markdown/code/`mermaid`, `.excalidraw` scenes, TeX math, GFM alerts
+(`> [!TIP]`, uppercase), embeds HTML diagrams (below), raw↔rendered toggle,
+auto light/dark.
 
 ## Diagrams (mermaid)
 
@@ -127,6 +128,14 @@ point — mermaid draws shape, a call stack draws a path.
 
 Read `references/CALLSTACK_GUIDE.md` before writing one. The annotation rules
 fail silently when guessed.
+
+## Drawings (Excalidraw)
+
+Add a `.excalidraw` file (scene JSON) like any other file — the viewer and
+exports render it to SVG; the scene stays editable in Excalidraw. Empty scene:
+`{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}`.
+To see a drawing, run `scratch preview d.excalidraw` and read the PNG path it
+prints.
 
 ## Math notation (TeX)
 

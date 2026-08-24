@@ -19,6 +19,7 @@ import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 // builds set window.hljs / window.mermaid / window.katex; if they fail to load
 // (online page, offline) the client degrades gracefully (plain code + raw source).
 import {
+  EXCA_EDITOR_CDN,
   HLJS_CDN,
   HLJS_THEME_DARK,
   HLJS_THEME_LIGHT,
@@ -26,6 +27,9 @@ import {
   KATEX_CSS,
   MERMAID_CDN,
 } from "./vendor-manifest.ts";
+// Static import is safe: the module itself is light — the excalidraw dependency
+// only loads inside renderExcalidrawSvg, so non-drawing pads never pay for it.
+import { EXCALIDRAW_EXT, parseScene, renderExcalidrawSvg } from "../excalidraw.ts";
 
 const MAX_EMBED_BYTES = 5 * 1024 * 1024; // skip embedding text/code content above this
 // Images get a far larger budget than text — a single screenshot routinely
@@ -46,6 +50,13 @@ const CODE_EXT = new Set([
 ]);
 // Rendered in a sandboxed iframe (scripts disabled) rather than as source.
 const HTML_EXT = new Set([".html", ".htm"]);
+// Scene JSON is the stored source of truth; the page embeds only the SVG
+// rendered server-side (src/excalidraw.ts), so exports carry no excalidraw code.
+// Rendered SVGs are memoized per file (keyed by mtime+size) — buildView runs on
+// every watcher event / reload, and a full excalidraw render (rasterizer + font
+// subsetting) per drawing per rebuild would make touching an unrelated note
+// re-render every scene in the session.
+const EXCA_SVG_CACHE = new Map<string, { key: string; uri: string }>();
 
 const MIME: Record<string, string> = {
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
@@ -78,6 +89,12 @@ interface FileView {
   /** ISO timestamps from the file on disk (manifest has only pad-level dates). */
   created?: string;
   updated?: string;
+  /** Raw .excalidraw scene JSON (content holds the rendered SVG data URI). The
+   * live viewer's in-place editor opens from this; exports just carry it inert. */
+  source?: string;
+  /** .excalidraw scene with no elements — the viewer shows a placeholder notice
+   * instead of the invisible blank SVG (content stays null). */
+  emptyScene?: boolean;
   /** Inline comments from the manifest (quote-anchored; see manifest.ts). */
   comments?: Comment[];
   /** Comments resolved against the source (file:line, heading, context) at render
@@ -191,6 +208,8 @@ async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
     const ext = extname(meta.src ?? path).toLowerCase();
     let kind = classify(ext);
     let content: string | null = null;
+    let source: string | undefined;
+    let emptyScene = false;
     // Linked entries read from `src` (outside the pad); the rest from path under the pad dir.
     const abs = resolveEntryPath(pad.dir, meta);
     const file = Bun.file(abs);
@@ -212,6 +231,35 @@ async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
       const cap = kind === "image" ? MAX_IMAGE_BYTES : MAX_EMBED_BYTES;
       if (size > cap) {
         kind = "toolarge";
+      } else if (ext === EXCALIDRAW_EXT) {
+        const text = await file.text();
+        source = text;
+        try {
+          const scene = parseScene(text);
+          kind = "image"; // scenes render as images; the catch below overrides
+          if (scene.elements.length === 0) {
+            // Nothing to render — a blank 40×40 SVG stretched full-width is just
+            // invisible whitespace. kind stays "image" (with source) so the live
+            // viewer's ✏️ edit entry point still appears over the placeholder.
+            emptyScene = true;
+          } else {
+            const cacheKey = updated ? `${updated}:${size}` : null;
+            const cached = EXCA_SVG_CACHE.get(abs);
+            if (cacheKey && cached?.key === cacheKey) {
+              content = cached.uri;
+            } else {
+              // 2× so a hand-sized sketch doesn't sit tiny in the card; SVG is
+              // vector so nothing blurs, and oversize clamps to the card width.
+              const svg = await renderExcalidrawSvg(scene, { scale: 2 });
+              content = imageDataUri(Buffer.from(svg), ".svg");
+              if (cacheKey) EXCA_SVG_CACHE.set(abs, { key: cacheKey, uri: content });
+            }
+          }
+        } catch {
+          // unrenderable scene — show the raw JSON source instead of nothing
+          kind = "code";
+          content = text;
+        }
       } else if (kind === "image") {
         content = imageDataUri(Buffer.from(await file.arrayBuffer()), ext);
       } else if (kind === "binary") {
@@ -242,8 +290,10 @@ async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
       type: meta.type ?? DEFAULT_TYPE,
       group: meta.group,
       kind,
-      lang: kind === "code" ? ext.slice(1) : undefined,
+      lang: kind === "code" ? (ext === EXCALIDRAW_EXT ? "json" : ext.slice(1)) : undefined,
       content,
+      source,
+      ...(emptyScene ? { emptyScene: true } : {}),
       assets,
       created,
       updated,
@@ -347,7 +397,14 @@ export async function renderHtml(
   ui: UiSettings = DEFAULT_UI,
   opts: { exportMode?: boolean; offline?: boolean; pinned?: (keyof UiSettings)[] } = {},
 ): Promise<string> {
-  const data = payloadJson(view, rootLabel);
+  // Exports drop the raw .excalidraw scene JSON (`source`): it only feeds the
+  // in-place editor, which exports can't run — the rendered SVG is all they show.
+  const data = payloadJson(
+    opts.exportMode
+      ? view.map((p) => ({ ...p, files: p.files.map(({ source, ...f }) => f) }))
+      : view,
+    rootLabel,
+  );
   // Static kit (tokens + classes + #arrow marker) baked into every ![](file.html)
   // embed's iframe; same <-escape as the data island so it's inline-script-safe.
   const kitJson = JSON.stringify({ css: KIT_CSS, defs: KIT_SVG_DEFS }).replace(/</g, "\\u003c");
@@ -449,6 +506,13 @@ export async function renderHtml(
     // KaTeX CSS is theme-agnostic (math inherits the page `color`), so a single
     // link — no light/dark pair like hljs.
     if (needsMath(view)) vendorCss += cssLink("katex-css", KATEX_CSS);
+  }
+  // In-place Excalidraw editor CDN roots — injected ONLY into the live viewer.
+  // Exports carry zero excalidraw references (code AND urls; the offline test
+  // asserts no CDN hostname appears), and the client gates the edit button on
+  // this island's presence, so its absence is what disables editing.
+  if (!opts.exportMode) {
+    vendor += `<script id="exca-cdn" type="application/json">${JSON.stringify(EXCA_EDITOR_CDN)}</script>\n`;
   }
 
   // The Save-a-copy button ships in BOTH modes (Ctrl+S in the client script
@@ -2283,10 +2347,16 @@ function renderPreview(pad, f, nav) {
   const canRaw = (f.kind === 'markdown' || f.kind === 'html') && f.content != null;
   const canFull = f.kind === 'html' && f.content != null && !rawMode;
   const canCopyContent = f.content != null && (f.kind === 'markdown' || f.kind === 'html' || f.kind === 'code' || f.kind === 'text');
+  // Excalidraw scenes are editable IN PLACE, but only where a host can persist
+  // the save (live viewer) — an export has neither a write channel nor the
+  // #exca-cdn island the editor loads from, so no button there.
+  // f.source is set only for .excalidraw scenes — it IS the drawing marker.
+  const canDraw = HAS_HOST && excaCdn() && f.kind === 'image' && f.source;
   const ctrls = '<span class="pctrls">' +
     // The path is the exporter's local filesystem path — meaningless to whoever
     // receives an exported copy, so exports don't offer it.
     (EXPORT_MODE ? '' : '<button class="pbtn" id="copyPath">🔗 path</button>') +
+    (canDraw ? '<button class="pbtn excaEditBtn">✏️ edit</button>' : '') +
     (canCopyContent ? '<button class="pbtn" id="copyContent">⧉ copy</button>' : '') +
     (canFull ? '<button class="pbtn" id="vFull" title="Full window (f)">⛶ full</button>' : '') +
     (canRaw
@@ -2308,7 +2378,18 @@ function renderPreview(pad, f, nav) {
 
   let bodyHtml = '';
   if (f.kind === 'toolarge') bodyHtml = '<div class="notice">File too large to preview.</div>';
-  else if (f.kind === 'image' && f.content) bodyHtml = '<div class="imgwrap"><img src="' + f.content + '" alt="' + esc(f.path) + '"/></div>';
+  // Empty scene: content is null on purpose (a blank SVG stretched full-width is
+  // invisible whitespace). Where editing is possible, put the entry point right
+  // in the middle of the card — no reaching for the toolbar.
+  else if (f.emptyScene) bodyHtml = canDraw
+    ? '<div class="exca-empty"><span>Empty drawing</span><button class="pbtn excaEditBtn">✏️ start drawing</button></div>'
+    : '<div class="notice">Empty drawing.</div>';
+  else if (f.kind === 'image' && f.content) {
+    // .excalidraw scenes arrive as server-rendered SVG data URIs; stretch them
+    // to the card width (vector, so no blur) — photos/screenshots keep natural size.
+    const cls = /\.excalidraw$/i.test(f.path) ? ' class="excalidraw"' : '';
+    bodyHtml = '<div class="imgwrap"><img' + cls + ' src="' + f.content + '" alt="' + esc(f.path) + '"/></div>';
+  }
   else if (f.kind === 'markdown' && f.content != null) bodyHtml = rawMode
     ? (window.hljs
         ? '<pre class="code"><code class="hljs hl-done mdsrc">' + highlightRawMarkdown(f.content) + '</code></pre>'
@@ -2372,6 +2453,9 @@ function renderPreview(pad, f, nav) {
     copyText(f.content)
       .then(() => flash(cc, '⧉ copy', 'Content copied'))
       .catch(() => showToast('Copy failed')));
+  // Every edit entry point (toolbar button, empty-scene placeholder) shares one class.
+  preview.querySelectorAll('.excaEditBtn').forEach((b) =>
+    b.addEventListener('click', () => openExcalidrawEditor(pad, f)));
   syncClearCommentsBtn(); // the clear-comments button is created/removed there, not in the markup
   enhance(preview);
   // After hljs rewrote the code blocks' text nodes — comment quote-matching
@@ -3064,8 +3148,11 @@ function applyZoom() {
   // box against a viewport that no longer matches the window, so the frame landed
   // offset with page content showing around it. Deriving it from the focus attribute
   // here keeps one writer of style.zoom — a settings sync mid-focus can't resurrect it.
+  // The Excalidraw editor overlay runs unzoomed too: the canvas does its own
+  // zooming, and CSS zoom on :root breaks its pointer-to-canvas math.
   document.documentElement.style.zoom =
-    document.documentElement.hasAttribute('data-focus') ? '' : SETTINGS.zoom;
+    document.documentElement.hasAttribute('data-focus') || document.getElementById('excaOverlay')
+      ? '' : SETTINGS.zoom;
   const r = document.getElementById('zoomReset');
   if (r) r.textContent = Math.round(SETTINGS.zoom * 100) + '%';
 }
@@ -3563,6 +3650,100 @@ previewEl.addEventListener('click', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// In-place Excalidraw editing (live viewer only). The scene JSON rides on
+// f.source; the editor itself (react + the excalidraw component, ESM) loads
+// lazily ON FIRST EDIT from the CDN roots in the #exca-cdn island — which the
+// server injects only into the live page, never an export, so exports stay
+// free of even the URLs. Saving posts the serialized scene to the host
+// (validated + written there), and the normal reload path re-renders the SVG
+// server-side and patches it in.
+let excaCdnCache; // the island is static for the page's lifetime — parse once
+function excaCdn() {
+  if (excaCdnCache === undefined) {
+    const el = document.getElementById('exca-cdn');
+    try { excaCdnCache = el ? JSON.parse(el.textContent) : null; } catch (_) { excaCdnCache = null; }
+  }
+  return excaCdnCache;
+}
+let excaLibs = null;
+function loadExcalidrawEditor() {
+  if (!excaLibs) {
+    const cdn = excaCdn();
+    if (!cdn) return Promise.reject(new Error('no editor cdn'));
+    if (!document.getElementById('excaCss')) {
+      const l = document.createElement('link');
+      l.id = 'excaCss'; l.rel = 'stylesheet'; l.href = cdn.files + 'index.css';
+      document.head.appendChild(l);
+    }
+    // Fonts/locale chunks are fetched at runtime relative to this, and cdn.files
+    // serves the npm package verbatim — the module CDN's rewritten URL would not.
+    window.EXCALIDRAW_ASSET_PATH = cdn.files;
+    const deps = '?deps=react@' + cdn.react + ',react-dom@' + cdn.react;
+    excaLibs = Promise.all([
+      import(cdn.esm + '/react@' + cdn.react),
+      import(cdn.esm + '/react-dom@' + cdn.react + '/client' + deps),
+      import(cdn.esm + '/' + cdn.pkg + deps),
+    ]).then(([react, dom, exca]) => ({ react, dom, exca }));
+    excaLibs.catch(() => { excaLibs = null; }); // a failed load retries on next edit
+  }
+  return excaLibs;
+}
+let excaRoot = null; // live react root while the overlay is open
+function closeExcalidrawEditor() {
+  if (excaRoot) { try { excaRoot.unmount(); } catch (_) {} excaRoot = null; }
+  const ov = document.getElementById('excaOverlay');
+  if (ov) ov.remove();
+  applyZoom(); // restore the reader zoom the overlay suppressed
+}
+function openExcalidrawEditor(pad, f) {
+  if (document.getElementById('excaOverlay')) return;
+  let scene = null;
+  try { scene = JSON.parse(f.source); } catch (_) {}
+  if (!scene || !Array.isArray(scene.elements)) { showToast('Scene JSON is not readable'); return; }
+  const ov = document.createElement('div');
+  ov.id = 'excaOverlay';
+  ov.innerHTML = '<div class="exca-bar"><span class="exca-file">' + esc(f.path) + '</span>' +
+    '<span class="exca-actions"><button class="pbtn" id="excaSave">💾 save</button>' +
+    '<button class="pbtn" id="excaClose">✕ close</button></span></div>' +
+    '<div class="exca-host" id="excaHost"><div class="notice">Loading the Excalidraw editor…</div></div>';
+  document.body.appendChild(ov);
+  applyZoom(); // reader zoom off while the editor owns the screen (see applyZoom)
+  // The viewer's global shortcuts (r = reload, j/k = nav, …) listen on document;
+  // every key here belongs to the editor (r = rectangle), so stop the bubble.
+  ['keydown', 'keyup', 'keypress'].forEach((t) => ov.addEventListener(t, (e) => e.stopPropagation()));
+  document.getElementById('excaClose').addEventListener('click', closeExcalidrawEditor);
+  loadExcalidrawEditor().then(({ react, dom, exca }) => {
+    const host = document.getElementById('excaHost');
+    if (!host) return; // closed while the editor was still loading
+    host.innerHTML = '';
+    const dark = resolvedMode() === 'dark'; // the canonical theme resolver
+    let api = null;
+    excaRoot = dom.createRoot(host);
+    excaRoot.render(react.createElement(exca.Excalidraw, {
+      // Handed over raw — the component restores/normalizes initialData itself,
+      // same as opening a hand-written scene in the excalidraw app.
+      initialData: { elements: scene.elements, appState: scene.appState || {}, files: scene.files || {} },
+      excalidrawAPI: (a) => { api = a; },
+      theme: dark ? 'dark' : 'light',
+    }));
+    document.getElementById('excaSave').addEventListener('click', () => {
+      if (!api) return;
+      let json;
+      try { json = exca.serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), 'local'); }
+      catch (_) { showToast('Serializing the scene failed'); return; }
+      const sent = postToHost('__scratch_excalidraw', '/excalidraw', { padDir: pad.dir, filePath: f.path, scene: json },
+        () => showToast('Saving the drawing failed'));
+      if (!sent) return;
+      f.source = json; // a re-edit before the reload patch lands opens the saved scene
+      closeExcalidrawEditor();
+      showToast('Drawing saved', 'success');
+    });
+  }).catch(() => {
+    showToast('Loading the Excalidraw editor failed (network?)');
+    closeExcalidrawEditor();
+  });
+}
+
 // Clickable task checkboxes. The viewer is read-only EXCEPT here: clicking a
 // rendered "- [ ]" / "- [x]" — or a task HEADING ("## [ ] todo") — toggles that
 // marker in the source FILE (not the manifest). The edit is line-addressed —
@@ -3693,7 +3874,13 @@ function builtExportHtml() {
   // <html> with data-export so the saved file opens in export mode (file is the
   // comment store). Already present when re-saving an export — replace only the
   // real opening tag, never an escaped <html in rendered content.
-  const src = EXPORT_MODE ? PRISTINE : PRISTINE.replace(/<html(?=[ >])/, '<html data-export');
+  // The #exca-cdn island is a live-viewer-only affordance (see excaCdn) — drop
+  // it so a saved copy carries zero excalidraw references, like a real export.
+  // The pattern is concatenated so this script never contains the island's own
+  // id= literal (the export purity test scans for it).
+  const excaIsland = new RegExp('<script id="exca-' + 'cdn"[^>]*>[^<]*</' + 'script>\n?');
+  const src = (EXPORT_MODE ? PRISTINE : PRISTINE.replace(/<html(?=[ >])/, '<html data-export'))
+    .replace(excaIsland, '');
   const open = '<script id="data" type="application/json">';
   const close = '</' + 'script>';
   const i = src.indexOf(open);

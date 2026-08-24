@@ -129,9 +129,9 @@ describe("renderHtml", () => {
     expect(html).toContain(':root[data-theme="light"]'); // light sibling tokens present
     expect(html).toContain("application/json"); // embedded data island
     expect(html).toContain("A note");
-    // One page-weight tripwire for the whole suite (a CDN page is ~210KB of mostly
+    // One page-weight tripwire for the whole suite (a CDN page is ~285KB of mostly
     // client script). Catches an accidentally inlined asset; not a style budget.
-    expect(html.length).toBeLessThan(280_000);
+    expect(html.length).toBeLessThan(310_000);
     // The full-window frame must size with % — a DOM test can't catch this (happy-dom
     // does no layout) and both alternatives fail in a real browser: vw/vh resolve
     // against the unzoomed window under CSS zoom, and auto on a replaced element

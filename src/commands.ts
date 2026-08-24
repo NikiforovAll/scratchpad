@@ -3,6 +3,7 @@
 
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm as fsRm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { bold, cyan, dim, fail, note, ok, warn } from "./colors.ts";
 import { exportFileSlug, findPads, resolvePad, resolveRoot, slugify, validateName, type Pad } from "./discovery.ts";
@@ -585,5 +586,52 @@ export async function cmdExport(
   const via = args.offline ? "fully self-contained, no network" : "hljs/mermaid via CDN";
   io.out(dim(`  ${(Buffer.byteLength(html) / 1024).toFixed(0)} KB; open it in any browser (${via}).`));
   io.out(dim(`  comments added in the page persist via its Save-a-copy button.`));
+  return 0;
+}
+
+/** scratch preview <file.excalidraw> [-o/--out <file|->] — render an excalidraw
+ * scene to an image so an agent can peek at a drawing without opening the
+ * viewer. Default: a PNG under the OS temp dir (raster — what image-reading
+ * tools can look at), named by the source path's hash so re-previews overwrite
+ * instead of piling up, and the pad dir is never written to. An `-o *.svg`
+ * writes a self-contained SVG with the scene JSON embedded — excalidraw's own
+ * `.excalidraw.svg` twin format, still editable. `-o -` prints that SVG to
+ * stdout (PNG is binary; it never goes to stdout). */
+export async function cmdPreview(args: { file?: string; out?: string }, io: IO): Promise<number> {
+  if (!args.file) {
+    fail(io, "usage: scratch preview <file.excalidraw> [-o <file.png|file.svg|->]");
+    return 2;
+  }
+  const abs = resolve(args.file);
+  if (!existsSync(abs)) {
+    fail(io, `no such file: ${toPosix(abs)}`);
+    return 1;
+  }
+  const text = await Bun.file(abs).text();
+  const wantSvg = args.out === "-" || (args.out ?? "").toLowerCase().endsWith(".svg");
+  try {
+    const { renderExcalidrawPng, renderExcalidrawSvg } = await import("./excalidraw.ts");
+    const bytes = wantSvg
+      ? await renderExcalidrawSvg(text, { embedScene: true })
+      : await renderExcalidrawPng(text);
+    if (args.out === "-") {
+      io.out(bytes as string);
+      return 0;
+    }
+    let outPath: string;
+    if (args.out) {
+      outPath = resolve(args.out);
+    } else {
+      const id = new Bun.CryptoHasher("sha1").update(abs).digest("hex").slice(0, 8);
+      const name = basename(abs).replace(/\.excalidraw$/i, "");
+      outPath = join(tmpdir(), "scratch-preview", `${slugify(name)}-${id}.png`);
+    }
+    await Bun.write(outPath, bytes);
+    ok(io, `rendered ${bold(toPosix(abs))} → ${cyan(toPosix(outPath))}`);
+    if (wantSvg) io.out(dim(`  self-contained SVG with the scene embedded — still editable in Excalidraw.`));
+  } catch (e) {
+    fail(io, `cannot render ${toPosix(abs)}: ${(e as Error).message}`);
+    return 1;
+  }
   return 0;
 }
