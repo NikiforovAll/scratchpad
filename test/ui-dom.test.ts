@@ -1224,6 +1224,16 @@ test("a ```callstack fence is painted; source text is untouched", async () => {
       "(guards the write)",
     ]);
     expect(code.querySelector(".cs-b .cs-note")).not.toBeNull();
+
+    // The sigil is shown as generated content, so a badge reads without colour
+    // while textContent (asserted above) stays byte-exact. cs-neu declares none.
+    const css = Array.from(document.querySelectorAll("style"))
+      .map((s) => s.textContent || "")
+      .join("\n");
+    expect(css).toContain("code.cs .cs-new::before { content: '+'; }");
+    expect(css).toContain("code.cs .cs-mod::before { content: '~'; }");
+    expect(css).toContain("code.cs .cs-del::before { content: '-'; }");
+    expect(css).not.toContain("cs-neu::before");
   } finally {
     await teardown();
   }

@@ -798,6 +798,15 @@ code.cs .cs-b { --cs: var(--warn); border-radius: 3px; padding: 0 0.45em;
 code.cs .cs-new { --cs: var(--ok); --cs-fg: var(--ok-strong); }
 code.cs .cs-mod { --cs: var(--warn); }
 code.cs .cs-del { --cs: var(--danger); }
+/* The sigil, brought back visibly. The authored one is hidden inside .cs-x for
+   copy fidelity, which left colour carrying the meaning alone — a badge is now
+   readable without it. Generated content is not part of textContent, so the
+   copy button and the line gutter still see the exact source bytes. cs-neu
+   declares no content, so an unsigilled marker still shows no glyph. */
+code.cs .cs-b::before { font-weight: 700; opacity: 0.75; margin-right: 0.32em; }
+code.cs .cs-new::before { content: '+'; }
+code.cs .cs-mod::before { content: '~'; }
+code.cs .cs-del::before { content: '-'; }
 /* No sigil = no claim about change. Ink rather than a colour, and no fill, so a
    page of plain annotations does not read as a page of warnings. */
 code.cs .cs-neu { --cs: var(--ink-muted); --cs-fg: var(--ink-2);
