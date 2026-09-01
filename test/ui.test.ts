@@ -115,6 +115,30 @@ describe("buildView", () => {
     expect(ghost!.registered).toBe(true);
     expect(ghost!.content).toBeNull();
   });
+
+  test("previews dotfiles, stacked suffixes and unknown extensions as text", async () => {
+    const dir = join(root, "kinds");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, ".env.sample"), "KEY=1\n", "utf8");
+    await writeFile(join(dir, "Dockerfile"), "FROM scratch\n", "utf8");
+    await writeFile(join(dir, "compose.yml.example"), "services: {}\n", "utf8");
+    await writeFile(join(dir, "blob.dat"), new Uint8Array([0, 1, 2, 3]));
+    const m = newManifest("Kinds");
+    for (const path of [".env.sample", "Dockerfile", "compose.yml.example", "blob.dat"]) {
+      m.files.push({ path });
+    }
+    await writeManifest(dir, m);
+    const [pv] = await buildView([{ dir, manifest: await readManifest(dir) }]);
+    const byPath = Object.fromEntries(pv!.files.map((f) => [f.path, f]));
+    expect(byPath[".env.sample"]!.kind).toBe("text");
+    expect(byPath[".env.sample"]!.content).toContain("KEY=1");
+    // no extension at all — only the bytes can say it is text
+    expect(byPath["Dockerfile"]!.kind).toBe("text");
+    // a known extension behind a stacked suffix still picks up its language
+    expect(byPath["compose.yml.example"]!.kind).toBe("code");
+    expect(byPath["blob.dat"]!.kind).toBe("binary");
+    expect(byPath["blob.dat"]!.content).toBeNull();
+  });
 });
 
 describe("renderHtml", () => {

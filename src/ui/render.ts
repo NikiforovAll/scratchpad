@@ -5,7 +5,7 @@
 // when a ```mermaid block is present.
 
 import { stat } from "node:fs/promises";
-import { dirname, extname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath } from "../discovery.ts";
@@ -57,6 +57,11 @@ const HTML_EXT = new Set([".html", ".htm"]);
 // subsetting) per drawing per rebuild would make touching an unrelated note
 // re-render every scene in the session.
 const EXCA_SVG_CACHE = new Map<string, { key: string; uri: string }>();
+
+// Text-vs-binary sniffing for unknown extensions: how much of the head to read,
+// and one shared strict decoder (constructing one per file adds up over a scan).
+const SNIFF_BYTES = 8192;
+const UTF8_STRICT = new TextDecoder("utf-8", { fatal: true });
 
 const MIME: Record<string, string> = {
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
@@ -171,13 +176,38 @@ async function embedInlineAssets(markdown: string, baseDir: string): Promise<Rec
   return assets;
 }
 
-function classify(ext: string): Kind {
+function classifyExt(ext: string): Kind | null {
   if (IMAGE_EXT.has(ext)) return "image";
   if (HTML_EXT.has(ext)) return "html";
   if (MD_EXT.has(ext)) return "markdown";
   if (CODE_EXT.has(ext)) return "code";
   if (TEXT_EXT.has(ext)) return "text";
-  return "binary";
+  return null;
+}
+
+/** Classify by filename, not just the last extension. extname() misses both
+ * dotfiles (extname(".env") is "") and stacked suffixes (".env.sample"), so walk
+ * the dotted segments right to left — a real extension still wins ("app.env.json"
+ * is code). null = unknown, which the caller settles by sniffing the bytes. */
+function classify(name: string): Kind | null {
+  const parts = basename(name).toLowerCase().split(".");
+  for (let i = parts.length - 1; i >= 1; i--) {
+    const hit = classifyExt("." + parts[i]);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** A file is text if it decodes as UTF-8 and carries no NUL byte — the cheap
+ * heuristic git uses. Lets any unknown extension still preview. */
+function looksTextual(head: Buffer): boolean {
+  if (head.includes(0)) return false;
+  try {
+    UTF8_STRICT.decode(head);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Session-only reveal state owned by the Reloader: which manifest-hidden files
@@ -205,8 +235,9 @@ async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
     const path = meta.path;
     // Linked entries carry a label in `path`; classify by the real source filename
     // (its extension) so external files preview by kind, not as "binary/missing".
-    const ext = extname(meta.src ?? path).toLowerCase();
-    let kind = classify(ext);
+    const name = meta.src ?? path;
+    const ext = extname(name).toLowerCase();
+    let kind: Kind = classify(name) ?? "binary";
     let content: string | null = null;
     let source: string | undefined;
     let emptyScene = false;
@@ -263,7 +294,14 @@ async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
       } else if (kind === "image") {
         content = imageDataUri(Buffer.from(await file.arrayBuffer()), ext);
       } else if (kind === "binary") {
-        content = null;
+        // Unknown extension — let the bytes decide, so a dotfile or an
+        // unfamiliar suffix still previews when it really is text. Only the
+        // sniff window is read until it passes.
+        const head = Buffer.from(await file.slice(0, SNIFF_BYTES).arrayBuffer());
+        if (looksTextual(head)) {
+          kind = "text";
+          content = await file.text();
+        }
       } else {
         content = await file.text();
       }
