@@ -6,7 +6,7 @@ import { mkdir, readdir, rm as fsRm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { bold, cyan, dim, fail, note, ok, warn } from "./colors.ts";
-import { exportFileSlug, findPads, resolvePad, resolveRoot, slugify, validateName, type Pad } from "./discovery.ts";
+import { exportFileSlug, findPads, resolvePad, resolveRoot, slugify, toPosix, validateName, type Pad } from "./discovery.ts";
 import {
   DEFAULT_TYPE,
   groupKey,
@@ -32,10 +32,6 @@ export const defaultIO: IO = {
   out: (s) => process.stdout.write(s + "\n"),
   err: (s) => process.stderr.write(s + "\n"),
 };
-
-/** Forward-slash a path — portable + safe across Git Bash, where backslashes and
- * drive letters get mangled. */
-const toPosix = (p: string) => p.split("\\").join("/");
 
 /** Emit a value as pretty JSON on one logical write (the shape `show <pad>` uses). */
 const emitJson = (io: IO, value: unknown) => io.out(JSON.stringify(value, null, 2));
@@ -566,7 +562,7 @@ export async function cmdExport(
   // Appearance defaults to the exporter's saved theme, which the reader's own
   // remembered choice then overrides (no host listens, so localStorage is the store).
   // --theme/--mode also PIN that axis so a published page can't be repainted.
-  const view = await buildView(sel.pads);
+  const view = await buildView(sel.pads, undefined, { linked: true });
   const cfg = await loadConfig();
   const ui = { ...cfg.ui, ...overrides };
   const pinned = Object.keys(overrides) as (keyof UiSettings)[];

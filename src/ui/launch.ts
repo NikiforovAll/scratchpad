@@ -19,6 +19,7 @@ import { loadConfig, saveConfig } from "../config.ts";
 import { type FileEntry, type Manifest, readManifest, sanitizeComments, writeManifest } from "../manifest.ts";
 import { isExcalidrawPath, parseScene } from "../excalidraw.ts";
 import { createReloader, type Reloader } from "./reload.ts";
+import { buildLinkedView, type FileView, hrefToAbs } from "./render.ts";
 import type { Watcher } from "./watch.ts";
 
 // Persist a settings payload posted by the viewer page (WebView2 postMessage or
@@ -105,6 +106,32 @@ async function resolveEntryTarget(
   const entry = manifest.files.find((f) => f.path === p.filePath);
   if (!entry) return null;
   return { p, pad, manifest, entry, abs: resolveEntryPath(pad.dir, entry) };
+}
+
+// Resolve a link the viewer followed to a file NO manifest lists (WebView2
+// __scratch_peek / POST /peek): {fromAbs, href}, where fromAbs is the on-disk
+// location of the doc holding the link (FileView.abs — a registered file or an
+// earlier peek alike), so relative links land where the author meant, inside
+// the pad or outside it. Live viewer only; nothing is registered, so the result
+// is a one-off preview (never in the sidebar, gone on reload). Null when the
+// target is not a regular file.
+export async function resolvePeek(payload: unknown): Promise<FileView | null> {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as { fromAbs?: unknown; href?: unknown };
+  if (typeof p.fromAbs !== "string" || typeof p.href !== "string") return null;
+  const abs = hrefToAbs(p.fromAbs, p.href);
+  return abs ? buildLinkedView(abs) : null;
+}
+
+// Both transports answer a peek the same way: {file} or {file: null}, a failure
+// noted on the console rather than surfaced as a transport error.
+async function peekReply(persist: HostHandlers, payload: unknown, io: IO): Promise<{ file: FileView | null }> {
+  try {
+    return { file: await persist.peek(payload) };
+  } catch (e) {
+    note(io, `peek failed (${(e as Error).message.split("\n")[0]}).`);
+    return { file: null };
+  }
 }
 
 // Apply a reveal request posted by the viewer page (WebView2 __scratch_reveal /
@@ -263,14 +290,17 @@ export interface LaunchOpts {
   autoReload?: boolean;
 }
 
-/** Page → disk write-back handlers, one per message key / POST route. */
-interface Persisters {
+/** Page → host handlers, one per message key / POST route: disk write-backs plus
+ * the one read (peek) the page cannot do itself. */
+interface HostHandlers {
   comments: (payload: unknown) => Promise<void>;
   checkbox: (payload: unknown) => Promise<void>;
   hidden: (payload: unknown) => Promise<void>;
   /** Returns true when the scene was written — the caller then pushes a reload
    * so the page gets the freshly re-rendered SVG through the normal read path. */
   excalidraw: (payload: unknown) => Promise<boolean>;
+  /** Read-only: the FileView of a linked, unregistered file, or null. */
+  peek: (payload: unknown) => Promise<FileView | null>;
 }
 
 export async function launchViewer(
@@ -285,7 +315,7 @@ export async function launchViewer(
   const snap = await reloader.rebuild();
   // Writeback handlers shared by both transports. Passed as one object: they're
   // structurally identical, so positional params would swap silently.
-  const persist: Persisters = {
+  const persist: HostHandlers = {
     comments: (payload) => persistFileComments(pads, payload, io),
     checkbox: (payload) => persistFileCheckbox(pads, payload, io),
     // Hiding also drops any session reveal of that file, so a revealed file that
@@ -295,6 +325,7 @@ export async function launchViewer(
       if (target) reloader.conceal(target.padDir, target.filePath);
     },
     excalidraw: (payload) => persistExcalidrawScene(pads, payload, io),
+    peek: resolvePeek,
   };
 
   // Native glimpse is the default; --browser forces the browser viewer. When the
@@ -367,7 +398,7 @@ async function tryGlimpse(
   reloader: Reloader,
   frameless: boolean,
   install: boolean,
-  persist: Persisters,
+  persist: HostHandlers,
   autoReload: boolean,
 ): Promise<boolean> {
   // glimpseui resolves its native host relative to its own module file. Inside a
@@ -534,6 +565,11 @@ async function tryGlimpse(
         }
         return;
       }
+      // Peek at a linked, unregistered file — reply with its FileView (or null).
+      if (d && d.__scratch_peek) {
+        win.send(`window.__scratchPeek(${JSON.stringify(await peekReply(persist, d.__scratch_peek, io))})`);
+        return;
+      }
       // Save-a-copy: the page can't open its own save dialog (non-secure origin),
       // so it asks us to. Echo the result back so it can clear its dirty flag.
       if (d && d.__scratch_save) {
@@ -619,7 +655,7 @@ async function serveBrowser(
   title: string,
   io: IO,
   reloader: Reloader,
-  persist: Persisters,
+  persist: HostHandlers,
   autoReload: boolean,
 ): Promise<number> {
   // The browser transport is request/response: a manual reload rebuilds from disk
@@ -692,6 +728,10 @@ async function serveBrowser(
           );
         }
         return new Response(null, { status: 204 });
+      }
+      // Peek — browser mirror of __scratch_peek; the FileView comes back in the body.
+      if (req.method === "POST" && url.pathname === "/peek") {
+        return Response.json(await peekReply(persist, await req.json().catch(() => null), io));
       }
       // Auto-reload event stream. The page opens EventSource('/events'); on a
       // watched change we push {full}: full=true (a new vendor bundle became

@@ -18,6 +18,10 @@ export interface Pad {
   manifest: Manifest;
 }
 
+/** Forward-slash a path — portable + safe across Git Bash, where backslashes and
+ * drive letters get mangled. */
+export const toPosix = (p: string) => p.split("\\").join("/");
+
 /** Absolute on-disk path of a file entry: a linked `src` (absolute, or relative
  * to the pad dir) wins; otherwise the entry's `path` under the pad dir. */
 export function resolveEntryPath(padDir: string, entry: { path: string; src?: string }): string {

@@ -6,9 +6,10 @@
 
 import { stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import pkg from "../../package.json" with { type: "json" };
 import type { ScratchConfig } from "../config.ts";
-import { type Pad, exportFileSlug, resolveEntryPath } from "../discovery.ts";
+import { type Pad, exportFileSlug, resolveEntryPath, toPosix } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry, type Layout, MANIFEST_NAME } from "../manifest.ts";
 import { type CommentItem, toCommentItems } from "../comments.ts";
 import { KIT_CSS, KIT_SVG_DEFS } from "./kit.ts";
@@ -70,7 +71,7 @@ const MIME: Record<string, string> = {
 
 type Kind = "markdown" | "code" | "image" | "text" | "html" | "binary" | "toolarge";
 
-interface FileView {
+export interface FileView {
   path: string;
   /** Absolute on-disk path (resolves manifest `src`); used for copy-full-path. */
   abs: string;
@@ -120,6 +121,39 @@ interface PadView {
    * nothing leaks into exports). Lets the client recognize a link to a hidden file
    * and ask the host to reveal it for the session. */
   hiddenPaths?: string[];
+  /** Unregistered files the pad's markdown links to, keyed by absolute posix path
+   * (see collectLinkedViews). Export-only: a live page asks the host on click. */
+  linked?: Record<string, FileView>;
+  /** "<file path>::<href as written, sans #fragment>" → key into `linked`, so the
+   * client never resolves paths itself (the server did, once, with node:path). */
+  linkKeys?: Record<string, string>;
+}
+
+/** Every FileView the page may render — sidebar files plus link-embedded ones. */
+function allViews(view: PadView[]): FileView[] {
+  return view.flatMap((p) => [...p.files, ...Object.values(p.linked ?? {})]);
+}
+
+/** Absolute path a markdown link points at, resolved from the linking doc's
+ * on-disk location; null for non-file schemes. The one place this rule lives —
+ * the live peek (resolvePeek) and the export embed (collectLinkedViews) must
+ * agree or the same link would open in one and toast in the other. */
+export function hrefToAbs(fromAbs: string, href: string): string | null {
+  let h = href.split("#")[0]!.trim().replace(/^<|>$/g, "");
+  if (!h || /^(https?:|mailto:|data:|\/\/)/i.test(h)) return null;
+  if (/^file:\/\//i.test(h)) {
+    try {
+      h = fileURLToPath(h);
+    } catch {
+      return null;
+    }
+  }
+  try {
+    h = decodeURI(h);
+  } catch {
+    // malformed escape — a stray % is still a legitimate filename char
+  }
+  return isAbsolute(h) ? h : resolve(dirname(fromAbs), h);
 }
 
 /** Base64 data URI for an embedded image's bytes (shared by the registered-file
@@ -228,7 +262,7 @@ function isRevealed(reveal: RevealState | undefined, padDir: string, path: strin
 /** Read the given manifest entries (buildView decides which — hidden filtering
  * happens there), merged with metadata. Unregistered on-disk files are
  * intentionally not shown. */
-async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
+async function scanPadFiles(padDir: string, metas: FileEntry[]): Promise<FileView[]> {
   // Files are independent, so read them concurrently; Promise.all keeps the
   // result in manifest.files[] order — the author's deliberate reading order.
   const views = metas.map(async (meta): Promise<FileView> => {
@@ -242,7 +276,7 @@ async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
     let source: string | undefined;
     let emptyScene = false;
     // Linked entries read from `src` (outside the pad); the rest from path under the pad dir.
-    const abs = resolveEntryPath(pad.dir, meta);
+    const abs = resolveEntryPath(padDir, meta);
     const file = Bun.file(abs);
     let created: string | undefined;
     let updated: string | undefined;
@@ -348,7 +382,60 @@ async function scanPadFiles(pad: Pad, metas: FileEntry[]): Promise<FileView[]> {
   return Promise.all(views);
 }
 
-export async function buildView(pads: Pad[], reveal?: RevealState): Promise<PadView[]> {
+/** FileView for a file the viewer follows a link to but that no manifest lists —
+ * inside the pad or anywhere else on disk. Read through the same pipeline as a
+ * linked (`src`) entry, so kinds, size caps and inline-asset embedding match.
+ * Null unless `abs` is a regular file. */
+export async function buildLinkedView(abs: string): Promise<FileView | null> {
+  try {
+    if (!(await stat(abs)).isFile()) return null;
+  } catch {
+    return null;
+  }
+  const name = basename(abs);
+  const [v] = await scanPadFiles(dirname(abs), [{ path: name, src: abs, title: name }]);
+  return { ...v!, registered: false };
+}
+
+/** Files that the pad's markdown links to (`[text](href)`, local, not an image)
+ * but that no manifest lists — in the pad dir or anywhere else on disk. One
+ * level deep: a linked doc's own links are not followed, or an export could pull
+ * in an unbounded slice of the disk. Registered targets are skipped (the click
+ * handler finds those in `files` first). */
+async function collectLinkedViews(
+  files: FileView[],
+): Promise<Pick<PadView, "linked" | "linkKeys">> {
+  const known = new Set(files.map((f) => toPosix(f.abs)));
+  const linkKeys: Record<string, string> = {};
+  for (const f of files) {
+    if (f.kind !== "markdown" || !f.content) continue;
+    for (const m of f.content.matchAll(/(^|[^!])\[[^\]]*\]\(([^)]+)\)/g)) {
+      const href = imageSrcToken(m[2]!).split("#")[0]!;
+      const abs = hrefToAbs(f.abs, href);
+      if (!abs) continue;
+      const key = toPosix(abs);
+      if (!known.has(key)) linkKeys[f.path + "::" + href] = key;
+    }
+  }
+  const linked: Record<string, FileView> = {};
+  await Promise.all(
+    [...new Set(Object.values(linkKeys))].map(async (key) => {
+      const v = await buildLinkedView(key);
+      if (v) linked[key] = v;
+    }),
+  );
+  for (const [k, key] of Object.entries(linkKeys)) if (!linked[key]) delete linkKeys[k];
+  return Object.keys(linked).length ? { linked, linkKeys } : {};
+}
+
+/** `linked`: also embed unregistered files the pad's markdown links to (see
+ * collectLinkedViews). Exports need it — no host is there to read them on click;
+ * the live viewer asks the host instead (resolvePeek) and keeps the page small. */
+export async function buildView(
+  pads: Pad[],
+  reveal?: RevealState,
+  opts: { linked?: boolean } = {},
+): Promise<PadView[]> {
   return Promise.all(
     pads.map(async (p) => {
       // One partition decides visibility: `hidden` entries stay registered in the
@@ -360,13 +447,15 @@ export async function buildView(pads: Pad[], reveal?: RevealState): Promise<PadV
         if (!m.hidden || isRevealed(reveal, p.dir, m.path)) shown.push(m);
         else hiddenPaths.push(m.path);
       }
+      const files = await scanPadFiles(p.dir, shown);
       return {
         name: p.manifest.name,
         id: p.manifest.id,
         dir: p.dir,
-        files: await scanPadFiles(p, shown),
+        files,
         ...(p.manifest.layout ? { layout: p.manifest.layout } : {}),
         ...(hiddenPaths.length ? { hiddenPaths } : {}),
+        ...(opts.linked ? await collectLinkedViews(files) : {}),
       };
     }),
   );
@@ -387,27 +476,22 @@ export function payloadJson(view: PadView[], rootLabel: string): string {
 
 /** Which vendor bundles a view requires — used to decide in-place vs full reload. */
 export function bundleNeeds(view: PadView[]): { hljs: boolean; mermaid: boolean; math: boolean } {
-  return { hljs: needsHljs(view), mermaid: needsMermaid(view), math: needsMath(view) };
+  const all = allViews(view);
+  return { hljs: needsHljs(all), mermaid: needsMermaid(all), math: needsMath(all) };
 }
 
-function needsHljs(view: PadView[]): boolean {
+function needsHljs(files: FileView[]): boolean {
   // Any code file, or any markdown (rendered fences AND the raw markdown source
   // view are both syntax-highlighted), needs the hljs bundle inlined.
-  return view.some((p) =>
-    p.files.some(
-      (f) => f.content != null && (f.kind === "code" || f.kind === "markdown" || f.kind === "html"),
-    ),
+  return files.some(
+    (f) => f.content != null && (f.kind === "code" || f.kind === "markdown" || f.kind === "html"),
   );
 }
-function needsMermaid(view: PadView[]): boolean {
-  return view.some((p) =>
-    p.files.some((f) => f.kind === "markdown" && f.content != null && MERMAID_RE.test(f.content)),
-  );
+function needsMermaid(files: FileView[]): boolean {
+  return files.some((f) => f.kind === "markdown" && f.content != null && MERMAID_RE.test(f.content));
 }
-function needsMath(view: PadView[]): boolean {
-  return view.some((p) =>
-    p.files.some((f) => f.kind === "markdown" && f.content != null && MATH_RE.test(f.content)),
-  );
+function needsMath(files: FileView[]): boolean {
+  return files.some((f) => f.kind === "markdown" && f.content != null && MATH_RE.test(f.content));
 }
 
 /** Viewer settings embedded into the page (persisted in the user config file).
@@ -494,6 +578,7 @@ export async function renderHtml(
 
   let vendor = "";
   let vendorCss = "";
+  const needs = bundleNeeds(view);
   if (opts.offline) {
     // Self-contained export: inline the pinned vendor bytes (no CDN, no network).
     // Bytes come from the gitignored build cache module scripts/fetch-vendor.ts
@@ -510,40 +595,40 @@ export async function renderHtml(
     // and they sit BEFORE our own <style>.
     const b = await import("./vendor/bundle.ts");
     const gz: Record<string, string> = {};
-    if (needsHljs(view)) gz.hljs = b.HLJS_JS_GZ;
-    if (needsMermaid(view)) gz.mermaid = b.MERMAID_JS_GZ;
-    if (needsMath(view)) gz.katex = b.KATEX_JS_GZ;
+    if (needs.hljs) gz.hljs = b.HLJS_JS_GZ;
+    if (needs.mermaid) gz.mermaid = b.MERMAID_JS_GZ;
+    if (needs.math) gz.katex = b.KATEX_JS_GZ;
     if (Object.keys(gz).length) {
       vendor += `<script id="vendor-gz" type="application/json">${JSON.stringify(gz)}</script>\n`;
       vendor += `<script>${VENDOR_BOOT}</script>\n`;
     }
-    if (needsHljs(view)) {
+    if (needs.hljs) {
       vendorCss += `<style id="hljs-dark">${b.HLJS_THEME_DARK_CSS}</style>\n`;
       vendorCss += `<style id="hljs-light">${b.HLJS_THEME_LIGHT_CSS}</style>\n`;
     }
-    if (needsMath(view)) vendorCss += `<style id="katex-css">${b.KATEX_CSS}</style>\n`;
+    if (needs.math) vendorCss += `<style id="katex-css">${b.KATEX_CSS}</style>\n`;
   } else {
     // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
     // before the client script runs. SRI + crossorigin guard integrity; on load
     // failure the client degrades gracefully.
     const cdnTag = (c: { url: string; sri: string }) =>
       `<script src="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n`;
-    if (needsHljs(view)) vendor += cdnTag(HLJS_CDN);
-    if (needsMermaid(view)) vendor += cdnTag(MERMAID_CDN);
-    if (needsMath(view)) vendor += cdnTag(KATEX_CDN);
+    if (needs.hljs) vendor += cdnTag(HLJS_CDN);
+    if (needs.mermaid) vendor += cdnTag(MERMAID_CDN);
+    if (needs.math) vendor += cdnTag(KATEX_CDN);
 
     // hljs theme stylesheets, placed BEFORE our <style> so equal-specificity
     // overrides (e.g. transparent .hljs background) win without !important. Both
     // present with an id; the client enables exactly one per the active theme.
     const cssLink = (id: string, c: { url: string; sri: string }) =>
       `<link id="${id}" rel="stylesheet" href="${c.url}" integrity="${c.sri}" crossorigin="anonymous" referrerpolicy="no-referrer" />\n`;
-    if (needsHljs(view)) {
+    if (needs.hljs) {
       vendorCss += cssLink("hljs-dark", HLJS_THEME_DARK);
       vendorCss += cssLink("hljs-light", HLJS_THEME_LIGHT);
     }
     // KaTeX CSS is theme-agnostic (math inherits the page `color`), so a single
     // link — no light/dark pair like hljs.
-    if (needsMath(view)) vendorCss += cssLink("katex-css", KATEX_CSS);
+    if (needs.math) vendorCss += cssLink("katex-css", KATEX_CSS);
   }
   // In-place Excalidraw editor CDN roots — injected ONLY into the live viewer.
   // Exports carry zero excalidraw references (code AND urls; the offline test
@@ -2318,8 +2403,47 @@ function navResolve(key) {
   const dir = key.slice(0, sep), path = key.slice(sep + 2);
   // Match by string (dir::path) — resilient across reloads that rebuild ITEMS
   // with fresh pad/f objects but identical identities.
-  return ITEMS.find(x => x.pad.dir === dir && x.f.path === path) || null;
+  const it = ITEMS.find(x => x.pad.dir === dir && x.f.path === path);
+  if (it) return it;
+  // A peeked doc is never in ITEMS; re-resolve its pad against the live DATA so a
+  // history hop after a reload does not revive a superseded pad object.
+  const pk = PEEKED.get(key);
+  const pad = pk && DATA.pads.find(p => p.dir === dir);
+  return pad ? { pad, f: pk } : null;
 }
+
+// Linked-but-unregistered docs opened by following a link. They are never in
+// ITEMS (no sidebar row, no prev/next), so the history stack needs its own way
+// back to them. Session-only; a data patch does not touch them.
+const PEEKED = new Map(); // pad.dir::path → FileView
+let pendingPeek = null;   // WebView2 only: { pad, hash } awaiting __scratchPeek
+function openPeeked(pad, f, hash) {
+  PEEKED.set(pad.dir + '::' + f.path, f);
+  renderPreview(pad, f, hash ? { anchor: hash } : { top: true });
+}
+function applyPeek(req, res) {
+  if (!res || !res.file) { showToast('Linked file not found'); return; }
+  openPeeked(req.pad, res.file, req.hash);
+}
+// Follow a link to a file no manifest lists. An export carries such files in
+// pad.linked, looked up through pad.linkKeys by "<doc path>::<href>" exactly as
+// written (the server resolved paths at export time — the page never does); the
+// live page asks the host, which reads the file and replies via __scratchPeek.
+function requestPeek(pad, from, href, hash) {
+  const key = pad.linkKeys && pad.linkKeys[from.path + '::' + href];
+  if (key && pad.linked && pad.linked[key]) { openPeeked(pad, pad.linked[key], hash); return; }
+  if (!HAS_HOST) { showToast('Linked file — not included in this export'); return; }
+  const req = { pad, hash };
+  const payload = { fromAbs: from.abs, href: href };
+  const wv = window.chrome && window.chrome.webview;
+  if (wv) { pendingPeek = req; try { wv.postMessage({ __scratch_peek: payload }); } catch (_) {} return; }
+  fetch('/peek', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(r => r.json(), () => null).then(res => applyPeek(req, res));
+}
+window.__scratchPeek = function (res) {
+  const req = pendingPeek; pendingPeek = null;
+  if (req) applyPeek(req, res);
+};
 
 // Record a document switch as a History API entry. Called from renderPreview
 // for every switch; skipped while applying a popstate and de-duped when the key
@@ -3684,7 +3808,10 @@ previewEl.addEventListener('click', (e) => {
   // Not in the view but registered as hidden: reveal it for the session and let
   // the reload patch select it (pendingRevealKey in __scratchReload).
   const hp = (pad.hiddenPaths || []).find(matchesLink);
-  if (hp) requestReveal(pad, hp);
+  if (hp) { requestReveal(pad, hp); return; }
+  // Nothing in the manifest matches: a file on disk that was never registered,
+  // inside the pad or elsewhere. Peek at it without adding it to the sidebar.
+  if (currentRef.f.abs) requestPeek(pad, currentRef.f, filePart, hash);
 });
 
 // ---------------------------------------------------------------------------
