@@ -75,6 +75,8 @@ File contents are embedded; highlight.js / mermaid / KaTeX load from a pinned CD
 
 An export inherits its appearance from the config below, and the reader's own remembered choice then overrides it. For a page you publish, pin it with `--theme` / `--mode` — see the [CLI reference](/cli-reference#appearance).
 
+The page is also a transport back: `scratch import <file.html> -o <dir>` rebuilds the pad folder from it — embedded contents written back to disk, `scratchpad.json` regenerated from the embedded metadata. See the [CLI reference](/cli-reference#scratch-import).
+
 ## Config
 
 User-level viewer preferences live in a single JSON file (machine-wide, not per-pad):

@@ -93,6 +93,15 @@ scratch export [<pad>] [--dir <root>] [--all] [-o <file>] [--offline]
     # --offline inlines those libs so the page needs no network.
     # --theme/--mode pin the exported page's appearance for every reader; without
     # them it follows your config and the reader's own choice still wins.
+
+scratch import <file.html> -o <dir> [--all] [--dry-run] [--force]
+    # rebuild pad folder(s) from a `scratch export` page: embedded file contents are
+    # written back and scratchpad.json is regenerated from the embedded metadata.
+    # files the export couldn't embed (too large, binary, linked) are listed as
+    # skipped but keep their manifest entry.
+    # --all      the page holds several pads: import each into <dir>/<pad-folder>/.
+    # --dry-run  print what would be written; touch nothing.
+    # --force    write into a non-empty dir or over an existing pad.
 ```
 
 **Addressing.** A pad is referenced by name (resolved within a scanned root) or by an explicit path. Root = `--dir`, else `$SCRATCH_DIR`, else the current dir.

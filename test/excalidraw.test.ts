@@ -125,9 +125,9 @@ describe("buildView with .excalidraw", () => {
     expect(exported).not.toContain('id="exca-cdn"');
     expect(exported).not.toContain("esm.sh");
     expect(exported).not.toContain("@excalidraw");
-    // the raw scene JSON feeds only the editor — exports drop it from the data island
+    // the raw scene JSON stays in both: the live editor reads it, `scratch import` restores from it
     expect(live).toContain('"source":');
-    expect(exported).not.toContain('"source":');
+    expect(exported).toContain('"source":');
   });
 
   test("unrenderable scene falls back to raw JSON source", async () => {

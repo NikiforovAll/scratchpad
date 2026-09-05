@@ -5,7 +5,7 @@
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import { bold, cyan, dim, red } from "./colors.ts";
-import { cmdAdd, cmdComments, cmdExport, cmdLs, cmdNew, cmdPreview, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
+import { cmdAdd, cmdComments, cmdExport, cmdImport, cmdLs, cmdNew, cmdPreview, cmdRm, cmdShow, cmdUi, defaultIO, type IO } from "./commands.ts";
 
 // A function, not a const: styling is decided per call (TTY/NO_COLOR), so it
 // must not be baked in at import time.
@@ -63,6 +63,15 @@ ${bold("USAGE")}
       remembered choice still wins; passing either pins it for every reader.
       With multiple pads under root, name one or pass --all to merge them.
 
+  ${cyan("scratch import")} <file.html> ${dim("-o <dir> [--all] [--dry-run] [--force]")}
+      Rebuild pad folder(s) from a \`scratch export\` page: embedded file contents
+      are written back and scratchpad.json is regenerated from the embedded metadata.
+      Files the export could not embed (too large, binary, linked) are listed as
+      skipped but keep their manifest entry.
+      --all       the page holds several pads: import each into <dir>/<pad-folder>/.
+      --dry-run   print what would be written; touch nothing.
+      --force     write into a non-empty dir or over an existing pad.
+
   ${cyan("scratch preview")} <file.excalidraw> ${dim("[-o <file.png|file.svg|->]")}
       Render an Excalidraw scene to an image so it can be inspected without the
       viewer. Default out: a PNG under the OS temp dir (path is printed; named
@@ -99,6 +108,7 @@ const FLAG_SPEC = {
   theme: { type: "string" as const },
   mode: { type: "string" as const },
   "install-native": { type: "boolean" as const },
+  "dry-run": { type: "boolean" as const },
   out: { type: "string" as const, short: "o" },
   help: { type: "boolean" as const, short: "h" },
   version: { type: "boolean" as const, short: "v" },
@@ -150,6 +160,8 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
         { pad: rest[0], dir: v.dir, all: v.all, out: v.out, offline: v.offline, theme: v.theme, mode: v.mode },
         io,
       );
+    case "import":
+      return cmdImport({ file: rest[0], out: v.out, all: v.all, dryRun: v["dry-run"], force: v.force }, io);
     case "preview":
       return cmdPreview({ file: rest[0], out: v.out }, io);
     default:

@@ -110,7 +110,7 @@ export interface FileView {
   /** Manifest-hidden entry included only via a session reveal (see Reloader.reveal). */
   hidden?: boolean;
 }
-interface PadView {
+export interface PadView {
   name: string;
   id?: string;
   dir: string;
@@ -469,6 +469,11 @@ const MERMAID_RE = /```[ \t]*mermaid\b/;
 // under-loads the bundle (the client still degrades to raw source).
 const MATH_RE = /\$\$[\s\S]+?\$\$|(?<![\\\w$])\$(?=\S)(?:\\.|[^$\n\\])+?(?<=\S)\$(?![\w$])/;
 
+/** Opening tag of the pad data island. `scratch import` finds the payload by
+ * this exact string; CLIENT_JS re-spells it inline (the export purity test scans
+ * the client source for the id= literal). */
+export const DATA_ISLAND_OPEN = '<script id="data" type="application/json">';
+
 /** The embedded data island, escaped for inline <script> AND safe as an eval arg. */
 export function payloadJson(view: PadView[], rootLabel: string): string {
   return JSON.stringify({ pads: view, rootLabel }).replace(/</g, "\\u003c");
@@ -519,14 +524,9 @@ export async function renderHtml(
   ui: UiSettings = DEFAULT_UI,
   opts: { exportMode?: boolean; offline?: boolean; pinned?: (keyof UiSettings)[] } = {},
 ): Promise<string> {
-  // Exports drop the raw .excalidraw scene JSON (`source`): it only feeds the
-  // in-place editor, which exports can't run — the rendered SVG is all they show.
-  const data = payloadJson(
-    opts.exportMode
-      ? view.map((p) => ({ ...p, files: p.files.map(({ source, ...f }) => f) }))
-      : view,
-    rootLabel,
-  );
+  // The raw .excalidraw scene JSON (`source`) rides along in exports too: the
+  // page can't edit it, but `scratch import` needs it to restore the file.
+  const data = payloadJson(view, rootLabel);
   // Static kit (tokens + classes + #arrow marker) baked into every ![](file.html)
   // embed's iframe; same <-escape as the data island so it's inline-script-safe.
   const kitJson = JSON.stringify({ css: KIT_CSS, defs: KIT_SVG_DEFS }).replace(/</g, "\\u003c");
@@ -718,7 +718,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
   <button class="icon-btn focus-close" id="focusClose" title="Exit full window (Esc)" aria-label="Exit full window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script id="data" type="application/json">${data}</script>
+${DATA_ISLAND_OPEN}${data}</script>
 <script id="settings" type="application/json">${settingsJson}</script>
 <script id="themes" type="application/json">${THEMES_JSON}</script>
 <script id="kit" type="application/json">${kitJson}</script>

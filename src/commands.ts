@@ -585,6 +585,75 @@ export async function cmdExport(
   return 0;
 }
 
+/** scratch import <file.html> -o <dir> [--all] [--dry-run] [--force] — rebuild
+ * pad folder(s) from an exported page. See src/import.ts for the invariant note. */
+export async function cmdImport(
+  args: { file?: string; out?: string; all?: boolean; dryRun?: boolean; force?: boolean },
+  io: IO,
+): Promise<number> {
+  if (!args.file || !args.out) {
+    fail(io, "usage: scratch import <file.html> -o <dir> [--all] [--dry-run] [--force]");
+    return 2;
+  }
+  // import.ts pulls in render.ts (the island constant); keep it off the startup path.
+  const { extractPads, planAll, targetState, applyPlan } = await import("./import.ts");
+  const src = Bun.file(resolve(args.file));
+  if (!(await src.exists())) {
+    fail(io, `no such file: ${toPosix(resolve(args.file))}`);
+    return 1;
+  }
+  let pads;
+  try {
+    pads = extractPads(await src.text());
+  } catch (e) {
+    fail(io, (e as Error).message);
+    return 1;
+  }
+  if (pads.length === 0) {
+    fail(io, "the export contains no pads.");
+    return 1;
+  }
+  if (pads.length > 1 && !args.all) {
+    fail(
+      io,
+      `the export holds ${pads.length} pads: ${pads.map((p) => `"${p.name}"`).join(", ")}\n` +
+        "       pass --all to import each into <out>/<slug>/.",
+    );
+    return 1;
+  }
+
+  const plans = planAll(pads, args.out);
+  const states = await Promise.all(plans.map((p) => targetState(p.dir)));
+  for (const [i, state] of states.entries()) {
+    if (state !== "clean" && !args.force) {
+      const what = state === "pad" ? "a scratchpad already exists at" : "target is not empty:";
+      fail(io, `${what} ${toPosix(plans[i]!.dir)}\n       use --force to overwrite files there.`);
+      return 1;
+    }
+  }
+
+  const dry = !!args.dryRun;
+  let written = 0;
+  let skipped = 0;
+  for (const plan of plans) {
+    if (!dry) await applyPlan(plan);
+    ok(io, `${dry ? "would import" : "imported"} ${bold(plan.name)} → ${cyan(toPosix(plan.dir))}`);
+    io.out(`  ${dim("manifest  :")} ${toPosix(manifestPath(plan.dir))} ${dim(`(${plan.manifest.files.length} entries)`)}`);
+    for (const f of plan.files) {
+      if (f.file) {
+        written++;
+        io.out(`  ${dim("write     :")} ${toPosix(f.path)}`);
+      } else {
+        skipped++;
+        io.out(`  ${dim("skip      :")} ${toPosix(f.path)} ${dim(`— ${f.reason}`)}`);
+      }
+    }
+  }
+  io.out("");
+  io.out(dim(dry ? `  ${written} file(s) to write, ${skipped} skipped; nothing touched (--dry-run).` : `  ${written} file(s) written, ${skipped} skipped.`));
+  return 0;
+}
+
 /** scratch preview <file.excalidraw> [-o/--out <file|->] — render an excalidraw
  * scene to an image so an agent can peek at a drawing without opening the
  * viewer. Default: a PNG under the OS temp dir (raster — what image-reading

@@ -4,9 +4,10 @@
 
 Core invariant (do not violate): **the CLI never authors, copies, or moves file content.** It only creates pad dirs, writes manifests, and tracks metadata. The user/agent writes files with their normal tools; `scratch add` just registers them. A pad is *just a folder containing `scratchpad.json`* — the folder path is its identity. There is **no central store/index**.
 
-**Two deliberate exceptions** (don't "fix" them as violations), both in `src/ui/launch.ts`:
+**Three deliberate exceptions** (don't "fix" them as violations), the first two in `src/ui/launch.ts`:
 1. Clicking a rendered GFM task checkbox in the viewer flips that single `[ ]`/`[x]` marker in the source file (`persistFileCheckbox`). Line-addressed; verifies the line still IS a task marker before writing.
 2. Saving from the viewer's in-place Excalidraw editor writes the edited scene JSON back to its `.excalidraw` file (`persistExcalidrawScene`). The user drew the content; the CLI only persists it — scoped to manifest-registered `.excalidraw` targets and validated with `parseScene` first.
+3. `scratch import` (`src/import.ts`, `cmdImport` in `commands.ts`) rebuilds a pad from a `scratch export` HTML page: embedded file contents are written back to disk and `scratchpad.json` is regenerated from the embedded metadata. The content is the user's own export and the restore is explicit; paths that are absolute or contain `..` are rejected, and the target must be empty unless `--force`.
 
 ## Commands
 

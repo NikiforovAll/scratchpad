@@ -115,3 +115,32 @@ scratch export notes --theme monokai --mode light -o public/notes.html
 ```
 
 Theme ids: `ember` (default), `gruvbox`, `catppuccin`, `tokyo-night`, `solarized`, `dracula`, `nord`, `rose-pine`, `everforest`, `kanagawa`, `one-dark`, `night-owl`, `monokai`, `github`, `ayu`, `vitesse`, `synthwave`. Each has a dark and a light variant, selected by `--mode`. Passing an unknown id prints the full list.
+
+## `scratch import`
+
+```bash
+scratch import <file.html> -o <dir> [--all] [--dry-run] [--force]
+```
+
+The reverse of `export`: rebuild pad folder(s) from a `scratch export` page. Embedded file contents are written back to disk and `scratchpad.json` is regenerated from the embedded metadata — pad name and id, group layout, and each file's title, description, tags, type, group, and inline comments.
+
+| Flag | Meaning |
+|------|---------|
+| `--all` | The page holds several pads (`export --all`): import each into `<dir>/<pad-folder>/`, named after the pad's original folder (slug of the name as fallback). |
+| `--dry-run` | Print the plan (write/skip per file) and touch nothing. |
+| `--force` | Write into a non-empty directory or over an existing pad. |
+
+```bash
+scratch import notes.html -o _scratchpads/notes
+scratch import all.html --all -o _scratchpads --dry-run
+```
+
+Notes:
+
+- Files the export could not embed — too large or binary — are reported as **skipped**. Their manifest entry is kept, so the pad still lists them; the content is simply not there. [Linked](#scratch-add) external files are skipped and get no entry: their `src` pointed outside the original pad.
+- Excalidraw scenes are restored from their embedded source, and images are decoded from their base64 data URIs.
+- Paths that are absolute or contain `..` are rejected.
+- The target must be missing or an empty directory; anything else needs `--force`.
+- Manifest `created`/`updated` dates are set to the import time — an export does not carry the pad-level dates.
+
+Import is a deliberate exception to the rule that the CLI never authors content: the content is your own export, and the restore is explicit.
