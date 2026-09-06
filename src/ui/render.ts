@@ -711,6 +711,13 @@ ${vendorCss}<style>${THEME_CSS}</style>
   ${HELP_MODAL_HTML}
   ${SETTINGS_MODAL_HTML}
   ${GALLERY_MODAL_HTML}
+  <div class="modal-scrim picker-scrim" id="pickerModal" style="display:none">
+    <div class="modal picker" role="dialog" aria-label="Jump to file">
+      <input type="text" id="pickerInput" class="picker-input" placeholder="Jump to file…" autocomplete="off" spellcheck="false">
+      <div id="pickerList" class="picker-list" role="listbox"></div>
+      <div class="picker-hint"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</div>
+    </div>
+  </div>
   <div class="modal-scrim" id="diagramModal" style="display:none">
     <button class="icon-btn diagram-close" id="diagramClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     <div class="diagram-stage" id="diagramStage"></div>
@@ -827,6 +834,7 @@ const SHORTCUT_PAIRS: [ShortcutGroup, ShortcutGroup][] = [
         { keys: ["↑", "↓"], label: "Next / previous file" },
         { keys: ["←", "→"], label: "Collapse / expand group" },
         { keys: ["Ctrl", "Tab"], combo: true, native: true, label: "Next file, wrapping (Shift: previous)" },
+        { keys: ["Shift", "P"], combo: true, label: "Jump to file" },
       ],
     },
     {
@@ -1937,7 +1945,7 @@ function pickTarget() {
 function enterFocus(frame) {
   if (!frame || focusedFrame) return;
   // Nothing else may be layered over a full-window frame.
-  showDiagram(false); showGallery(false); showSettings(false); showHelp(false);
+  showDiagram(false); showGallery(false); showSettings(false); showHelp(false); showPicker(false);
   focusedFrame = frame;
   frame.setAttribute('data-focused', '');
   document.documentElement.setAttribute('data-focus', '');
@@ -2743,16 +2751,18 @@ function expandActiveGroup() {
 // would go off-screen. Done by hand instead of scrollIntoView(): that walks every
 // scrollable ancestor and drags the preview pane with it under WebView2.
 const ROW_EDGE_GAP = 8;
-function scrollActiveRowIntoView() {
-  const tree = document.getElementById('tree');
-  const row = tree && tree.querySelector('.frow.active');
-  if (!row || typeof row.getBoundingClientRect !== 'function') return;
-  const r = row.getBoundingClientRect(), t = tree.getBoundingClientRect();
+function scrollRowIntoView(list, row) {
+  if (!list || !row || typeof row.getBoundingClientRect !== 'function') return;
+  const r = row.getBoundingClientRect(), t = list.getBoundingClientRect();
   if (!t.height) return; // collapsed / hidden sidebar: nothing to scroll
   let d = 0;
   if (r.top < t.top + ROW_EDGE_GAP) d = r.top - t.top - ROW_EDGE_GAP;
   else if (r.bottom > t.bottom - ROW_EDGE_GAP) d = r.bottom - t.bottom + ROW_EDGE_GAP;
-  if (d) tree.scrollTop = Math.max(0, tree.scrollTop + d);
+  if (d) list.scrollTop = Math.max(0, list.scrollTop + d);
+}
+function scrollActiveRowIntoView() {
+  const tree = document.getElementById('tree');
+  scrollRowIntoView(tree, tree && tree.querySelector('.frow.active'));
 }
 
 function buildTree(preferKey, prevSelJson) {
@@ -3392,6 +3402,69 @@ document.getElementById('helpBtn').addEventListener('click', () => showHelp(true
 document.getElementById('helpClose').addEventListener('click', () => showHelp(false));
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal) showHelp(false); });
 
+// Jump-to-file picker (Shift+P): VS Code style quick-pick over ITEMS.
+const pickerModal = document.getElementById('pickerModal');
+const pickerInput = document.getElementById('pickerInput');
+const pickerList = document.getElementById('pickerList');
+let pickerRows = [];
+let pickerIdx = 0;
+const pickerOpen = () => pickerModal.style.display !== 'none';
+function pickerSelect(i) {
+  if (!pickerRows.length) return;
+  pickerList.children[pickerIdx].classList.remove('selected');
+  pickerIdx = Math.min(Math.max(i, 0), pickerRows.length - 1);
+  const row = pickerList.children[pickerIdx];
+  row.classList.add('selected');
+  scrollRowIntoView(pickerList, row);
+}
+function renderPicker() {
+  const q = pickerInput.value.trim().toLowerCase();
+  const multi = DATA.pads.length > 1;
+  const hay = ({ pad, f }) => [f.title, f.path, f.group, multi && pad.name].filter(Boolean).join('\n').toLowerCase();
+  pickerRows = q ? ITEMS.filter((it) => hay(it).includes(q)) : ITEMS.slice();
+  if (!pickerRows.length) { pickerList.innerHTML = '<div class="picker-empty">No matching files</div>'; return; }
+  pickerList.innerHTML = pickerRows.map(({ pad, f }, i) => {
+    const key = pad.dir + '::' + f.path;
+    return '<button class="picker-row' + (key === current ? ' current' : '') + '" data-idx="' + i + '" title="' + esc(f.path) + '">' +
+      fileIcon(f.kind) +
+      '<span class="picker-name">' + esc(f.title || f.path) + '</span>' +
+      // Always present: its flex:1 pushes the group / pad labels to the right edge.
+      '<span class="picker-path">' + esc(f.title ? f.path : '') + '</span>' +
+      (f.group ? '<span class="picker-group">' + esc(f.group) + '</span>' : '') +
+      (multi ? '<span class="picker-pad">' + esc(pad.name) + '</span>' : '') +
+      '</button>';
+  }).join('');
+  pickerIdx = 0;
+  pickerSelect(0);
+}
+function showPicker(v) {
+  pickerModal.style.display = v ? 'flex' : 'none';
+  if (!v) return;
+  pickerInput.value = '';
+  renderPicker();
+  pickerInput.focus();
+}
+function pickerOpenRow(i) {
+  const it = pickerRows[i];
+  showPicker(false);
+  if (it) renderPreview(it.pad, it.f);
+}
+pickerInput.addEventListener('input', renderPicker);
+pickerInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') showPicker(false);
+  else if (e.key === 'ArrowDown') pickerSelect(pickerIdx + 1);
+  else if (e.key === 'ArrowUp') pickerSelect(pickerIdx - 1);
+  else if (e.key === 'Enter') pickerOpenRow(pickerIdx);
+  else return;
+  e.preventDefault();
+  e.stopPropagation();
+});
+pickerList.addEventListener('click', (e) => {
+  const row = e.target.closest('.picker-row');
+  if (row) pickerOpenRow(Number(row.dataset.idx));
+});
+pickerModal.addEventListener('click', (e) => { if (e.target === pickerModal) showPicker(false); });
+
 // Diagram lightbox: the ⛶ chip or 'f' over a rendered mermaid SVG enlarges it
 // (fit-to-viewport) — the same affordance an html embed uses, see expandEmbed.
 // The SVG is CLONED into the stage — moving it would break the in-page layout and
@@ -3668,9 +3741,11 @@ document.addEventListener('keydown', (e) => {
     else if (galleryModal.style.display !== 'none') showGallery(false);
     else if (settingsModal.style.display !== 'none') showSettings(false);
     else if (helpModal.style.display !== 'none') showHelp(false);
+    else if (pickerOpen()) showPicker(false);
     else if (SETTINGS.tocVisible) setTocVisible(false);
     return;
   }
+  if (e.key === 'P') { e.preventDefault(); showPicker(true); return; }
   if (e.key === 'q' && closeWindow) { closeWindow(); return; }
   if (e.key === '?') { showHelp(helpModal.style.display === 'none'); return; }
   if (e.key === 's') { showSettings(settingsModal.style.display === 'none'); return; }

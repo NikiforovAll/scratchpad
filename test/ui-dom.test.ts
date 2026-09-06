@@ -1820,7 +1820,7 @@ async function renderThreeFilePad(): Promise<string> {
   await mkdir(dir, { recursive: true });
   for (const n of ["a.md", "b.md", "c.md"]) await writeFile(join(dir, n), "# " + n + "\n", "utf8");
   const m = newManifest("P");
-  for (const [p, t] of [["a.md", "A"], ["b.md", "B"], ["c.md", "C"]]) m.files.push({ path: p, title: t, type: "note" });
+  for (const [p, t] of [["a.md", "A"], ["b.md", "B"], ["c.md", "C"]]) m.files.push({ path: p, title: t, type: "note", group: t === "C" ? "Plans" : undefined });
   await writeManifest(dir, m);
   const pad: Pad = { dir, manifest: await readManifest(dir) };
   return renderHtml(await buildView([pad]), "P");
@@ -2763,6 +2763,50 @@ test("arrow-key file nav scrolls the sidebar so the active row stays visible", a
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
     expect(document.querySelector(".frow.active")?.textContent).toContain("A");
     expect(top).toBe(0);
+  } finally {
+    await teardown();
+  }
+});
+
+test("Shift+P opens the file picker: title primary, path dimmed, filter + Enter opens, Esc closes", async () => {
+  const html = await renderThreeFilePad();
+  await boot(html);
+  try {
+    const modal = document.getElementById("pickerModal")!;
+    const input = document.getElementById("pickerInput") as HTMLInputElement;
+    expect(modal.style.display).toBe("none");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "P", shiftKey: true }));
+    expect(modal.style.display).toBe("flex");
+    const rows = document.querySelectorAll(".picker-row");
+    expect(rows.length).toBe(3);
+    expect(rows[0].querySelector(".picker-name")?.textContent).toBe("A");
+    expect(rows[0].querySelector(".picker-path")?.textContent).toBe("a.md");
+    expect(rows[0].classList.contains("selected")).toBe(true);
+    expect(rows[0].classList.contains("current")).toBe(true);
+    expect(document.querySelector(".picker-pad")).toBeNull();
+    expect(rows[0].querySelector(".picker-group")).toBeNull();
+
+    input.value = "plans";
+    input.dispatchEvent(new Event("input"));
+    expect(document.querySelectorAll(".picker-row").length).toBe(1);
+    expect(document.querySelector(".picker-group")?.textContent).toBe("Plans");
+
+    input.value = "c";
+    input.dispatchEvent(new Event("input"));
+    const filtered = document.querySelectorAll(".picker-row");
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].querySelector(".picker-name")?.textContent).toBe("C");
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(modal.style.display).toBe("none");
+    expect(document.querySelector(".frow.active")?.textContent).toContain("C");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "P", shiftKey: true }));
+    input.value = "zzz";
+    input.dispatchEvent(new Event("input"));
+    expect(document.querySelector(".picker-empty")).not.toBeNull();
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(modal.style.display).toBe("none");
   } finally {
     await teardown();
   }
