@@ -27,6 +27,7 @@ Select text in a rendered file and attach a **comment** to it. Comments are quot
 
 - In `scratch ui`, comments write back to the pad's `scratchpad.json`.
 - In a static export, the saved page file is the store — `Ctrl+S` saves a copy with your comments inside.
+- `Ctrl+Shift+S` (or Shift-click the save button) saves **only the file you are on**, as a standalone page with no sidebar — the one file, ready to hand to someone.
 
 The agent reads them back with [`scratch comments`](/cli-reference#scratch-comments):
 

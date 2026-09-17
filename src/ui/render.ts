@@ -644,8 +644,8 @@ export async function renderHtml(
   // saved file gets data-export injected so it opens as a real export. The
   // saveDot (unsaved-comments hint) only ever fires in export mode.
   const saveTitle = opts.exportMode
-    ? "Save a copy of this page — comments live in the saved file"
-    : "Export a copy of this page to a file (Ctrl+S)";
+    ? "Save a copy of this page — comments live in the saved file (Shift: this file only)"
+    : "Export a copy of this page to a file (Ctrl+S; Shift: this file only)";
   const saveBtn = `<button class="icon-btn" id="saveCopy" title="${saveTitle}" aria-label="Save a copy">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         <span class="save-dot" id="saveDot" hidden></span>
@@ -883,6 +883,7 @@ const SHORTCUT_PAIRS: [ShortcutGroup, ShortcutGroup][] = [
       title: "General",
       rows: [
         { keys: ["Ctrl", "S"], combo: true, label: "Save / export a copy" },
+        { keys: ["Ctrl", "Shift", "S"], combo: true, label: "Save this file only (no sidebar)" },
         { keys: ["Ctrl", "Alt", "H"], combo: true, live: true, label: "Hide file / unhide a revealed one" },
         { keys: ["h"], live: true, label: "Reveal / re-hide hidden files" },
         { keys: ["r"], live: true, label: "Reload from disk" },
@@ -1100,6 +1101,9 @@ let DATA = JSON.parse(document.getElementById('data').textContent);
 // back into this string instead of re-serializing the mutated document. Captured
 // in every mode: a live viewer's Ctrl+S exports a copy off this same snapshot.
 const EXPORT_MODE = document.documentElement.hasAttribute('data-export');
+// Stamped by a one-file save (Ctrl+Shift+S, see saveCopy): this page holds a
+// single file and hides the tree in CSS.
+const SOLO = document.documentElement.hasAttribute('data-solo');
 const PRISTINE = '<!doctype html>\n' + document.documentElement.outerHTML;
 // Whether a host is listening for write-backs — the single answer every
 // persistence path consults (postToHost, and the settings seed below). Keyed off
@@ -3653,6 +3657,9 @@ function setBar(el, collapsed, animate) {
   el.classList.toggle('collapsed', collapsed);
 }
 function toggleSidebar() {
+  // A solo page has no tree to toggle, and persisting the flip would leak a
+  // collapsed sidebar into every other export sharing this file:// origin.
+  if (SOLO) return;
   SETTINGS.sidebarCollapsed = !SETTINGS.sidebarCollapsed;
   setBar(sidebarEl, SETTINGS.sidebarCollapsed, true);
   persistSettings();
@@ -3702,7 +3709,8 @@ document.addEventListener('keydown', (e) => {
     if (e.key === '-') { e.preventDefault(); setZoom(SETTINGS.zoom - 0.1); return; }
     if (e.key === '0') { e.preventDefault(); setZoom(1); return; }
     // Save / export a copy — swallow the host's "save page" so ours runs instead.
-    if (e.key === 's' || e.key === 'S') { e.preventDefault(); saveCopy(); return; }
+    // The key is 'S' either way once Shift is down, so test the modifier, not the case.
+    if (e.key === 's' || e.key === 'S') { e.preventDefault(); saveCopy(e.shiftKey); return; }
   }
   // Ctrl+Alt copies (not Ctrl+Shift+C — that's the browser's inspect-element).
   // Alt is excluded from the block above, so handle these here.
@@ -4107,9 +4115,9 @@ function setExportDirty(v) {
   const b = document.getElementById('saveCopy');
   if (b) b.title = v
     ? 'Unsaved comments — save a copy of this file to keep them'
-    : 'Save a copy of this page — comments live in the saved file';
+    : 'Save a copy of this page — comments live in the saved file (Shift: this file only)';
 }
-function builtExportHtml() {
+function builtExportHtml(data) {
   // Saving from a live viewer turns the snapshot into a standalone export: mark
   // <html> with data-export so the saved file opens in export mode (file is the
   // comment store). Already present when re-saving an export — replace only the
@@ -4119,17 +4127,48 @@ function builtExportHtml() {
   // The pattern is concatenated so this script never contains the island's own
   // id= literal (the export purity test scans for it).
   const excaIsland = new RegExp('<script id="exca-' + 'cdn"[^>]*>[^<]*</' + 'script>\n?');
-  const src = (EXPORT_MODE ? PRISTINE : PRISTINE.replace(/<html(?=[ >])/, '<html data-export'))
-    .replace(excaIsland, '');
+  let src = EXPORT_MODE ? PRISTINE : PRISTINE.replace(/<html(?=[ >])/, '<html data-export');
+  // A one-file copy (data is the narrowed island) says so on <html>: the CSS hides
+  // the tree, and SOLO makes the copy suggest its own name when re-saved.
+  if (data) src = src.replace(/<html(?=[ >])/, '<html data-solo');
+  src = src.replace(excaIsland, '');
   const open = '<script id="data" type="application/json">';
   const close = '</' + 'script>';
   const i = src.indexOf(open);
   const j = i === -1 ? -1 : src.indexOf(close, i);
   if (j === -1) return null;
   // payloadJson's escaping, so the island can never contain a closing script tag.
-  return src.slice(0, i + open.length) + JSON.stringify(DATA).replace(/</g, '\\u003c') + src.slice(j);
+  return src.slice(0, i + open.length) + JSON.stringify(data || DATA).replace(/</g, '\\u003c') + src.slice(j);
 }
-function saveCopyName() {
+// Ctrl+Shift+S: an island holding only the focused file. layout/hiddenPaths are
+// pad-wide hints with nothing left to order or conceal; linked/linkKeys narrow to
+// this doc's own links (linkKeys is keyed '<doc path>::<href>' — see
+// collectLinkedViews) so following a link still works in the copy.
+function soloData() {
+  if (!currentRef || !currentRef.f) return null;
+  const pad = currentRef.pad, f = currentRef.f;
+  const linked = pad.linked || {};
+  const links = Object.entries(pad.linkKeys || {})
+    .filter(([k, v]) => k.startsWith(f.path + '::') && linked[v]);
+  const out = { name: pad.name, id: pad.id, dir: pad.dir, files: [f] };
+  if (links.length) {
+    out.linkKeys = Object.fromEntries(links);
+    out.linked = Object.fromEntries(links.map(([, v]) => [v, linked[v]]));
+  }
+  return { pads: [out], rootLabel: DATA.rootLabel };
+}
+// The client-side twin of discovery.ts slugify() — kept step-for-step identical so
+// a one-file save can't name itself differently than scratch export would. Strict
+// on purpose: off Windows the native host resolves this name and writes it with no
+// dialog in between (saveExportToFile).
+function soloSlug() {
+  const slug = (s) => s.toLowerCase().normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return (slug(currentRef.pad.name) || 'pad') + '--' + (slug(baseNoExt(currentRef.f.path)) || 'file');
+}
+function saveCopyName(solo) {
+  // SOLO: this page IS a one-file copy, so a plain Ctrl+S in it keeps that name.
+  if (solo || SOLO) return soloSlug() + '.html';
   // Match the scratch export output name (baked onto <html> at render time).
   const n = document.documentElement.getAttribute('data-export-name');
   if (n) return n + '.html';
@@ -4139,25 +4178,41 @@ function saveCopyName() {
   } catch (_) {}
   return 'scratchpad.html';
 }
-// The native host echoes a save result here (it owns the real OS dialog).
+// The native host echoes a save result here (it owns the real OS dialog) but not
+// which save it is answering — saveCopy parks that save's dirty-flag policy here.
+// Only one can be in flight: the OS dialog is modal.
+let hostSettle = null;
 window.__scratchSaved = function (res) {
-  if (res && res.saved) { setExportDirty(false); showToast(res.path ? 'Saved → ' + res.path : 'Saved', 'success'); }
+  if (res && res.saved) {
+    if (hostSettle) hostSettle();
+    showToast(res.path ? 'Saved → ' + res.path : 'Saved', 'success');
+  }
+  hostSettle = null;
 };
-function saveCopy() {
-  const html = builtExportHtml();
+function saveCopy(solo) {
+  const data = solo ? soloData() : null;
+  if (solo && !data) { showToast('No file selected'); return; }
+  const html = builtExportHtml(data);
   if (html == null) { showToast('Save failed'); return; }
-  const name = saveCopyName();
+  const name = saveCopyName(solo);
+  // A one-file save is a copy, not a commit of this page: every other file's
+  // unsaved comments still live only in DATA, so the dot stays lit.
+  const settle = solo ? () => {} : () => setExportDirty(false);
   // Native WebView2: setHTML's origin isn't a secure context, so showSaveFilePicker
   // is unavailable — hand the bytes to the host, which opens a real OS save dialog
   // and writes the file (it calls back via window.__scratchSaved).
   const wv = window.chrome && window.chrome.webview;
   if (wv) {
+    hostSettle = settle;
     try { wv.postMessage({ __scratch_save: { html: html, name: name } }); showToast('Choose where to save…', 'info'); }
-    catch (_) { showToast('Save failed'); }
+    catch (_) { hostSettle = null; showToast('Save failed'); }
     return;
   }
   const blob = new Blob([html], { type: 'text/html' });
-  const done = () => { setExportDirty(false); showToast('Saved — that file carries the comments', 'success'); };
+  const done = () => {
+    settle();
+    showToast(solo ? 'Saved this file only' : 'Saved — that file carries the comments', 'success');
+  };
   if (window.showSaveFilePicker) {
     // file:// counts as a secure context in Chromium, so exports get a real
     // save dialog; everywhere else falls back to a plain download.
@@ -4181,7 +4236,8 @@ function downloadCopy(blob, name, done) {
   done();
 }
 const saveCopyBtn = document.getElementById('saveCopy');
-if (saveCopyBtn) saveCopyBtn.addEventListener('click', saveCopy);
+// Passing saveCopy straight in would hand it the MouseEvent as its solo flag.
+if (saveCopyBtn) saveCopyBtn.addEventListener('click', (e) => saveCopy(e.shiftKey));
 // Don't let unsaved comments vanish with a casual tab close.
 if (EXPORT_MODE) window.addEventListener('beforeunload', (e) => {
   if (exportDirty) { e.preventDefault(); e.returnValue = ''; }

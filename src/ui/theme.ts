@@ -571,6 +571,10 @@ html:not([data-native]) .sc-native { display: none; }
    nowrap+ellipsis, so the clipped width never reflows mid-collapse. */
 .sidebar.collapsed { width: 0; border-right: none; }
 .sidebar.collapsed + .resizer { display: none; }
+/* data-solo = a one-file save (Ctrl+Shift+S): nothing left for a tree to list.
+   !important beats the .collapsed ~ #sidebarOpen rule above. */
+:root[data-solo] .sidebar, :root[data-solo] .resizer,
+:root[data-solo] #sidebarOpen { display: none !important; }
 .tree { flex: 1; overflow-y: auto; padding: 14px 10px; }
 /* App version, pinned to the sidebar foot (bottom-left). */
 .appver { flex: 0 0 auto; padding: 6px 12px; border-top: 1px solid var(--border);

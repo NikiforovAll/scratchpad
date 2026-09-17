@@ -1961,6 +1961,49 @@ function cmt(over: Partial<Comment> = {}): Comment {
   };
 }
 
+/** What a stubbed save picker captured: the bytes and the suggested filenames. */
+type Saved = { blobs: Blob[]; names: string[] };
+function newSaved(): Saved {
+  return { blobs: [], names: [] };
+}
+function armSavePicker(saved: Saved) {
+  return (w: any) => {
+    w.showSaveFilePicker = (opts: any) => {
+      saved.names.push(opts?.suggestedName);
+      return Promise.resolve({
+        createWritable: () =>
+          Promise.resolve({
+            write: (b: Blob) => {
+              saved.blobs.push(b);
+              return Promise.resolve();
+            },
+            close: () => Promise.resolve(),
+          }),
+      });
+    };
+  };
+}
+
+/** Let the picker promise chain run out. */
+function settle(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 10));
+}
+
+function islandOf(html: string): any {
+  return JSON.parse(
+    html.match(/<script id="data" type="application\/json">([\s\S]*?)<\/script>/)![1]!,
+  );
+}
+
+function deleteOnlyComment() {
+  (document.querySelector(".cmt-hl") as any).click();
+  (
+    Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find(
+      (b) => b.textContent === "delete",
+    ) as any
+  ).click();
+}
+
 test("Ctrl+Alt+C copies this page's comments; Ctrl+Shift+Alt+C copies every file's", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });
@@ -2090,22 +2133,12 @@ test("delete posts the shrunken comment array and removes the highlight", async 
 
 test("export mode: a comment edit arms Save-a-copy; saving splices DATA into the file", async () => {
   const html = await renderPadWithComments([cmt()], undefined, true);
-  const saved: Blob[] = [];
+  const saved: Saved = newSaved();
   await boot(html, undefined, (w) => {
     // boot() replaces documentElement.innerHTML, so the <html data-export>
     // attribute from renderHtml is lost — re-apply it to mirror the real page.
     document.documentElement.setAttribute("data-export", "");
-    w.showSaveFilePicker = () =>
-      Promise.resolve({
-        createWritable: () =>
-          Promise.resolve({
-            write: (b: Blob) => {
-              saved.push(b);
-              return Promise.resolve();
-            },
-            close: () => Promise.resolve(),
-          }),
-      });
+    armSavePicker(saved)(w);
   });
   try {
     const dot = document.getElementById("saveDot") as any;
@@ -2116,21 +2149,14 @@ test("export mode: a comment edit arms Save-a-copy; saving splices DATA into the
     // drop unsaved comments); the guarded handler sets no reload flag.
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "r", bubbles: true }));
     expect(sessionStorage.getItem("scratch_reloaded")).toBeNull();
-    // Delete the only comment — no host to post to; DATA mutates in place.
-    (document.querySelector(".cmt-hl") as any).click();
-    (
-      Array.from(document.querySelectorAll(".cmt-pop .pbtn")).find(
-        (b) => b.textContent === "delete",
-      ) as any
-    ).click();
+    deleteOnlyComment(); // no host to post to; DATA mutates in place
     expect(dot.hidden).toBe(false); // dirty → save armed
     (document.getElementById("saveCopy") as any).click();
-    await new Promise((r) => setTimeout(r, 10)); // let the picker promise chain settle
-    expect(saved.length).toBe(1);
-    const out = await saved[0]!.text();
+    await settle();
+    expect(saved.blobs.length).toBe(1);
+    const out = await saved.blobs[0]!.text();
     // The island in the saved copy reflects the deletion…
-    const island = out.match(/<script id="data" type="application\/json">([\s\S]*?)<\/script>/)![1]!;
-    expect(JSON.parse(island).pads[0].files[0].comments).toEqual([]);
+    expect(islandOf(out).pads[0].files[0].comments).toEqual([]);
     // …and the copy is itself still a savable export.
     expect(out).toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
     expect(out).toContain('id="saveCopy"');
@@ -2142,20 +2168,8 @@ test("export mode: a comment edit arms Save-a-copy; saving splices DATA into the
 
 test("live viewer: Ctrl+S exports a standalone copy with data-export injected", async () => {
   const html = await renderPadWithComments([cmt()]); // exportMode = false (live)
-  const saved: Blob[] = [];
-  await boot(html, undefined, (w) => {
-    w.showSaveFilePicker = () =>
-      Promise.resolve({
-        createWritable: () =>
-          Promise.resolve({
-            write: (b: Blob) => {
-              saved.push(b);
-              return Promise.resolve();
-            },
-            close: () => Promise.resolve(),
-          }),
-      });
-  });
+  const saved: Saved = newSaved();
+  await boot(html, undefined, armSavePicker(saved));
   try {
     // The live page is not itself an export…
     expect(document.documentElement.hasAttribute("data-export")).toBe(false);
@@ -2164,17 +2178,111 @@ test("live viewer: Ctrl+S exports a standalone copy with data-export injected", 
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }),
     );
-    await new Promise((r) => setTimeout(r, 10)); // let the picker promise chain settle
-    expect(saved.length).toBe(1);
-    const out = await saved[0]!.text();
+    await settle();
+    expect(saved.blobs.length).toBe(1);
+    const out = await saved.blobs[0]!.text();
     // The saved copy opens as a real export (file becomes the comment store)…
     expect(out).toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
     expect(out).toContain('id="saveCopy"');
     // …and carries the current data island.
-    const island = out.match(
-      /<script id="data" type="application\/json">([\s\S]*?)<\/script>/,
-    )![1]!;
-    expect(JSON.parse(island).pads[0].files[0].comments.length).toBe(1);
+    expect(islandOf(out).pads[0].files[0].comments.length).toBe(1);
+  } finally {
+    await teardown();
+  }
+});
+
+/** A two-file pad: only a save that narrows to one file can tell them apart. */
+async function renderTwoFilePad(exportMode = false): Promise<string> {
+  const dir = join(root, "p2");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "a.md"), "# A\n\nText **bold** here.\n\nonly-in-alpha\n", "utf8");
+  await writeFile(join(dir, "b.md"), "# B\n\nText **bold** here.\n\nonly-in-beta\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "a.md", title: "A", type: "note", comments: [cmt({ id: "c-a" })] });
+  m.files.push({ path: "b.md", title: "B", type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  return renderHtml(await buildView([pad]), "P", undefined, { exportMode });
+}
+
+test("Ctrl+Shift+S saves only the focused file, as a sidebar-less export", async () => {
+  const saved: Saved = newSaved();
+  await boot(await renderTwoFilePad(), undefined, armSavePicker(saved));
+  let out = "";
+  try {
+    // Land on the second file — the save must follow the selection, not the tree order.
+    (document.querySelectorAll(".frow")[1] as any).click();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "S", ctrlKey: true, shiftKey: true, bubbles: true }),
+    );
+    await settle();
+    expect(saved.blobs.length).toBe(1);
+    out = await saved.blobs[0]!.text();
+    const island = islandOf(out);
+    expect(island.pads.length).toBe(1);
+    expect(island.pads[0].files.map((f: any) => f.path)).toEqual(["b.md"]);
+    expect(island.pads[0].name).toBe("P"); // the pad is still the file's provenance
+    expect(out).not.toContain("only-in-alpha");
+    // Named "<pad>--<file>", not after the pad alone.
+    expect(saved.names).toEqual(["p--b.html"]);
+    // A real export (file is the comment store) that opens without the tree…
+    expect(out).toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
+    expect(out).toMatch(/<html[^>]* data-solo(?=[ =>])/);
+    expect(out).toContain('id="saveCopy"'); // still savable
+  } finally {
+    await teardown();
+  }
+  // …and re-opening that copy gives a one-file page that re-saves under its own name.
+  const again: Saved = newSaved();
+  await boot(out, undefined, armSavePicker(again));
+  try {
+    expect(document.querySelectorAll(".frow").length).toBe(1);
+    // '[' has no tree to collapse here, and persisting the flip would leak a
+    // collapsed sidebar into every other export on this origin.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "[", bubbles: true }));
+    expect(localStorage.getItem("scratch.sidebarCollapsed")).toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }));
+    await settle();
+    expect(again.names).toEqual(["p--b.html"]);
+  } finally {
+    await teardown();
+  }
+});
+
+test("clicking the save button saves the whole pad (the event is not a solo flag)", async () => {
+  const saved: Saved = newSaved();
+  await boot(await renderTwoFilePad(), undefined, armSavePicker(saved));
+  try {
+    (document.getElementById("saveCopy") as any).dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
+    await settle();
+    expect(islandOf(await saved.blobs[0]!.text()).pads[0].files.length).toBe(2);
+  } finally {
+    await teardown();
+  }
+});
+
+test("export mode: a one-file save leaves the dirty dot lit; a full save clears it", async () => {
+  const saved: Saved = newSaved();
+  await boot(await renderTwoFilePad(true), undefined, (w) => {
+    document.documentElement.setAttribute("data-export", "");
+    armSavePicker(saved)(w);
+  });
+  try {
+    const dot = document.getElementById("saveDot") as any;
+    deleteOnlyComment(); // arms the dirty dot — DATA mutates in place, no host to post to
+    expect(dot.hidden).toBe(false);
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "S", ctrlKey: true, shiftKey: true, bubbles: true }),
+    );
+    await settle();
+    expect(dot.hidden).toBe(false); // a copy of one file is not a commit of this page
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }),
+    );
+    await settle();
+    expect(dot.hidden).toBe(true);
   } finally {
     await teardown();
   }

@@ -236,6 +236,11 @@ describe("renderHtml", () => {
     expect(live).not.toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
     // …but it carries the same save button: Ctrl+S exports a copy to a file.
     expect(live).toContain('id="saveCopy"');
+    // data-solo is stamped client-side by a one-file save and never by the server.
+    expect(exported).not.toMatch(/^<!doctype html>\n<html[^>]* data-solo(?=[ =>])/);
+    expect(live).not.toMatch(/^<!doctype html>\n<html[^>]* data-solo(?=[ =>])/);
+    // The rule that hides the tree in such a copy ships in every page's CSS.
+    expect(exported).toContain(":root[data-solo] .sidebar");
   });
 
   test("data-theme-pinned lists only the axes the exporter passed explicitly", async () => {
