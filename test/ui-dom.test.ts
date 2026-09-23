@@ -907,7 +907,7 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
       data: { __scratchFrame: 1, h: 400, w: 900, z: 1 }, source: embed.contentWindow,
     } as any));
     // Sized to the reported height (already scaled frame-side), and NOT scaled itself.
-    expect(embed.style.height).toBe("401px");
+    expect(embed.style.height).toBe("400px");
     expect(posts.length).toBe(0);
     // '0' fits the embed under the pointer: 900 natural into a 300 box → a third.
     embed.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
@@ -924,6 +924,9 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     // …unless the embed owns the viewport: the reader zoom is suppressed there, so
     // moving it would do nothing on screen and then jump the page on exit.
     (wrap.querySelector("button.embed-full") as any).click();
+    // Same factor, but now boxed: the frame must lift its vertical pin, or tall content
+    // in full window has no scrollbar.
+    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 0.41, boxed: true });
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "-", ctrlKey: true }));
     expect(posts.at(-1).z).toBe(0.33);
     expect(document.documentElement.style.zoom).toBe("");
@@ -941,9 +944,8 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     expect(document.documentElement.style.zoom).toBe("1.3");
     // Leaving full window drops the embed's scale: it was chosen for the viewport, and
     // left in place it shrank the inline embed for the rest of the session.
-    // Still boxed at the moment of the reset: exitFocus scales back before it lets go of
-    // the frame. Nothing is pinned at z=1 either way.
-    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 1, boxed: true });
+    // Back in the column, so no longer boxed: the frame pins its vertical overflow again.
+    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 1, boxed: false });
     // The shrink back into the column is reported at the OLD factor and lands after the
     // exit — sizing the embed from it left a tall blank box.
     window.dispatchEvent(new MessageEvent("message", {
@@ -953,14 +955,34 @@ test("![](file.html) transcludes a local html file as a sandboxed iframe; missin
     window.dispatchEvent(new MessageEvent("message", {
       data: { __scratchFrame: 1, h: 500, w: 900, z: 1 }, source: embed.contentWindow,
     } as any));
-    expect(embed.style.height).toBe("501px");
+    expect(embed.style.height).toBe("500px");
     // A zero is never a measurement — Chromium throttles rendering for a far off-screen
     // iframe, so a report can land before its document has laid out at all. Sizing from
     // it collapsed the embed to 1px; the last real height stands instead.
     window.dispatchEvent(new MessageEvent("message", {
       data: { __scratchFrame: 1, h: 0, w: 900, z: 1 }, source: embed.contentWindow,
     } as any));
-    expect(embed.style.height).toBe("501px");
+    expect(embed.style.height).toBe("500px");
+    // A page sized from its viewport (a 100dvh deck) reports its frame height plus the
+    // same extra on every resize — sized to content it grew forever. Uneven growth
+    // (images, fonts) is followed; a run of equal steps boxes the embed instead.
+    const report = (h: number) => window.dispatchEvent(new MessageEvent("message", {
+      data: { __scratchFrame: 1, h, w: 900, z: 1 }, source: embed.contentWindow,
+    } as any));
+    report(700); report(750);
+    expect(embed.style.height).toBe("750px");
+    // A pixel at a time is rounding, not coupling — it boxed a plain long page.
+    for (let h = 751; h <= 754; h++) report(h);
+    expect(embed.style.height).toBe("754px");
+    expect(wrap.classList.contains("embed-boxed")).toBe(false);
+    for (let h = 786; h <= 882; h += 32) report(h);
+    expect(wrap.classList.contains("embed-boxed")).toBe(true);
+    expect(embed.style.height).toBe("");
+    // Boxed: the frame gets its scrollbar and the author's viewport layout back, and
+    // further reports no longer size it.
+    expect(posts.at(-1)).toEqual({ __scratchZoom: 1, z: 1, boxed: true });
+    report(2000);
+    expect(embed.style.height).toBe("");
 
     // --- a standalone .html file as the active preview ---
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));

@@ -482,6 +482,20 @@ describe("in-frame comment plumbing", () => {
     expect(html.match(/Math\.max\(d\.scrollHeight/g)!.length).toBe(1);
   });
 
+  // At factor 1 too: an unpinned inline embed flashed a scrollbar between a content
+  // change and the host's resize, and its width re-wrapped text at a line breakpoint —
+  // taller, resize, scrollbar gone, shorter, resize, scrollbar back, forever.
+  test("an inline embed pins vertical overflow from the start and at every factor", async () => {
+    const html = await page();
+    expect(html).toContain('document.documentElement.style.overflowY="hidden";var o=new ResizeObserver(P)');
+    // A page-level min-height:100vh measured the content-sized frame and grew it forever.
+    expect(html).toContain("html,body{min-height:0!important;height:auto!important}");
+    expect(html).toContain("if(fit)fit.disabled=!!d.boxed");
+    expect(html).not.toContain("if(Z<1){");
+    // The standalone preview frame is boxed: it keeps its scrollbar.
+    expect(html.match(/document\.documentElement\.style\.overflowY="hidden"/g)!.length).toBe(1);
+  });
+
   test("the matcher is defined once and shipped to the frame as source", async () => {
     const html = await page();
     // Once as a real declaration for the host page...

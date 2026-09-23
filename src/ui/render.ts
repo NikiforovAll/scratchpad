@@ -1147,13 +1147,14 @@ const KEY_RELAY = 'addEventListener("keydown",function(e){var x=e.target;if(x&&(
 //       leave a scrollbar behind. A factor that hit the host's floor (a table many
 //       times wider than the box) keeps its scrollbar rather than hide what it can't
 //       show.
-//   y — whenever the frame is NOT boxed, i.e. the host sizes it from the height
-//       reported below. That resize makes the scaled page fit by construction, so
-//       there is nothing to measure: a transform leaves the document's layout height
-//       untouched, and without the pin the shorter frame scrolled its own full-size
-//       document — a phantom scrollbar over content already entirely visible. A boxed
-//       frame (full window, standalone preview) is sized by CSS instead, where tall
-//       content really is cut off, so it keeps its scrollbar.
+//   y — whenever the frame is NOT boxed, at every factor: the host sizes it from the
+//       reported height, so the page fits by construction. Unpinned, a transient
+//       scrollbar re-wrapped text at a line breakpoint and the resize loop flickered
+//       forever; under a transform the shorter frame also scrolled its full-size
+//       document. A boxed frame (full window, standalone preview, embed-boxed) is
+//       sized by CSS, where tall content really is cut off, so it keeps its
+//       scrollbar. An inline embed starts pinned: the first zoom message may never
+//       come.
 const FRAME_ZOOM = 'var Z=1;'
   + 'function M(){var d=document.documentElement,b=document.body;return{'
   + 'h:Math.max(d.scrollHeight,b?b.scrollHeight:0,b?b.offsetHeight:0),'
@@ -1163,14 +1164,15 @@ const FRAME_ZOOM = 'var Z=1;'
   + 'function P(){var m=M();parent.postMessage({__scratchFrame:1,h:Math.ceil(m.h*Z),w:m.w,z:Z},"*");}'
   + 'addEventListener("message",function(e){var d=e.data;if(!d||d.__scratchZoom!==1)return;'
   + 'Z=d.z;var r=document.documentElement,b=document.body;'
+  + 'var fit=document.getElementById("__scratchFit");if(fit)fit.disabled=!!d.boxed;'
   + 'if(b){b.style.transformOrigin="0 0";b.style.transform=Z===1?"":"scale("+Z+")";}'
   + 'r.style.overflow="";'
   // Both reads before either write: pinning an axis removes its scrollbar and so widens
   // the box the other axis would be compared against — one forced layout, and the
   // narrower (pre-pin) box is the conservative side to round on.
-  + 'if(Z<1){var w=M().w,cw=r.clientWidth;'
+  + 'var fx=Z<1&&Math.ceil(M().w*Z)<=r.clientWidth;'
   + 'if(!d.boxed)r.style.overflowY="hidden";'
-  + 'if(Math.ceil(w*Z)<=cw)r.style.overflowX="hidden";}P();});'
+  + 'if(fx)r.style.overflowX="hidden";P();});'
   // Ctrl+wheel inside the frame, relayed like a keystroke: unhandled, it reached the
   // browser's OWN page zoom (and, full window, that zoom applied to the host page
   // hiding behind the frame — invisible until you left it). Scaling the embed is what
@@ -1178,8 +1180,14 @@ const FRAME_ZOOM = 'var Z=1;'
   + 'addEventListener("wheel",function(e){if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();'
   + 'parent.postMessage({__scratchWheel:1,down:e.deltaY>0},"*");},{passive:false});';
 // observe: keep reporting the content height so the host can size the frame to it.
+// FIT_CSS: in a frame sized to its content, the viewport IS that size, so a page-level
+// height:100% or min-height:100vh (common on standalone pages) measures the frame and
+// reports it back plus the kit's html padding — the frame grew by 32px a tick, forever.
+// Dropped in full window (boxed), where the author's full-viewport layout is right.
+// Shipped in htmlFrameDoc; FRAME_ZOOM toggles it by id.
+const FIT_CSS = '<style id="__scratchFit">html,body{min-height:0!important;height:auto!important}</style>';
 const frameScript = (observe) => '<' + 'script>(function(){' + FRAME_ZOOM
-  + (observe ? 'var o=new ResizeObserver(P);o.observe(document.documentElement);if(document.body)o.observe(document.body);' : '')
+  + (observe ? 'document.documentElement.style.overflowY="hidden";var o=new ResizeObserver(P);o.observe(document.documentElement);if(document.body)o.observe(document.body);' : '')
   + 'addEventListener("load",P);P();' + KEY_RELAY + '})();' + '<' + '/script>';
 const FRAME_SCRIPT = frameScript(true);
 // For a STANDALONE .html preview: that frame is the author's own document (no kit, no
@@ -1277,6 +1285,7 @@ function htmlFrameDoc(fragment) {
   // margin is counted in scrollHeight — otherwise a collapsed margin under-reports
   // and the frame shows a phantom scrollbar (FRAME_SCRIPT measures the max metric).
   return '<style>:root{color-scheme:' + (dark ? 'dark' : 'light') + '}' + KIT.css + '</style>'
+    + FIT_CSS
     + KIT.defs
     + fragment
     + FRAME_SCRIPT;
@@ -1864,11 +1873,15 @@ function armHtmlFrames() {
     // leaving full window shrinks the frame back into the column, and that resize is
     // reported at the OLD (magnified) factor, landing after exitFocus cleared
     // focusedFrame. Sizing the inline embed from it left a tall blank box.
-    if ((parseFloat(f.dataset.ez) || 1) !== (e.data.z || 1)) return;
+    if (embedZoomOf(f) !== (e.data.z || 1)) return;
     // Writing the height resizes the frame's document, which reports again — so an
     // unchanged value would dirty the article's layout on every steady-state tick.
-    const px = (e.data.h + 1) + 'px';
-    if (f.style.height !== px) f.style.height = px;
+    // Exactly h, no slack: scrollHeight never reads below the frame's own viewport, so
+    // any added slack is reported back and grows the frame a little every tick.
+    const px = e.data.h + 'px';
+    if (f.style.height === px) return;
+    if (viewportCoupled(f, e.data.h)) { boxEmbed(f); return; }
+    f.style.height = px;
   });
   // Delegated (frames are re-created on every render): track the frame under the
   // pointer so a bare 'f' knows which embed you mean, and wire the expand chips.
@@ -1954,16 +1967,19 @@ function enterFocus(frame) {
   frame.setAttribute('data-focused', '');
   document.documentElement.setAttribute('data-focus', '');
   applyZoom();   // reads data-focus: full window is unzoomed, see applyZoom
+  resendEmbedZoom(frame);
   if (!focusHinted) { focusHinted = true; showToast('Esc to exit full window', 'info'); }
 }
 function exitFocus() {
   if (!focusedFrame) return;
-  focusedFrame.removeAttribute('data-focused');
-  focusedFrame.style.height = '';  // let the ResizeObserver re-size the md embed
-  // A scale chosen for the whole viewport is meaningless back in the column, and left
-  // in place it shrank the inline embed for the rest of the session.
-  setEmbedZoom(focusedFrame, 1);
+  const frame = focusedFrame;
+  frame.removeAttribute('data-focused');
+  frame.style.height = '';  // let the ResizeObserver re-size the md embed
   focusedFrame = null;
+  // A scale chosen for the whole viewport is meaningless back in the column, and left
+  // in place it shrank the inline embed for the rest of the session. Sent after
+  // clearing focusedFrame so the frame hears it is no longer boxed.
+  resendEmbedZoom(frame, 1);
   document.documentElement.removeAttribute('data-focus');
   applyZoom();   // restores the reader zoom
   keySource = null;
@@ -1987,7 +2003,28 @@ const EMBED_MIN = 0.2, EMBED_MAX = 2, EMBED_STEP = 1.25;
 // overflow in either (see FRAME_ZOOM). (Direct-child test, not closest(): the CSS
 // contract is .md .htmlembed > .htmlframe, and this runs per resize tick.)
 function frameIsBoxed(f) {
-  return focusedFrame === f || !f.parentElement.classList.contains('htmlembed');
+  const c = f.parentElement.classList;
+  return focusedFrame === f || !c.contains('htmlembed') || c.contains('embed-boxed');
+}
+// A frame whose content follows its viewport (100vh/100dvh sections, a slide deck)
+// reports its own height plus a fixed extra every time it is resized, so sizing it to
+// content grows it forever. Legit growth (images, fonts, mermaid) does not repeat the
+// same step, so a run of equal steps is the signal: box the frame instead. Steps under
+// GROW_MIN are rounding (ceil of a fractional height), not coupling; the same slack
+// decides whether two steps are equal.
+const GROW_STREAK = 3, GROW_MIN = 3;
+function viewportCoupled(f, px) {
+  const prev = parseFloat(f.style.height) || 0;
+  const step = px - prev;
+  if (!prev || step < GROW_MIN) { f.__step = 0; f.__streak = 0; return false; }
+  f.__streak = Math.abs(step - f.__step) < GROW_MIN ? f.__streak + 1 : 0;
+  f.__step = step;
+  return f.__streak >= GROW_STREAK;
+}
+function boxEmbed(f) {
+  f.parentElement.classList.add('embed-boxed');
+  f.style.height = '';
+  resendEmbedZoom(f);
 }
 // Ask the frame to scale. dataset.ez is the applied factor: it makes the no-op case
 // free (the frame's own ResizeObserver reports after every scale, so without this the
@@ -2001,6 +2038,13 @@ function setEmbedZoom(frame, z) {
   const msg = { __scratchZoom: 1, z: z, boxed: frameIsBoxed(frame) };
   try { frame.contentWindow.postMessage(msg, '*'); } catch (_) {}
   return z;
+}
+function embedZoomOf(frame) { return parseFloat(frame.dataset.ez) || 1; }
+// Send even at an unchanged factor: after the boxed contract flips, the frame must
+// hear it to lift (or restore) its vertical pin and fit CSS.
+function resendEmbedZoom(frame, z = embedZoomOf(frame)) {
+  delete frame.dataset.ez;
+  return setEmbedZoom(frame, z);
 }
 // Remember what '0' should fit to. The LARGEST width the frame ever reported, not the
 // latest: the first report can land before webfonts/images settle, and a scaled-down
@@ -2018,7 +2062,7 @@ function embedFit(frame) {
 // the floor would keep re-arming the readout over a picture that isn't changing.
 function scaleEmbed(f, mult) {
   if (!f || f.tagName !== 'IFRAME') return false;
-  const cur = parseFloat(f.dataset.ez) || 1;
+  const cur = embedZoomOf(f);
   const z = setEmbedZoom(f, mult ? cur * mult : embedFit(f));
   if (z !== cur) showToast(Math.round(z * 100) + '%', 'info');
   return true;

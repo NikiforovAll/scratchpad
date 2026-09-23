@@ -1000,6 +1000,10 @@ sup.fnref a:hover { text-decoration: underline; }
 .md .htmlembed { display: block; position: relative; width: 100%; max-width: 760px; margin: 1em auto; }
 .md .htmlembed > .htmlframe { display: block; width: 100%; height: 150px; border: 0; margin: 0;
   background: var(--embed-paper); }
+/* Set by boxEmbed (see viewportCoupled in render.ts): a slide-shaped box the page
+   scrolls inside. Not while focused — full window owns the frame's size. */
+.md .htmlembed.embed-boxed > .htmlframe:not([data-focused]) {
+  height: auto; aspect-ratio: 16 / 10; max-height: 75vh; }
 /* Hover-only: an always-on chip would cover the author page's own corner. */
 .embed-full { position: absolute; top: 6px; right: 6px; z-index: 1;
   background: var(--elevated); border: 1px solid var(--border); border-radius: 4px;
