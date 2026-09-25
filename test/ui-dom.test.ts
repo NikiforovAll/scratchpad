@@ -2320,6 +2320,7 @@ test("Ctrl+Shift+S saves only the focused file, as a sidebar-less export", async
     expect(out).toMatch(/^<!doctype html>\n<html[^>]* data-export(?=[ =>])/);
     expect(out).toMatch(/<html[^>]* data-solo(?=[ =>])/);
     expect(out).toContain('id="saveCopy"'); // still savable
+    expect(out).toContain('<header class="topbar collapsed" id="topbar">');
   } finally {
     await teardown();
   }
@@ -2332,6 +2333,13 @@ test("Ctrl+Shift+S saves only the focused file, as a sidebar-less export", async
     // collapsed sidebar into every other export on this origin.
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "[", bubbles: true }));
     expect(localStorage.getItem("scratch.sidebarCollapsed")).toBeNull();
+    // The top bar boots hidden even if the reader left it open elsewhere; ']' shows
+    // it for this page only.
+    const topbar = document.getElementById("topbar")!;
+    expect(topbar.classList.contains("collapsed")).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "]", bubbles: true }));
+    expect(topbar.classList.contains("collapsed")).toBe(false);
+    expect(localStorage.getItem("scratch.topbarCollapsed")).toBeNull();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }));
     await settle();
     expect(again.names).toEqual(["p--b.html"]);

@@ -3055,6 +3055,7 @@ const SETTINGS = (function () {
       if (z >= 0.5 && z <= 2) s.zoom = z;
     } catch (_) {}
   }
+  if (SOLO) s.topbarCollapsed = true;
   return s;
 })();
 // Push a payload to whichever host is listening: WebView2 postMessage (wrapped
@@ -3718,7 +3719,9 @@ function toggleSidebar() {
 function toggleTopbar() {
   SETTINGS.topbarCollapsed = !SETTINGS.topbarCollapsed;
   setBar(topbarEl, SETTINGS.topbarCollapsed, true);
-  persistSettings();
+  // A solo page boots with the bar hidden; persisting would leak the reader's flip
+  // into every other export on this file:// origin.
+  if (!SOLO) persistSettings();
 }
 document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
 // The in-pane toggle collapses away with the pane; this floater (top-left of
@@ -4181,7 +4184,10 @@ function builtExportHtml(data) {
   let src = EXPORT_MODE ? PRISTINE : PRISTINE.replace(/<html(?=[ >])/, '<html data-export');
   // A one-file copy (data is the narrowed island) says so on <html>: the CSS hides
   // the tree, and SOLO makes the copy suggest its own name when re-saved.
-  if (data) src = src.replace(/<html(?=[ >])/, '<html data-solo');
+  if (data) {
+    src = src.replace(/<html(?=[ >])/, '<html data-solo')
+      .replace(/<header class="topbar(?: collapsed)?" id="topbar">/, '<header class="topbar collapsed" id="topbar">');
+  }
   src = src.replace(excaIsland, '');
   const open = '<script id="data" type="application/json">';
   const close = '</' + 'script>';
