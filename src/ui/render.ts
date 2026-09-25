@@ -1658,8 +1658,9 @@ function renderBlocks(lines, base) {
       continue;
     }
     // GFM pipe table: a header row followed by a |---|:--:|---| separator row.
+    // A one-column separator must be fenced (|---|): a bare --- is a setext underline or rule.
     if (line.indexOf('|') !== -1 && i + 1 < lines.length &&
-        /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
+        /^\s*(\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\||\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?)\s*$/.test(lines[i + 1])) {
       closeLists();
       const cells = (r) => { let s = r.trim(); if (s.startsWith('|')) s = s.slice(1); if (s.endsWith('|')) s = s.slice(0, -1); return s.split('|').map(c => c.trim()); };
       const heads = cells(line);

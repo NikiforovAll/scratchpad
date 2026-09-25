@@ -665,6 +665,24 @@ test("footnotes: [^id] refs are numbered and linked to a definitions list ([^id]
   }
 });
 
+test("single-column pipe table renders; a bare --- under text stays a heading", async () => {
+  const html = await renderPadWithContent(
+    ["| Root |", "|---|", "| a |", "| b |", "", "Setext", "---", ""].join("\n"),
+  );
+  await boot(html);
+  try {
+    const md = document.querySelector("#preview .md")!;
+    const table = md.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(table!.querySelectorAll("thead th").length).toBe(1);
+    expect(table!.querySelectorAll("tbody tr").length).toBe(2);
+    expect(md.textContent).not.toContain("|---|");
+    expect(md.querySelectorAll("table").length).toBe(1);
+  } finally {
+    await teardown();
+  }
+});
+
 test("blockquotes render nested blocks: heading, table, list, fence — not literal markdown", async () => {
   const html = await renderPadWithContent(
     [
