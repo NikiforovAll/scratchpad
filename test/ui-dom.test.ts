@@ -683,6 +683,23 @@ test("single-column pipe table renders; a bare --- under text stays a heading", 
   }
 });
 
+test("<br> breaks a table cell; escaped and code-span forms stay literal", async () => {
+  const html = await renderPadWithContent(
+    ["| Docs |", "|---|", "| `a` (1)<br>`b` (2)<BR/>c |", "| x \\<br> y `<br>` |", ""].join("\n"),
+  );
+  await boot(html);
+  try {
+    const cells = [...document.querySelectorAll("#preview .md tbody td")];
+    expect(cells[0]!.querySelectorAll("br").length).toBe(2);
+    expect(cells[0]!.querySelectorAll("code").length).toBe(2);
+    expect(cells[0]!.textContent).toBe("a (1)b (2)c");
+    expect(cells[1]!.querySelector("br")).toBeNull();
+    expect(cells[1]!.textContent).toBe("x <br> y <br>");
+  } finally {
+    await teardown();
+  }
+});
+
 test("blockquotes render nested blocks: heading, table, list, fence — not literal markdown", async () => {
   const html = await renderPadWithContent(
     [

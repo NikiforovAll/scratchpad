@@ -80,6 +80,13 @@ test("wikilinks strip to their display text, matching what mdInline would render
   expect(locate(doc, aliased).line).toBe(3);
 });
 
+test("a quote across a <br> in a table cell still matches", () => {
+  const doc = "# H\n\n| Docs |\n|---|\n| `spo-1` (2026-05-26)<br>`spo-2` (2026-01-30) |\n";
+  const r = locate(doc, cmt("(2026-05-26)spo-2"));
+  expect(r.matched).toBe(true);
+  expect(r.line).toBe(5);
+});
+
 test("prefix/suffix disambiguate a quote that occurs more than once", () => {
   // "cat" appears on line 3 and line 5; suffix " ran" must pick the line-5 one.
   const doc = "# H\n\nThe cat sat here.\n\nThe cat ran fast.\n";

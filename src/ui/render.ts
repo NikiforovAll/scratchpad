@@ -1333,6 +1333,10 @@ function mdInline(s) {
     const href = !url.includes(':') ? 'mailto:' + url : url;
     return hold('<a href="' + esc(href) + '">' + esc(url) + '</a>');
   });
+  // <br> is the one raw tag let through: GFM has no line break inside a table
+  // cell, and GitHub/GitLab/VS Code all honor inline <br> for it. \\<br> and
+  // \`<br>\` are already stashed above, so both stay literal.
+  s = s.replace(/<br\s*\/?>/gi, () => hold('<br>'));
   s = esc(s);
   // Triple-star first: the nested-aware bold rule below would otherwise eat
   // one edge star of a ***bold italic*** run and strand the leftover.

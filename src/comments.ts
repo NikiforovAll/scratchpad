@@ -39,6 +39,7 @@ function stripInline(s: string): string {
     .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, name, alias) => (alias ?? name).trim()) // wikilinks → display text
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1") // images → alt
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // links → text
+    .replace(/<br\s*\/?>/gi, "") // <br> renders as an element: Range.toString() adds no text for it
     .replace(/`([^`]+)`/g, "$1") // inline code
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/__([^_]+)__/g, "$1")
