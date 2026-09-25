@@ -870,7 +870,7 @@ const SHORTCUT_PAIRS: [ShortcutGroup, ShortcutGroup][] = [
       title: "View",
       rows: [
         { keys: ["v"], label: "Toggle raw / rendered markdown" },
-        { keys: ["f"], label: "Expand embed under cursor" },
+        { keys: ["f"], label: "Expand embed or image under cursor" },
         { keys: ["+", "−", "0"], label: "Scale that embed in / out / fit" },
         { keys: ["o"], label: "Toggle table of contents" },
         { keys: ["c"], label: "Toggle comments" },
@@ -1900,15 +1900,15 @@ function armHtmlFrames() {
     // cleared) kept re-opening the last diagram from anywhere on the page. Match the
     // wrapper, not just the svg — the chip is a sibling inside it. The full-file html
     // preview is a bare frame with no wrapper, so it is its own host.
-    const host = (t.tagName === 'IFRAME' && t.classList.contains('htmlframe'))
-      ? t : t.closest('.htmlembed, .mermaid');
+    const bare = t.matches('iframe.htmlframe, img.mdimg');
+    const host = bare ? t : t.closest('.htmlembed, .mermaid');
     if (!host) { hoverHost = hoverTarget = null; return; }
     // mouseover bubbles at every child boundary the pointer crosses and a mermaid svg
     // has hundreds of children — while the pointer stays inside one host, bail before
     // re-walking the tree for an answer that cannot have changed.
     if (host === hoverHost) return;
     hoverHost = host;
-    hoverTarget = host.tagName === 'IFRAME' ? host : host.querySelector('iframe.htmlframe, svg');
+    hoverTarget = bare ? host : host.querySelector('iframe.htmlframe, svg');
   });
   // Leaving the window fires no further mouseover, so clear on the way out (a null
   // relatedTarget is the pointer exiting the document, not moving between elements).
@@ -1929,15 +1929,15 @@ function armHtmlFrames() {
 // gone would be alarming. Purely additive CSS on <html> + the frame — the iframe
 // node is never touched, so the author page keeps its scroll and in-page state.
 let keySource = null;      // contentWindow of the frame that forwarded the last key
-let hoverTarget = null;    // embed under the pointer (html frame OR mermaid svg)
+let hoverTarget = null;    // embed under the pointer (html frame, mermaid svg or md image)
 let hoverHost = null;      // its wrapper — the mouseover fast path compares against this
 let focusedFrame = null;
 let focusHinted = false;   // the Esc hint is once per session, not once per open
 
-// 'f' expands either kind of embed. The PRESENTATION differs on purpose: an SVG has
+// 'f' expands any embed. The PRESENTATION differs on purpose: an SVG or image has
 // no state to lose and wants pan/zoom, so it clones into the lightbox; an iframe must
 // never be reparented (that reloads the author page), so it goes full-window in place.
-const EMBED_SEL = 'iframe.htmlframe, .mermaid svg';
+const EMBED_SEL = 'iframe.htmlframe, .mermaid svg, img.mdimg';
 // Both embed kinds get the SAME chip: the md path emits it as markup, mermaid injects
 // it after run() settles. Authored once so relabeling stays one edit.
 const EMBED_CHIP = '<button class="embed-full" title="Full window (f)">⛶</button>';
@@ -3553,8 +3553,8 @@ const showDiagram = (v) => {
   diagramModal.style.display = v ? 'flex' : 'none';
   if (!v) { diagramStage.innerHTML = ''; dgSvg = null; dgDrag = null; }
 };
-function openDiagram(svg) {
-  const clone = svg.cloneNode(true);
+function openDiagram(el) {
+  const clone = el.cloneNode(true);
   clone.style.maxWidth = '';
   clone.style.transformOrigin = '0 0';
   diagramStage.innerHTML = '';
@@ -3585,6 +3585,8 @@ diagramStage.addEventListener('pointermove', (e) => {
 });
 diagramStage.addEventListener('pointerup', () => { dgDrag = null; });
 diagramStage.addEventListener('dblclick', dgReset);
+// A native image drag would steal the pan gesture.
+diagramStage.addEventListener('dragstart', (e) => e.preventDefault());
 
 // Frameless window chrome: glimpse's Windows WebView2 host opens with no system
 // title bar (frameless), so the page must offer its own close affordance. The

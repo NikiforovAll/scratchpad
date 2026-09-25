@@ -517,6 +517,40 @@ test("a rendered mermaid SVG expands into the diagram lightbox via its chip / 'f
   }
 });
 
+test("'f' over an inline markdown image opens it in the diagram lightbox", async () => {
+  const html = await renderPad();
+  await boot(html);
+  try {
+    const img = document.createElement("img");
+    img.className = "mdimg";
+    img.src = "data:image/png;base64,iVBORw0KGgo=";
+    document.querySelector(".md")!.appendChild(img);
+
+    const modal = document.getElementById("diagramModal")!;
+    img.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(modal.style.display).toBe("flex");
+    expect(document.documentElement.hasAttribute("data-focus")).toBe(false);
+    const cloned = document.querySelector("#diagramStage img") as HTMLImageElement;
+    expect(cloned.src).toBe(img.src);
+    const drag = new Event("dragstart", { bubbles: true, cancelable: true });
+    cloned.dispatchEvent(drag);
+    expect(drag.defaultPrevented).toBe(true);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "+" }));
+    expect(cloned.style.transform).toContain("scale(1.25");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(modal.style.display).toBe("none");
+
+    document.body.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    expect(modal.style.display).toBe("none");
+  } finally {
+    await teardown();
+  }
+});
+
 test("renders TeX math via KaTeX (inline + display), guarding code spans and prose currency", async () => {
   const dir = join(root, "p");
   await mkdir(dir, { recursive: true });

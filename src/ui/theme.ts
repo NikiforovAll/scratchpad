@@ -474,6 +474,7 @@ html:not([data-native]) .sc-native { display: none; }
    layer a transform on top (transform-origin set to 0 0 in JS). */
 .diagram-stage svg { display: block; width: 100% !important; height: 100% !important;
   max-width: none !important; max-height: none !important; }
+.diagram-stage img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .diagram-close { position: fixed; top: 16px; right: 16px; z-index: 1;
   background: var(--elevated); border: 1px solid var(--border);
   box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
