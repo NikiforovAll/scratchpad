@@ -45,7 +45,7 @@ export const COLOR_THEMES: ColorTheme[] = [
       border: "#363840", ink1: "#f0f1f3", ink2: "#c2c4c9", ink3: "#9a9da5", inkMuted: "#7d808a",
     },
     light: {
-      ember: "#e86f33", emberGlow: "#b85a20", emberDim: "rgba(184,90,32,0.18)",
+      ember: "#e86f33", emberGlow: "#a0501c", emberDim: "rgba(184,90,32,0.18)",
       field: "#e8e6e3", surface: "#efede9", elevated: "#fbfaf9", hover: "#e0ddd7",
       border: "#cfcbc4", ink1: "#0a0a0a", ink2: "#2c2c2c", ink3: "#565656", inkMuted: "#767676",
     },
@@ -99,14 +99,14 @@ export const COLOR_THEMES: ColorTheme[] = [
     id: "solarized",
     label: "Solarized",
     dark: {
-      ember: "#cb4b16", emberGlow: "#e9663a", emberDim: "rgba(203,75,22,0.25)",
+      ember: "#c96f47", emberGlow: "#d48a6a", emberDim: "rgba(201,111,71,0.25)",
       field: "#002b36", surface: "#073642", elevated: "#0a4250", hover: "#11505f",
-      border: "#586e75", ink1: "#93a1a1", ink2: "#839496", ink3: "#657b83", inkMuted: "#586e75",
+      border: "#586e75", ink1: "#e2dfd0", ink2: "#b7c0bf", ink3: "#93a1a1", inkMuted: "#839496",
     },
     light: {
-      ember: "#cb4b16", emberGlow: "#b34a12", emberDim: "rgba(203,75,22,0.18)",
-      field: "#eee8d5", surface: "#f5efdc", elevated: "#fdf6e3", hover: "#e4ddc8",
-      border: "#d3cbb7", ink1: "#073642", ink2: "#586e75", ink3: "#657b83", inkMuted: "#839496",
+      ember: "#2280c2", emberGlow: "#1b6aa3", emberDim: "rgba(34,128,194,0.18)",
+      field: "#eee8d5", surface: "#fdf6e3", elevated: "#fffbef", hover: "#efe8d3",
+      border: "#cdc4ab", ink1: "#073642", ink2: "#4f6369", ink3: "#586e75", inkMuted: "#728589",
     },
   },
   {
@@ -153,7 +153,7 @@ export const COLOR_THEMES: ColorTheme[] = [
     light: {
       ember: "#907aa9", emberGlow: "#6f598c", emberDim: "rgba(144,122,169,0.18)",
       field: "#f2e9e1", surface: "#faf4ed", elevated: "#fffaf3", hover: "#ebdfd4",
-      border: "#dfdad9", ink1: "#575279", ink2: "#635e87", ink3: "#797593", inkMuted: "#9893a5",
+      border: "#cecacd", ink1: "#575279", ink2: "#635e87", ink3: "#6e6a88", inkMuted: "#857f96",
     },
   },
   {
@@ -169,8 +169,8 @@ export const COLOR_THEMES: ColorTheme[] = [
     // lighter paper, darker neutral ink.
     light: {
       ember: "#6f8352", emberGlow: "#56683f", emberDim: "rgba(111,131,82,0.18)",
-      field: "#f4f0d9", surface: "#fdf6e3", elevated: "#fffbef", hover: "#efebd4",
-      border: "#d8d3ba", ink1: "#4d5960", ink2: "#5c6a72", ink3: "#7a8478", inkMuted: "#939f91",
+      field: "#ebeadb", surface: "#f5f4e8", elevated: "#fbfbf4", hover: "#e5e4d3",
+      border: "#d3d2bf", ink1: "#3d484e", ink2: "#55636b", ink3: "#66705f", inkMuted: "#7a8577",
     },
   },
   {
@@ -181,11 +181,12 @@ export const COLOR_THEMES: ColorTheme[] = [
       field: "#16161d", surface: "#1f1f28", elevated: "#2a2a37", hover: "#363646",
       border: "#54546d", ink1: "#dcd7ba", ink2: "#c8c093", ink3: "#a6a69c", inkMuted: "#727169",
     },
-    // Kanagawa Lotus, the canonical light sibling (yellow-tan paper).
+    // Kanagawa Lotus, the canonical light sibling, with the yellow-tan paper
+    // desaturated to a soft cream.
     light: {
       ember: "#4d699b", emberGlow: "#38537f", emberDim: "rgba(77,105,155,0.18)",
-      field: "#e5ddb0", surface: "#f2ecbc", elevated: "#faf5d2", hover: "#dcd5ac",
-      border: "#c7bf94", ink1: "#545464", ink2: "#66667a", ink3: "#716e61", inkMuted: "#8a8775",
+      field: "#e9e5d6", surface: "#f3f0e4", elevated: "#faf8f1", hover: "#e2ddcb",
+      border: "#d2ccb6", ink1: "#545464", ink2: "#66667a", ink3: "#716e61", inkMuted: "#8a8775",
     },
   },
   {
@@ -230,7 +231,7 @@ export const COLOR_THEMES: ColorTheme[] = [
     // Monokai Pro is dark-only: warm gray paper, yellow deepened to amber so
     // accent text survives on light.
     light: {
-      ember: "#c08a00", emberGlow: "#9a6e00", emberDim: "rgba(192,138,0,0.18)",
+      ember: "#c08a00", emberGlow: "#856000", emberDim: "rgba(192,138,0,0.18)",
       field: "#e9e6e4", surface: "#f1efed", elevated: "#fcfbfa", hover: "#e0dcda",
       border: "#cdc8c5", ink1: "#2c292d", ink2: "#46434a", ink3: "#6b686d", inkMuted: "#8d8a8d",
     },
@@ -260,10 +261,10 @@ export const COLOR_THEMES: ColorTheme[] = [
       field: "#0d1017", surface: "#10141c", elevated: "#141821", hover: "#1d2330",
       border: "#2d3343", ink1: "#bfbdb6", ink2: "#a8a6a0", ink3: "#8a9199", inkMuted: "#6c7380",
     },
-    // ayu-light: the yellow stays for fills, but accent text (glow) drops to a
-    // burnt orange for contrast.
+    // ayu-light: the yellow deepens to amber for fills, and accent text (glow)
+    // drops to a burnt orange for contrast.
     light: {
-      ember: "#f2ae49", emberGlow: "#b87514", emberDim: "rgba(242,174,73,0.18)",
+      ember: "#c97612", emberGlow: "#a65e0c", emberDim: "rgba(201,118,18,0.18)",
       field: "#eff1f3", surface: "#f8f9fa", elevated: "#fcfcfc", hover: "#e7eaed",
       border: "#d8dde2", ink1: "#3d4149", ink2: "#5c6166", ink3: "#787b80", inkMuted: "#8a9199",
     },
@@ -365,7 +366,7 @@ const BASE_CSS = `
 }
 :root[data-theme="light"] {
   --ember: #e86f33;
-  --ember-glow: #b85a20;
+  --ember-glow: #a0501c;
   --ember-dim: rgba(184,90,32,0.18);
   --field: #e8e6e3;
   --surface: #efede9;
