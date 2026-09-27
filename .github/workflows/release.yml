@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*", "pi-scratchpad-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      dir: ${{ steps.version.outputs.dir }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+      - name: Tag matches the package version
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            pi-scratchpad-v*) dir=pi; want="${tag#pi-scratchpad-v}";;
+            v*) dir=.; want="${tag#v}";;
+            *) echo "run this workflow from a v* or pi-scratchpad-v* tag, got $tag"; exit 1;;
+          esac
+          version="$(node -p "require('./$dir/package.json').version")"
+          [ "$want" = "$version" ] || { echo "tag $tag but $dir/package.json is at $version"; exit 1; }
+          case "$version" in *-*) prerelease=true;; *) prerelease=false;; esac
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+      - name: Test the CLI
+        if: steps.version.outputs.dir == '.'
+        run: |
+          bun install --frozen-lockfile
+          bun test
+      - name: Transpile the pi extension
+        if: steps.version.outputs.dir == 'pi'
+        run: bun build pi/extensions/scratch.ts --target=node --packages=external --outfile="$RUNNER_TEMP/check.js"
+      # npm publish from the folder drops the .ts bin as invalid; a tarball from bun pm pack keeps it.
+      - name: Pack with bun
+        working-directory: ${{ steps.version.outputs.dir }}
+        run: |
+          bun pm pack --destination "$RUNNER_TEMP/pkg" --quiet
+          tar -xOzf "$RUNNER_TEMP"/pkg/*.tgz package/package.json | node -e '
+            const p = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            if (p.name === "@nikiforovall/scratchpad" && !p.bin?.scratch) { console.error("the scratch bin is missing from the tarball"); process.exit(1); }'
+      - name: Publish to npm
+        env:
+          DIR: ${{ steps.version.outputs.dir }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          name="$(node -p "require('./$DIR/package.json').name")"
+          if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+            echo "$name@$VERSION is already on the registry"
+          elif [ "$PRERELEASE" = true ]; then
+            npm publish "$RUNNER_TEMP"/pkg/*.tgz --provenance --access public --tag rc
+          else
+            npm publish "$RUNNER_TEMP"/pkg/*.tgz --provenance --access public
+          fi
+
+  pages:
+    needs: publish
+    if: needs.publish.outputs.dir == '.' && needs.publish.outputs.prerelease == 'false'
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

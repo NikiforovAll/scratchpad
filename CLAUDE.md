@@ -31,7 +31,7 @@ Two independently-published npm packages plus a Claude Code plugin, all in one r
 - **`pi/`** (`@nikiforovall/pi-scratchpad`) — pi coding-agent package: skills + `/scratch ui|export|stop` commands. Drives the same `scratch` CLI (does not reimplement it).
 - **`plugins/scratchpad/`** — Claude Code plugin (skills); `.claude-plugin/` makes this repo a plugin marketplace.
 
-Release flow is per-package and documented in user memory (see `MEMORY.md`): bump → commit → push → publish → tag. Tags are prefixed: CLI `vX.Y.Z`, pi pkg `pi-scratchpad-vX.Y.Z`.
+Release with the `release` skill. A tag push publishes through `.github/workflows/release.yml` (npm trusted publishing); nobody publishes locally. Tags are prefixed: CLI `vX.Y.Z`, pi pkg `pi-scratchpad-vX.Y.Z`. See `docs/PUBLISHING.md`.
 
 ## Architecture
 

@@ -15,7 +15,8 @@ docs/.vitepress/cache/
 *.log
 
 # editor / tooling local state
-.claude/
+.claude/*
+!.claude/skills/
 .playwright-cli/
 .vscode/
 .idea/

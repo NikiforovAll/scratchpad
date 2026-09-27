@@ -5,42 +5,26 @@ This repo ships **two npm packages**, released independently:
 - **`@nikiforovall/scratchpad`** — the `scratch` CLI (repo root). Installed under the user's Bun (`bun add -g @nikiforovall/scratchpad`). Source-only (`src/` + `README` + `LICENSE`); `glimpseui` is a pinned runtime dependency. Tag: `vX.Y.Z`.
 - **`@nikiforovall/pi-scratchpad`** — the [pi](https://pi.dev) package (`pi/`). Skills + a `/scratch ui|export|stop` extension that drives the installed CLI. Source-only (`extensions/` + `skills/` + `README` + `LICENSE`). Tag: `pi-scratchpad-vX.Y.Z`.
 
-Both publish with `bun publish` (see below). The CLI's root `files` allowlist (`src`, `README.md`, `LICENSE`) keeps `pi/` out of the CLI tarball, so the two never overlap.
+Both publish from GitHub Actions (see below). The CLI's root `files` allowlist (`src`, `README.md`, `LICENSE`) keeps `pi/` out of the CLI tarball, so the two never overlap.
 
 ## Native viewer
 
 Under **Bun**, glimpseui's `postinstall` never runs (Bun blocks lifecycle scripts for untrusted deps, and a *transitive* dep can't be trusted from our `package.json`), so the WebView2 host isn't built at install time — and we do **not** build it automatically. `scratch ui` opens the native window by default; if the host is missing it prints a one-time instruction and falls back to the browser. The user builds it on demand with **`scratch ui --install-native`** (needs the **.NET 8 SDK** + WebView2 runtime). `scratch ui --browser` forces the browser viewer, which always works.
 
-## Release steps — CLI (`@nikiforovall/scratchpad`)
+## Release
 
-From the repo root:
+Run the `release` skill (`.claude/skills/release/`). It bumps the version, pushes a tag and creates the GitHub release. The tag push starts `.github/workflows/release.yml`, the only publisher:
 
-```sh
-bun test                 # prepublishOnly also runs this as a gate
-# bump "version" in package.json (semver), commit, push
-git push
-# publish with bun — NOT npm (npm strips the .ts bin, leaving no `scratch`
-# command). On Windows bun ignores ~/.npmrc, so the token must be passed inline;
-# web 2FA is approved in the browser when prompted.
-NPM_CONFIG_TOKEN=$(grep _authToken ~/.npmrc | sed 's/.*=//') bun publish --access public
-git tag v$(node -p "require('./package.json').version") && git push --tags
-```
+1. It checks that the tag matches the package's `package.json`. A `vX.Y.Z` tag releases the CLI; a `pi-scratchpad-vX.Y.Z` tag releases the pi package.
+2. It runs the gate: `bun test` for the CLI, a transpile check of `pi/extensions/scratch.ts` for the pi package.
+3. It packs with `bun pm pack` and publishes the tarball with `npm publish --provenance` through npm trusted publishing (OIDC, environment `release`, no token). `npm publish` from the folder drops the `.ts` bin as invalid, which leaves no `scratch` command; the bun tarball keeps it, and the workflow fails if the bin is missing.
+4. A stable CLI release then deploys the docs (`pages.yml`). Run `pages.yml` by hand to deploy docs without a release.
 
-## Release steps — pi package (`@nikiforovall/pi-scratchpad`)
+A version with `-` (for example `0.31.0-rc.1`) goes to the `rc` dist-tag and skips the docs deploy. Install it with `bun add -g @nikiforovall/scratchpad@rc`.
 
-From `pi/`. No build/prepublish step — pi runs the `.ts` extension directly; do a quick transpile-check as the gate. `publishConfig.access: public` is set, so no `--access` flag is needed.
+To publish again after a failed run, fix the cause and run `gh workflow run release.yml --ref <tag>`. The publish step skips a version that is already on npm.
 
-```sh
-bun build pi/extensions/scratch.ts --target=node --outfile=/tmp/c.js   # transpile gate (from root)
-# bump "version" in pi/package.json (semver), commit, push
-git push
-cd pi
-NPM_CONFIG_TOKEN=$(grep _authToken ~/.npmrc | sed 's/.*=//') bun publish
-cd ..
-git tag pi-scratchpad-v$(node -p "require('./pi/package.json').version") && git push --tags
-```
-
-Always push the tag — the npm publish alone is not the release. Tags are **prefixed per package** (`vX.Y.Z` vs `pi-scratchpad-vX.Y.Z`) so the two packages don't collide in one repo.
+Each package has a trusted publisher on npmjs.com (package → Settings → Trusted Publisher): owner `NikiforovAll`, repository `scratchpad`, workflow `release.yml`, environment `release`.
 
 ## Version pinning
 
