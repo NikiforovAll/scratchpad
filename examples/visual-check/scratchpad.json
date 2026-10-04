@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "name": "visual-check",
+  "created": "2026-10-04T17:27:28Z",
+  "updated": "2026-10-04T17:28:38Z",
+  "files": [
+    {
+      "path": "typography.md",
+      "title": "Typography stress test",
+      "description": "Weights, styles, symbols, Latin-ext, Cyrillic, Greek, fallback scripts, numbers, math",
+      "tags": [
+        "fonts",
+        "glyphs"
+      ],
+      "type": "note",
+      "group": "Fonts"
+    },
+    {
+      "path": "code-glyphs.ts",
+      "title": "Mono glyphs",
+      "description": "Confusables, operator pairs, box drawing, a very long line",
+      "tags": [
+        "fonts",
+        "mono"
+      ],
+      "type": "snippet",
+      "group": "Fonts"
+    },
+    {
+      "path": "tree-output.txt",
+      "title": "Tree and table output",
+      "description": "Box-drawing and block characters in plain text output",
+      "tags": [
+        "mono"
+      ],
+      "type": "output",
+      "group": "Fonts"
+    },
+    {
+      "path": "alerts.md",
+      "title": "Alerts",
+      "description": "All five kinds with lists, code, tables inside",
+      "tags": [
+        "markdown"
+      ],
+      "type": "note",
+      "group": "Content"
+    },
+    {
+      "path": "diagrams.md",
+      "title": "Diagrams",
+      "description": "Flowchart, sequence, class and state diagrams, one with Cyrillic labels",
+      "tags": [
+        "mermaid"
+      ],
+      "type": "note",
+      "group": "Content"
+    },
+    {
+      "path": "long-outline.md",
+      "title": "Long document",
+      "description": "Outline, wide table, wide image, long URL",
+      "tags": [
+        "layout"
+      ],
+      "type": "note",
+      "group": "Content"
+    },
+    {
+      "path": "bare.md",
+      "type": "note"
+    },
+    {
+      "path": "same-title.md",
+      "title": "Release checklist",
+      "description": "Manifest title equals the first H1",
+      "tags": [
+        "header"
+      ],
+      "type": "note",
+      "group": "Headers"
+    },
+    {
+      "path": "many-tags.md",
+      "title": "A deliberately long title to check how the document header and the sidebar row wrap when there is no room",
+      "description": "A long description that goes on for a while so the description line in the document header has to wrap at the reading measure and the sidebar tooltip shows it in full.",
+      "tags": [
+        "header",
+        "wrap",
+        "sidebar",
+        "tags",
+        "many",
+        "more",
+        "even-more",
+        "last"
+      ],
+      "type": "reference",
+      "group": "Headers"
+    },
+    {
+      "path": "repo-readme.md",
+      "src": "../../README.md",
+      "title": "Repo README (linked)",
+      "description": "External file by reference",
+      "tags": [
+        "linked"
+      ],
+      "type": "reference",
+      "group": "Linked"
+    },
+    {
+      "path": "pad-flow.html",
+      "src": "../feature-tour/pad-flow.html",
+      "title": "HTML artifact (linked)",
+      "group": "Linked",
+      "type": "artifact"
+    }
+  ]
+}

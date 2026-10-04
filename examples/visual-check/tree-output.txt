@@ -1,0 +1,19 @@
+$ scratch ls --dir examples
+examples/
+├── feature-tour        14 files
+│   ├── welcome.md
+│   ├── charts/
+│   │   └── *.html       3 files
+│   └── snippets/
+│       └── manifest.ts
+└── visual-check        12 files
+
+┌──────────────┬────────┬─────────┐
+│ check        │ status │ ms      │
+├──────────────┼────────┼─────────┤
+│ fonts loaded │ ok     │    42.0 │
+│ no fallback  │ ok     │     3.1 │
+│ export size  │ warn   │ 1,118.4 │
+└──────────────┴────────┴─────────┘
+
+progress ▁▂▃▄▅▆▇█  ░░▒▒▓▓██  ✓ ✗ ● ○ ■ □ ▶ ◀
