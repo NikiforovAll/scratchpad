@@ -162,6 +162,16 @@ describe("loadConfig", () => {
     expect(cfg.ui.topbarCollapsed).toBe(true);
   });
 
+  test("tocVisible: default false; saveConfig persists it; garbage is ignored", async () => {
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    expect((await loadConfig()).ui.tocVisible).toBe(false);
+    await saveConfig({ tocVisible: true });
+    expect((await loadConfig()).ui.tocVisible).toBe(true);
+    await saveConfig({ tocVisible: "yes" as unknown as boolean });
+    expect((await loadConfig()).ui.tocVisible).toBe(true);
+  });
+
   test("starredThemes: defaults to []; sanitizes unknown ids, dupes, and clamps to 3", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     expect((await loadConfig()).ui.starredThemes).toEqual([]);

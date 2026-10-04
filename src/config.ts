@@ -51,6 +51,8 @@ export interface ScratchConfig {
     sidebarCollapsed: boolean;
     /** Top bar collapsed away — toggled with ']'. */
     topbarCollapsed: boolean;
+    /** Outline (table of contents) shown — toggled with 'o'. */
+    tocVisible: boolean;
     /** Viewer zoom factor (CSS zoom on the root), 0.5–2. Neither WebView2 nor a
      * random-port browser origin remembers zoom across launches, so we own it. */
     zoom: number;
@@ -74,6 +76,7 @@ const DEFAULTS: ScratchConfig = {
     measure: MEASURE_DEFAULT,
     sidebarCollapsed: false,
     topbarCollapsed: false,
+    tocVisible: false,
     zoom: 1,
     autoReload: true,
   },
@@ -140,6 +143,7 @@ export async function loadConfig(): Promise<ScratchConfig> {
         measure: validMeasure(raw?.ui?.measure) ? raw.ui.measure : DEFAULTS.ui.measure,
         sidebarCollapsed: bool(raw?.ui?.sidebarCollapsed, DEFAULTS.ui.sidebarCollapsed),
         topbarCollapsed: bool(raw?.ui?.topbarCollapsed, DEFAULTS.ui.topbarCollapsed),
+        tocVisible: bool(raw?.ui?.tocVisible, DEFAULTS.ui.tocVisible),
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
         autoReload: bool(raw?.ui?.autoReload, DEFAULTS.ui.autoReload),
       },
@@ -178,6 +182,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (validMeasure(patch.measure)) ui.measure = patch.measure;
   if (typeof patch.sidebarCollapsed === "boolean") ui.sidebarCollapsed = patch.sidebarCollapsed;
   if (typeof patch.topbarCollapsed === "boolean") ui.topbarCollapsed = patch.topbarCollapsed;
+  if (typeof patch.tocVisible === "boolean") ui.tocVisible = patch.tocVisible;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;
   if (typeof patch.autoReload === "boolean") ui.autoReload = patch.autoReload;
   raw.ui = ui;

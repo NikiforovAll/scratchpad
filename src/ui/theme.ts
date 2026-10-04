@@ -624,18 +624,13 @@ html:not([data-native]) .sc-native { display: none; }
 /* Single centered reading column, lifted onto a card surface one step up from
    the margin field so it pops in both dark & light. Everything inside shares one
    left edge and fills the column width (rendered markdown AND raw alike). */
-/* Content-adaptive width: the card shrinks/grows to fit its widest block (wide
-   code blocks, tables, images, mermaid), centered, up to a cap. Prose is held to
-   a readable measure (below) so ordinary paragraphs DON'T balloon the card to the
-   cap — only genuinely wide content widens it. */
+/* Fit-content width: the .mspan spacer sets it to the reading measure (below),
+   centered, up to a cap. */
 .pbody { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 28px;
   padding: 34px 44px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.12); }
-/* The readable measure: text-level blocks cap here, so their max-content
-   contribution to the fit-content card is bounded. Non-text blocks (pre, table,
-   img, mermaid) are intentionally excluded — they're what may widen the card.
-   Wide mode (settings > width) lifts the cap (--measure: none) so the column uses
+/* The readable measure. Wide mode (settings > width) lifts the cap (--measure: none) so the column uses
    the window, and widens the card itself (still leaving a margin for the grid).
    Registered so the ch value resolves to a length where it is declared and
    children inherit that length, not a count of their own characters. Declared on
@@ -649,14 +644,16 @@ html:not([data-native]) .sc-native { display: none; }
 .mgrip { position: absolute; top: 12px; bottom: 12px; right: -4px; width: 8px; cursor: ew-resize; z-index: 2; }
 .mgrip::after { background: transparent; }
 :root[data-wide] .mgrip { display: none; }
-.pbody > .pintro,
-.md > p, .md > ul, .md > ol, .md > blockquote, .md > dl,
-.md > :is(h1, h2, h3, h4, h5, h6) { max-width: var(--measure); }
+.pbody > .pintro { max-width: var(--measure); }
 /* Zero-height spacer that holds the card at least the measure wide, in the
    reading font for every file kind, so the set width is the same on short pages,
    code and text. A % max-width is ignored when the fit-content card sizes
    itself, then clamps the spacer to the card. */
 .mspan { height: 0; width: var(--measure); max-width: 100%; }
+/* The body adds nothing to the card's width, so the card is the measure on every
+   page: wide code and tables scroll inside it and images scale down, and the grip
+   on the card edge is also the prose edge. */
+.pbody > :is(.md, pre.code, .cb) { contain: inline-size; }
 
 /* Table of contents: an opaque on-demand panel floating in the preview's right
    gutter, pinned over the .body area so it sits below the topbar and stays put
@@ -675,6 +672,12 @@ html:not([data-native]) .sc-native { display: none; }
   padding: 14px 16px; background: var(--elevated);
   border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.18); }
+/* Docked: a plain rail in the gutter the preview padding reserves. --toc-rail
+   and the rail width are set by updateToc in render.ts. */
+:root[data-toc-dock] .preview { padding-right: var(--toc-rail); }
+:root[data-toc-dock] .toc { min-width: 0; padding: 4px 0;
+  background: var(--field); border: 0; border-radius: 0; box-shadow: none; }
+.toc-empty { padding: 3px 10px; font-size: 12.5px; color: var(--ink-muted); }
 .toc-head { font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
   text-transform: uppercase; color: var(--ink-muted); padding: 0 0 8px 2px; }
 .toc-nav { display: flex; flex-direction: column; border-left: 1px solid var(--border); }
@@ -768,7 +771,7 @@ html:not([data-native]) .sc-native { display: none; }
 :root[data-read-size="l"] { --read-scale: 1.12; }
 :root[data-read-size="xl"] { --read-scale: 1.25; }
 :is(.md, .mspan) { font-family: var(--read); font-size: calc(var(--read-size) * var(--read-scale)); }
-.md { max-width: 100%; color: var(--ink-2); line-height: var(--read-lh); }
+.md { max-width: 100%; color: var(--ink-2); line-height: var(--read-lh); overflow-wrap: break-word; }
 .md strong, .md b { font-weight: 700; color: var(--ink-1); }
 .md del { color: var(--ink-3); }
 /* Display serif only where it is large; its hairlines fade at body sizes. */
@@ -889,10 +892,12 @@ code.cs .cs-neu { --cs: var(--ink-muted); --cs-fg: var(--ink-2);
 /* The source arrow, kept in the DOM for copy fidelity but taken out of the
    painted line. font-size:0 (not display:none) so it still copies. */
 code.cs .cs-x { font-size: 0; }
-/* width:max-content (not 100%) so a wide table widens the fit-content card like a
-   code block, then scrolls once the card hits its cap. */
+/* width:max-content (not 100%) so a narrow table keeps its own width; a wider one
+   wraps its long cells at the card width and then scrolls. */
 .md table { border-collapse: collapse; margin: 1em 0; font-size: var(--code-size); width: max-content; max-width: 100%; display: block; overflow-x: auto; }
 .md th, .md td { border: 1px solid var(--border); padding: 6px 11px; text-align: left; vertical-align: top; }
+.md :is(th, td).nw { white-space: nowrap; }
+.md :is(th, td):not(.nw) { min-width: 20ch; }
 .md thead th { background: color-mix(in srgb, var(--ink-muted) 12%, transparent); color: var(--ink-1); font-weight: 600; }
 .md tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ink-muted) 5%, transparent); }
 

@@ -16,6 +16,14 @@ Cras mattis consectetur purus sit amet fermentum. Nullam quis risus eget urna mo
 | 2 | code-glyphs.ts | Mono glyphs | snippet | Fonts | mono | 2026-10-04 | 2026-10-04 | 1.2 KB | 0 | no | confusables and box drawing |
 | 3 | ../../README.md | Repo README | reference | Linked | linked | 2026-10-04 | 2026-10-04 | 9.8 KB | 0 | yes | external file by reference |
 
+A table with sentences in its cells:
+
+| Claim | Measurement |
+|---|---|
+| The race needs 2+ blocks per upload | **63 of 63** corrupt documents stage 2+ blocks. **Zero** single-block documents are corrupt, while 208 of 344 clean blobs are single-block |
+| Concurrent uploads into one blob are real | 149 overlapping import pairs on 36 items in 3 days; **103 of 122** pairs overlap at the `BlobClient.Upload` span itself |
+| The counts are floors | Successes export at 20%, so both halves of a pair survive only ~4% of the time |
+
 ## 3. Section with sub-sections
 
 ### 3.1 First

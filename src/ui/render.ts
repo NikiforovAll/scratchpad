@@ -1724,10 +1724,12 @@ function renderBlocks(lines, base) {
       i += 2;
       const rows = [];
       while (i < lines.length && lines[i].indexOf('|') !== -1 && !/^\s*$/.test(lines[i])) { rows.push(cells(lines[i])); i++; }
+      // Short cells (ids, dates, sizes) keep one line; a table that then cannot fit scrolls.
+      const cell = (tag, ci, src) => '<' + tag + (src.length <= 24 ? ' class="nw"' : '') + sty(ci) + '>' + mdInline(src) + '</' + tag + '>';
       let t = '<table><thead><tr>';
-      heads.forEach((h, ci) => { t += '<th' + sty(ci) + '>' + mdInline(h) + '</th>'; });
+      heads.forEach((h, ci) => { t += cell('th', ci, h); });
       t += '</tr></thead><tbody>';
-      rows.forEach(rc => { t += '<tr>'; heads.forEach((_, ci) => { t += '<td' + sty(ci) + '>' + mdInline(rc[ci] || '') + '</td>'; }); t += '</tr>'; });
+      rows.forEach(rc => { t += '<tr>'; heads.forEach((_, ci) => { t += cell('td', ci, rc[ci] || ''); }); t += '</tr>'; });
       html += t + '</tbody></table>';
       continue;
     }
@@ -3097,9 +3099,6 @@ function clampStarred(v) {
   return out.slice(-3);
 }
 const SETTINGS = (function () {
-  // tocVisible is deliberately NOT persisted — the TOC is on-demand and always
-  // boots hidden, toggled ('o' / settings) for the current session only. So it's
-  // absent from the embedded snapshot / localStorage / saveConfig, unlike the rest.
   let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, readingFont: 'sans', readingSize: 'm', measure: MEASURE_DEFAULT, sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // With no host the embedded snapshot is whatever the exporting machine had
@@ -3124,8 +3123,10 @@ const SETTINGS = (function () {
       const z = parseFloat(localStorage.getItem('scratch.zoom'));
       const sc = localStorage.getItem('scratch.sidebarCollapsed');
       const tc = localStorage.getItem('scratch.topbarCollapsed');
+      const tv = localStorage.getItem('scratch.tocVisible');
       if (sc === '1' || sc === '0') s.sidebarCollapsed = sc === '1';
       if (tc === '1' || tc === '0') s.topbarCollapsed = tc === '1';
+      if (tv === '1' || tv === '0') s.tocVisible = tv === '1';
       if (PINNED.indexOf('themeMode') < 0 && (m === 'dark' || m === 'light' || m === 'system')) s.themeMode = m;
       if (PINNED.indexOf('colorTheme') < 0 && c) s.colorTheme = c;
       if (st) s.starredThemes = st;
@@ -3162,7 +3163,7 @@ function postToHost(key, path, payload, onFail) {
   return false;
 }
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, readingFont: SETTINGS.readingFont, readingSize: SETTINGS.readingSize, measure: SETTINGS.measure, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, readingFont: SETTINGS.readingFont, readingSize: SETTINGS.readingSize, measure: SETTINGS.measure, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, tocVisible: SETTINGS.tocVisible, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
   if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
@@ -3178,6 +3179,7 @@ function persistSettings() {
     // when these keys were localStorage-only.
     localStorage.setItem('scratch.sidebarCollapsed', SETTINGS.sidebarCollapsed ? '1' : '0');
     localStorage.setItem('scratch.topbarCollapsed', SETTINGS.topbarCollapsed ? '1' : '0');
+    localStorage.setItem('scratch.tocVisible', SETTINGS.tocVisible ? '1' : '0');
   } catch (_) {}
 }
 function resolvedMode() {
@@ -3292,11 +3294,12 @@ function setAutoReload(on) {
 }
 function setTocVisible(on) {
   SETTINGS.tocVisible = on;
-  applyTheme(); // re-syncs the segment + calls updateToc(); session-only, not persisted
+  applyTheme(); // re-syncs the segment + calls updateToc()
+  persistSettings();
   // Turning it on but nothing appears (see tocShouldShow) reads as broken — say
   // why. Lives here so both entry points ('o' key + settings segment) get it;
   // the on && guard keeps it off the init/toggle-off paths.
-  if (on && !tocShouldShow()) {
+  if (on && document.getElementById('toc').style.display === 'none') {
     const isRenderedMd = currentRef && currentRef.f.kind === 'markdown' && !rawMode;
     showToast(isRenderedMd ? 'No headings to outline on this page' : 'Outline is only for rendered markdown', 'info');
   }
@@ -3310,9 +3313,36 @@ function tocShouldShow() {
   return SETTINGS.tocVisible &&
     document.querySelectorAll('#preview .md :is(h1,h2,h3,h4,h5,h6)').length >= 2;
 }
+// Docked, the preview's right padding reserves the rail, so the fit is judged
+// with the dock off. The card is the measure wide on every page, so the text never
+// gets narrower than the set width. Html and image cards fill the pane and only
+// need TOC_FILL_MIN. The rail stays docked on pages with no headings (a
+// placeholder), so switching files does not shift the card. TOC_RAIL is the
+// reserved gutter: the narrowest rail plus the toc's 24px right offset and a gap.
+const TOC_RAIL_MIN = 220, TOC_RAIL_MAX = 420, TOC_GAP = 32, TOC_FILL_MIN = 600;
+const TOC_RAIL = TOC_RAIL_MIN + 24 + 16;
+document.documentElement.style.setProperty('--toc-rail', TOC_RAIL + 'px');
+function tocDockCard() {
+  const root = document.documentElement, preview = document.getElementById('preview');
+  const card = SETTINGS.tocVisible && !root.hasAttribute('data-wide') && preview.querySelector('.pbody');
+  if (!card) return null;
+  const need = card.classList.contains('fill') ? TOC_FILL_MIN : card.offsetWidth;
+  return need <= preview.clientWidth - parseFloat(getComputedStyle(preview).paddingLeft) - TOC_RAIL ? card : null;
+}
 function updateToc() {
   const toc = document.getElementById('toc');
-  if (toc) toc.style.display = tocShouldShow() ? 'block' : 'none';
+  if (!toc) return;
+  const root = document.documentElement;
+  root.removeAttribute('data-toc-dock');
+  const card = tocDockCard();
+  if (card) root.setAttribute('data-toc-dock', '');
+  toc.style.display = card || tocShouldShow() ? 'block' : 'none';
+  toc.style.width = '';
+  if (card) {
+    // The rail grows into the free space right of the card.
+    const free = toc.getBoundingClientRect().right - card.getBoundingClientRect().right - TOC_GAP;
+    toc.style.width = Math.max(TOC_RAIL_MIN, Math.min(TOC_RAIL_MAX, free)) + 'px';
+  }
 }
 // Build the TOC from the rendered markdown's full heading hierarchy (H1–H6).
 // Runs after each preview render (file switch, raw↔rendered, reload) — it
@@ -3344,8 +3374,9 @@ function buildToc() {
   // links ([x](#heading)) resolve even on docs with too few headings for a TOC.
   const labels = heads.map(headText);
   heads.forEach((h, hi) => { if (!h.id) h.id = slug(labels[hi]); });
-  if (heads.length < 2) { toc.innerHTML = ''; updateToc(); return; }
-  let html = '<div class="toc-head">On this page</div><nav class="toc-nav">';
+  const head = '<div class="toc-head">On this page</div><nav class="toc-nav">';
+  if (heads.length < 2) { toc.innerHTML = head + '<span class="toc-empty">No headings</span></nav>'; updateToc(); return; }
+  let html = head;
   const links = {};
   heads.forEach((h, hi) => {
     const id = h.id, label = labels[hi];
@@ -3392,7 +3423,8 @@ function buildToc() {
   }
   updateToc();
 }
-window.addEventListener('resize', updateToc);
+// border-box: the dock's own padding change must not re-trigger it.
+new ResizeObserver(updateToc).observe(document.getElementById('preview'), { box: 'border-box' });
 renderGalleryGrid();
 renderStarredGrid();
 applyTheme();
@@ -3516,6 +3548,7 @@ window.__scratchSettings = function (cfg) {
   if (typeof cfg.autoReload === 'boolean' && cfg.autoReload !== SETTINGS.autoReload) { SETTINGS.autoReload = cfg.autoReload; drift = true; }
   if (typeof cfg.sidebarCollapsed === 'boolean' && cfg.sidebarCollapsed !== SETTINGS.sidebarCollapsed) { SETTINGS.sidebarCollapsed = cfg.sidebarCollapsed; drift = true; }
   if (typeof cfg.topbarCollapsed === 'boolean' && cfg.topbarCollapsed !== SETTINGS.topbarCollapsed) { SETTINGS.topbarCollapsed = cfg.topbarCollapsed; drift = true; }
+  if (typeof cfg.tocVisible === 'boolean' && cfg.tocVisible !== SETTINGS.tocVisible) { SETTINGS.tocVisible = cfg.tocVisible; drift = true; }
   if (typeof cfg.zoom === 'number' && cfg.zoom >= 0.5 && cfg.zoom <= 2 && cfg.zoom !== SETTINGS.zoom) { SETTINGS.zoom = cfg.zoom; drift = true; }
   if (!drift) return;
   renderStarredGrid();
@@ -3806,18 +3839,14 @@ function dragHandle(root, selector, cursor, h) {
 function applyMeasure() {
   document.documentElement.style.setProperty('--measure-ch', String(SETTINGS.measure));
 }
-// Card-edge grip sets the normal-mode measure. A card sized by its prose is
-// centered, so its edge moves half as far as the width changes: dx counts twice.
-// A card held wider by a code block or table stays put while the prose, pinned
-// to its left edge, follows dx one to one. The rate is re-read on every move, as
-// a drag can cross from one layout to the other.
+// Card-edge grip sets the normal-mode measure. The card is centered, so its edge
+// moves half as far as the width changes: dx counts twice.
 (function () {
   let drag = null;
   const contentWidth = (el) => {
     const cs = getComputedStyle(el);
     return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   };
-  const proseBound = () => drag.card.offsetWidth - drag.chrome <= SETTINGS.measure * drag.chCss + 1;
   dragHandle(document.getElementById('preview'), '.mgrip', 'ew-resize', {
     start: (e, grip) => {
       const card = grip.parentElement;
@@ -3831,10 +3860,10 @@ function applyMeasure() {
       const chrome = card.offsetWidth - contentWidth(card);
       const max = clamp(Math.ceil((contentWidth(card.parentElement) - chrome) / chCss), MEASURE_MIN, MEASURE_MAX);
       const m = Math.min(SETTINGS.measure, max);
-      drag = { card, chrome, chCss, chPx, max, x: e.clientX, m, start: SETTINGS.measure };
+      drag = { chPx, max, x: e.clientX, m, start: SETTINGS.measure };
     },
     move: (e) => {
-      drag.m += (proseBound() ? 2 : 1) * (e.clientX - drag.x) / drag.chPx;
+      drag.m += 2 * (e.clientX - drag.x) / drag.chPx;
       drag.m = clamp(drag.m, MEASURE_MIN, drag.max);
       drag.x = e.clientX;
       const v = Math.round(drag.m);
@@ -3842,10 +3871,11 @@ function applyMeasure() {
       SETTINGS.measure = v;
       applyMeasure();
     },
-    end: () => { if (SETTINGS.measure !== drag.start) persistSettings(); drag = null; },
+    end: () => { if (SETTINGS.measure !== drag.start) persistSettings(); drag = null; updateToc(); },
     reset: () => {
       SETTINGS.measure = MEASURE_DEFAULT;
       applyMeasure();
+      updateToc();
       persistSettings();
       showToast('Width reset', 'info');
     },
