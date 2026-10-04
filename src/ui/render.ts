@@ -1877,7 +1877,47 @@ function resolveRel(from, rel) {
   return base.join('/');
 }
 
-function mermaidTheme() { return document.documentElement.dataset.theme === 'light' ? 'neutral' : 'dark'; }
+// mermaid derives its shades with its own color parser, which reads hex but not
+// color-mix(), so the blends are done here from the palette's hex values.
+function mixHex(a, b, t) {
+  let out = '#';
+  for (let i = 1; i < 7; i += 2) {
+    const v = Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t);
+    out += v.toString(16).padStart(2, '0');
+  }
+  return out;
+}
+function mermaidConfig() {
+  const root = document.documentElement, cs = getComputedStyle(root);
+  const v = name => cs.getPropertyValue(name).trim();
+  const dark = root.dataset.theme !== 'light';
+  const c = { ember: v('--ember'), surface: v('--surface'), elevated: v('--elevated'), border: v('--border'),
+    ink1: v('--ink-1'), ink2: v('--ink-2'), ink3: v('--ink-3') };
+  return {
+    theme: 'base',
+    themeVariables: {
+      darkMode: dark,
+      fontFamily: v('--sans'),
+      fontSize: '14px',
+      background: c.surface,
+      primaryColor: mixHex(c.elevated, c.ember, dark ? 0.16 : 0.1),
+      primaryBorderColor: mixHex(c.border, c.ember, 0.6),
+      primaryTextColor: c.ink1,
+      secondaryColor: mixHex(c.elevated, c.ink3, 0.12),
+      secondaryBorderColor: c.border,
+      secondaryTextColor: c.ink1,
+      tertiaryColor: mixHex(c.surface, c.ink3, 0.06),
+      tertiaryBorderColor: c.border,
+      tertiaryTextColor: c.ink2,
+      lineColor: c.ink3,
+      textColor: c.ink2,
+      edgeLabelBackground: c.surface,
+      noteBkgColor: mixHex(c.elevated, c.ember, 0.06),
+      noteBorderColor: c.border,
+      noteTextColor: c.ink2,
+    },
+  };
+}
 
 // Size each rendered html-frame to its content. Added once; matches the posting
 // frame by contentWindow so multiple frames on a page resize independently.
@@ -2175,7 +2215,7 @@ function enhance(container) {
         // the top-level flag flips the renderer to SVG <text>.
         window.mermaid.initialize({
           startOnLoad: false,
-          theme: mermaidTheme(),
+          ...mermaidConfig(),
           securityLevel: 'strict',
           htmlLabels: false,
           flowchart: { htmlLabels: false },
@@ -3243,6 +3283,7 @@ function toggleStar(id) {
   renderStarredGrid();
   persistSettings();
 }
+let themeKey = null;
 function applyTheme() {
   const r = document.documentElement;
   r.dataset.theme = resolvedMode();
@@ -3263,13 +3304,16 @@ function applyTheme() {
   document.querySelectorAll('#autoReloadSeg button').forEach((b) => b.classList.toggle('on', b.dataset.auto === (SETTINGS.autoReload ? 'on' : 'off')));
   document.querySelectorAll('#tocSeg button').forEach((b) => b.classList.toggle('on', b.dataset.toc === (SETTINGS.tocVisible ? 'on' : 'off')));
   updateToc();
+  // Mode and color theme flips swap the mermaid palette and the html-embed
+  // color scheme → re-render the open file.
+  const key = r.dataset.theme + '|' + SETTINGS.colorTheme;
+  if (themeKey !== null && key !== themeKey && currentRef) renderPreview(currentRef.pad, currentRef.f);
+  themeKey = key;
 }
 function setThemeMode(m) {
   SETTINGS.themeMode = m;
   applyTheme();
   persistSettings();
-  // Mode flips swap the mermaid palette → re-render the open preview.
-  if (currentRef) renderPreview(currentRef.pad, currentRef.f);
 }
 function setColorTheme(id) {
   SETTINGS.colorTheme = id;
@@ -3433,7 +3477,6 @@ if (window.matchMedia) {
   (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(() => {
     if (SETTINGS.themeMode !== 'system') return;
     applyTheme();
-    if (currentRef) renderPreview(currentRef.pad, currentRef.f);
   });
 }
 // Follow scratch.themeMode writes from OTHER same-origin documents (another
@@ -3556,8 +3599,6 @@ window.__scratchSettings = function (cfg) {
   applyZoom();
   setBar(sidebarEl, SETTINGS.sidebarCollapsed, false);
   setBar(topbarEl, SETTINGS.topbarCollapsed, false);
-  // A mode flip swaps the mermaid palette → re-render the open file.
-  if (currentRef) renderPreview(currentRef.pad, currentRef.f);
 };
 (function () {
   const wv = window.chrome && window.chrome.webview;
