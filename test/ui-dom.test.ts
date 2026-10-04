@@ -2306,6 +2306,56 @@ async function renderTwoFilePad(exportMode = false): Promise<string> {
   return renderHtml(await buildView([pad]), "P", undefined, { exportMode });
 }
 
+test("top bar: ⋯ menu opens and closes; comments button becomes a count pill", async () => {
+  await boot(await renderTwoFilePad());
+  try {
+    const btn = document.getElementById("moreBtn") as any;
+    const menu = document.getElementById("moreMenu") as any;
+    expect(menu.hidden).toBe(true);
+    btn.click();
+    expect(menu.hidden).toBe(false);
+    expect(btn.getAttribute("aria-expanded")).toBe("true");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(menu.hidden).toBe(true);
+    btn.click();
+    (document.getElementById("preview") as any).click();
+    expect(menu.hidden).toBe(true);
+    btn.click();
+    (document.getElementById("helpBtn") as any).click();
+    expect(menu.hidden).toBe(true);
+    expect((document.getElementById("helpModal") as any).style.display).not.toBe("none");
+    const toggle = document.getElementById("commentsToggle") as any;
+    expect(toggle.classList.contains("pill")).toBe(true);
+    expect(document.getElementById("cmtCount")?.textContent).toBe("1");
+  } finally {
+    await teardown();
+  }
+});
+
+test("markdown, text and code cards get the width grip; html and image cards fill", async () => {
+  const dir = join(root, "pk");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "a.md"), "# A\n", "utf8");
+  await writeFile(join(dir, "n.txt"), "plain\n", "utf8");
+  await writeFile(join(dir, "s.ts"), "const x = 1;\n", "utf8");
+  await writeFile(join(dir, "p.html"), "<!doctype html><h1>p</h1>", "utf8");
+  const m = newManifest("P");
+  for (const path of ["a.md", "n.txt", "s.ts", "p.html"]) m.files.push({ path, title: path, type: "note" });
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  await boot(await renderHtml(await buildView([pad]), "P"));
+  try {
+    const seen = Array.from(document.querySelectorAll(".frow")).map((r: any) => {
+      r.click();
+      const card = document.querySelector("#preview > .pbody")!;
+      return [!!card.querySelector(".mgrip"), card.classList.contains("fill")];
+    });
+    expect(seen).toEqual([[true, false], [true, false], [true, false], [false, true]]);
+  } finally {
+    await teardown();
+  }
+});
+
 test("sidebar rows with comments carry a dot marker", async () => {
   await boot(await renderTwoFilePad());
   try {

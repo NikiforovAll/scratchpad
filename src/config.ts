@@ -23,7 +23,7 @@ export const READING_FONTS = ["sans", "serif", "mono"] as const;
 export type ReadingFont = (typeof READING_FONTS)[number];
 export const READING_SIZES = ["s", "m", "l", "xl"] as const;
 export type ReadingSize = (typeof READING_SIZES)[number];
-export const MEASURE_MIN = 40, MEASURE_DEFAULT = 70, MEASURE_MAX = 160;
+export const MEASURE_MIN = 40, MEASURE_DEFAULT = 70, MEASURE_MAX = 400;
 
 export interface ScratchConfig {
   ui: {

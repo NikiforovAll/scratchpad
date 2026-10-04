@@ -426,7 +426,19 @@ body {
 .wordmark .dot { color: var(--ember); }
 .padname { font-family: var(--serif); font-size: 15px; color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.view-actions { display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
+.view-actions { display: flex; align-items: center; gap: 4px; -webkit-app-region: no-drag; }
+.view-actions .icon-btn:is(*, :hover) { border-color: transparent; }
+.tb-div { width: 1px; height: 18px; margin: 0 6px; background: var(--border); }
+.more { position: relative; }
+.menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 210px; padding: 4px;
+  background: var(--elevated); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px;
+  border: 0; border-radius: 5px; background: none; color: var(--ink-2); font: inherit; font-size: 13px;
+  text-align: left; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.menu-item:hover { background: var(--hover); color: var(--ink-1); }
+.menu-item svg { width: 15px; height: 15px; flex: none; color: var(--ink-muted); }
+.menu-item kbd { margin-left: auto; }
 .icon-btn {
   width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
   background: transparent; border: 1px solid var(--border); border-radius: 6px;
@@ -435,13 +447,10 @@ body {
 }
 .icon-btn:hover { background: var(--hover); color: var(--ink-1); border-color: var(--ink-muted); }
 .icon-btn svg { width: 16px; height: 16px; }
-#commentsToggle { position: relative; }
-.cmt-count {
-  position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px;
-  display: flex; align-items: center; justify-content: center; box-sizing: border-box;
-  font-size: 10px; font-weight: 600; line-height: 1; border-radius: 8px;
-  background: var(--ember); color: #fff; pointer-events: none;
-}
+#commentsToggle.pill { width: auto; gap: 6px; padding: 0 12px 0 10px; border-radius: 999px;
+  border-color: var(--ember-dim); background: var(--ember-dim); color: var(--accent-text); }
+#commentsToggle.pill:hover { border-color: var(--ember); }
+.cmt-count { font-family: var(--mono); font-size: 12px; font-weight: 600; line-height: 1; pointer-events: none; }
 .cmt-count[hidden] { display: none; }
 #saveCopy { position: relative; }
 .save-dot {
@@ -515,7 +524,7 @@ html:not([data-native]) .sc-native { display: none; }
   border-bottom: 1px solid var(--border); }
 .shortcuts .sc-group.sc-first { padding-top: 2px; }
 /* keycap chips: surface fill + thicker bottom border reads as a key */
-.shortcuts kbd, .picker-hint kbd { display: inline-flex; align-items: center; justify-content: center;
+.shortcuts kbd, .picker-hint kbd, .menu-item kbd { display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box;
   font-family: var(--mono); font-size: 11px; color: var(--ink-1);
   background: var(--surface); border: 1px solid var(--border);
@@ -619,7 +628,7 @@ html:not([data-native]) .sc-native { display: none; }
    code blocks, tables, images, mermaid), centered, up to a cap. Prose is held to
    a readable measure (below) so ordinary paragraphs DON'T balloon the card to the
    cap — only genuinely wide content widens it. */
-.pbody { position: relative; width: fit-content; max-width: min(100%, 1360px); margin: 0 auto 28px;
+.pbody { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 28px;
   padding: 34px 44px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.12); }
@@ -634,15 +643,20 @@ html:not([data-native]) .sc-native { display: none; }
    header's mono. --measure-ch is the user's width (config ui.measure); the 70
    fallback must match MEASURE_DEFAULT in config.ts. */
 @property --measure { syntax: '<length> | none'; inherits: true; initial-value: none; }
-:is(.pbody, .md) { --measure: calc(var(--measure-ch, 70) * 1ch); }
-:root[data-wide] :is(.pbody, .md) { --measure: none; }
-:root[data-wide] .pbody { width: auto; max-width: 95%; }
+:is(.pbody, .md, .mspan) { --measure: calc(var(--measure-ch, 70) * 1ch); }
+:root[data-wide] :is(.pbody, .md, .mspan) { --measure: none; }
+:is(:root[data-wide] .pbody, .pbody.fill) { width: auto; max-width: 95%; }
 .mgrip { position: absolute; top: 12px; bottom: 12px; right: -4px; width: 8px; cursor: ew-resize; z-index: 2; }
 .mgrip::after { background: transparent; }
 :root[data-wide] .mgrip { display: none; }
 .pbody > .pintro,
 .md > p, .md > ul, .md > ol, .md > blockquote, .md > dl,
 .md > :is(h1, h2, h3, h4, h5, h6) { max-width: var(--measure); }
+/* Zero-height spacer that holds the card at least the measure wide, in the
+   reading font for every file kind, so the set width is the same on short pages,
+   code and text. A % max-width is ignored when the fit-content card sizes
+   itself, then clamps the spacer to the card. */
+.mspan { height: 0; width: var(--measure); max-width: 100%; }
 
 /* Table of contents: an opaque on-demand panel floating in the preview's right
    gutter, pinned over the .body area so it sits below the topbar and stays put
@@ -753,8 +767,8 @@ html:not([data-native]) .sc-native { display: none; }
 :root[data-read-size="s"] { --read-scale: 0.88; }
 :root[data-read-size="l"] { --read-scale: 1.12; }
 :root[data-read-size="xl"] { --read-scale: 1.25; }
-.md { max-width: 100%; color: var(--ink-2); font-family: var(--read);
-  font-size: calc(var(--read-size) * var(--read-scale)); line-height: var(--read-lh); }
+:is(.md, .mspan) { font-family: var(--read); font-size: calc(var(--read-size) * var(--read-scale)); }
+.md { max-width: 100%; color: var(--ink-2); line-height: var(--read-lh); }
 .md strong, .md b { font-weight: 700; color: var(--ink-1); }
 .md del { color: var(--ink-3); }
 /* Display serif only where it is large; its hairlines fade at body sizes. */

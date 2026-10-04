@@ -688,10 +688,6 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <span class="padname" id="padname"></span>
     </div>
     <div class="view-actions">
-      ${saveBtn}<button class="icon-btn" id="commentsToggle" title="Comments summary (toggle visibility with C)" aria-label="Comments summary">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <span class="cmt-count" id="cmtCount" aria-label="Comment count" hidden></span>
-      </button>
       <button class="icon-btn" id="reloadBtn" title="Reload from disk (R)" aria-label="Reload">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       </button>
@@ -702,12 +698,26 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <button class="icon-btn" id="settingsBtn" title="Settings (S)" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
-      <button class="icon-btn" id="helpBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
-      </button>
-      <a class="icon-btn" id="repoLink" href="https://github.com/nikiforovall/scratchpad" target="_blank" title="View on GitHub" aria-label="View on GitHub">
+      <div class="more">
+        <button class="icon-btn" id="moreBtn" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+        </button>
+        <div class="menu" id="moreMenu" role="menu" hidden>
+          <button class="menu-item" id="helpBtn" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
+            Keyboard shortcuts<kbd>?</kbd>
+          </button>
+          <a class="menu-item" id="repoLink" role="menuitem" href="https://github.com/nikiforovall/scratchpad" target="_blank">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-      </a>
+            View on GitHub
+          </a>
+        </div>
+      </div>
+      <span class="tb-div" aria-hidden="true"></span>
+      ${saveBtn}<button class="icon-btn" id="commentsToggle" title="Comments summary (toggle visibility with C)" aria-label="Comments summary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="cmt-count" id="cmtCount" hidden></span>
+      </button>
       <button class="icon-btn" id="closeBtn" title="Close (q)" aria-label="Close" style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
@@ -2008,7 +2018,7 @@ function pickTarget() {
 function enterFocus(frame) {
   if (!frame || focusedFrame) return;
   // Nothing else may be layered over a full-window frame.
-  showDiagram(false); showGallery(false); showSettings(false); showHelp(false); showPicker(false);
+  showDiagram(false); showGallery(false); showSettings(false); showHelp(false); showPicker(false); showMoreMenu(false);
   focusedFrame = frame;
   frame.setAttribute('data-focused', '');
   document.documentElement.setAttribute('data-focus', '');
@@ -2687,7 +2697,9 @@ function renderPreview(pad, f, nav) {
   // One reading column wraps the whole view so the header strip, title, meta,
   // and body all share a single left edge (per-element margins no longer fight
   // the centering).
-  preview.innerHTML = '<div class="pbody"><div class="mgrip" title="Drag to set width · double-click to reset"></div>' +
+  const fill = !rawMode && (f.kind === 'html' || f.kind === 'image');
+  preview.innerHTML = '<div class="pbody' + (fill ? ' fill' : '') + '">' +
+    (fill ? '' : '<div class="mgrip" title="Drag to set width · double-click to reset"></div><div class="mspan"></div>') +
     '<div class="phead"><span class="pfile" title="' + esc(f.path) + '">' + crumb + '</span>' + datesHtml + ctrls + '</div>' +
     '<div class="pintro"><h1 class="ptitle">' + esc(title) + '</h1>' +
     '<div class="pmeta">' + metaLine + '</div>' +
@@ -3527,6 +3539,15 @@ window.__scratchSettings = function (cfg) {
 // Shortcuts help modal.
 const helpModal = document.getElementById('helpModal');
 const showHelp = (v) => { helpModal.style.display = v ? 'flex' : 'none'; };
+const moreMenu = document.getElementById('moreMenu');
+function showMoreMenu(open) {
+  moreMenu.hidden = !open;
+  document.getElementById('moreBtn').setAttribute('aria-expanded', String(open));
+}
+document.getElementById('moreBtn').addEventListener('click', () => showMoreMenu(moreMenu.hidden));
+document.addEventListener('click', (e) => {
+  if (!moreMenu.hidden && !(e.target.closest && e.target.closest('#moreBtn'))) showMoreMenu(false);
+});
 document.getElementById('helpBtn').addEventListener('click', () => showHelp(true));
 document.getElementById('helpClose').addEventListener('click', () => showHelp(false));
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal) showHelp(false); });
@@ -3789,25 +3810,29 @@ function applyMeasure() {
 // a drag can cross from one layout to the other.
 (function () {
   let drag = null;
-  const proseBound = () => {
-    const cs = getComputedStyle(drag.card);
-    const inner = drag.card.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    return inner <= parseFloat(getComputedStyle(drag.host).getPropertyValue('--measure')) + 1;
+  const contentWidth = (el) => {
+    const cs = getComputedStyle(el);
+    return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   };
+  const proseBound = () => drag.card.offsetWidth - drag.chrome <= SETTINGS.measure * drag.chCss + 1;
   dragHandle(document.getElementById('preview'), '.mgrip', 'ew-resize', {
     start: (e, grip) => {
       const card = grip.parentElement;
-      const host = card.querySelector('.md') || card;
-      // --measure is registered, so its computed value is px in the host's own font.
+      // --measure is registered, so its computed value is px in the spacer's own font.
       // The rect/offset ratio converts that to screen px under CSS zoom.
-      const chPx = parseFloat(getComputedStyle(host).getPropertyValue('--measure')) / SETTINGS.measure *
-        (card.getBoundingClientRect().width / card.offsetWidth || 1);
+      const chCss = parseFloat(getComputedStyle(card.querySelector('.mspan')).getPropertyValue('--measure')) / SETTINGS.measure;
+      const chPx = chCss * (card.getBoundingClientRect().width / card.offsetWidth || 1);
       if (!(chPx > 0)) return false;
-      drag = { card, host, chPx, x: e.clientX, m: SETTINGS.measure, start: SETTINGS.measure };
+      // Past the width that fills the pane the card stops growing. The drag starts
+      // from the width actually shown and caps there, so dragging back responds at once.
+      const chrome = card.offsetWidth - contentWidth(card);
+      const max = clamp(Math.ceil((contentWidth(card.parentElement) - chrome) / chCss), MEASURE_MIN, MEASURE_MAX);
+      const m = Math.min(SETTINGS.measure, max);
+      drag = { card, chrome, chCss, chPx, max, x: e.clientX, m, start: SETTINGS.measure };
     },
     move: (e) => {
       drag.m += (proseBound() ? 2 : 1) * (e.clientX - drag.x) / drag.chPx;
-      drag.m = clamp(drag.m, MEASURE_MIN, MEASURE_MAX);
+      drag.m = clamp(drag.m, MEASURE_MIN, drag.max);
       drag.x = e.clientX;
       const v = Math.round(drag.m);
       if (v === SETTINGS.measure) return;
@@ -3928,7 +3953,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'f') { expandEmbed(); return; }
   if (e.key === 'Escape') {
     // Esc only dismisses open overlays — never closes the window ('q' does that).
-    if (diagramModal.style.display !== 'none') showDiagram(false);
+    if (!moreMenu.hidden) showMoreMenu(false);
+    else if (diagramModal.style.display !== 'none') showDiagram(false);
     else if (galleryModal.style.display !== 'none') showGallery(false);
     else if (settingsModal.style.display !== 'none') showSettings(false);
     else if (helpModal.style.display !== 'none') showHelp(false);
@@ -4843,6 +4869,7 @@ function updateCommentsCount() {
   if (el) {
     el.textContent = n > 99 ? '99+' : String(n);
     el.hidden = n === 0;
+    el.parentElement.classList.toggle('pill', n > 0);
   }
   syncTreeCommentDots();
   syncClearCommentsBtn();
