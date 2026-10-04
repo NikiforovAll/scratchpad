@@ -2,7 +2,7 @@
   "version": 1,
   "name": "visual-check",
   "created": "2026-10-04T17:27:28Z",
-  "updated": "2026-10-04T17:28:38Z",
+  "updated": "2026-10-04T19:11:46Z",
   "files": [
     {
       "path": "typography.md",
@@ -112,8 +112,18 @@
       "path": "pad-flow.html",
       "src": "../feature-tour/pad-flow.html",
       "title": "HTML artifact (linked)",
-      "group": "Linked",
-      "type": "artifact"
+      "type": "artifact",
+      "group": "Linked"
+    },
+    {
+      "path": "code-blocks.md",
+      "title": "Code in markdown",
+      "description": "Inline code spans and fenced blocks in several languages",
+      "tags": [
+        "markdown",
+        "code"
+      ],
+      "type": "note"
     }
   ]
 }
