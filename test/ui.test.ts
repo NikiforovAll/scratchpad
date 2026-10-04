@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildView, renderHtml } from "../src/ui/render.ts";
 import { KIT_BG, KIT_CSS } from "../src/ui/kit.ts";
+import { subsetsFor } from "../src/ui/fonts.ts";
+import { UI_FONTS } from "../src/ui/vendor-manifest.ts";
 import { newManifest, writeManifest } from "../src/manifest.ts";
 import { readManifest } from "../src/manifest.ts";
 import type { Pad } from "../src/discovery.ts";
@@ -153,9 +155,10 @@ describe("renderHtml", () => {
     expect(html).toContain(':root[data-theme="light"]'); // light sibling tokens present
     expect(html).toContain("application/json"); // embedded data island
     expect(html).toContain("A note");
-    // One page-weight tripwire for the whole suite (a CDN page is ~285KB of mostly
-    // client script). Catches an accidentally inlined asset; not a style budget.
-    expect(html.length).toBeLessThan(310_000);
+    // One page-weight tripwire for the whole suite (a CDN page is ~300KB of mostly
+    // client script plus ~10KB of UI @font-face rules). Catches an accidentally
+    // inlined asset; not a style budget.
+    expect(html.length).toBeLessThan(325_000);
     // The full-window frame must size with % — a DOM test can't catch this (happy-dom
     // does no layout) and both alternatives fail in a real browser: vw/vh resolve
     // against the unzoomed window under CSS zoom, and auto on a replaced element
@@ -428,6 +431,32 @@ describe("renderHtml --offline", () => {
     expect(html).not.toContain("url(fonts/"); // relative refs rewritten away
   });
 
+  test("UI fonts are data: URIs, only for the subsets the pad's text uses", async () => {
+    const fontStyle = (html: string) => html.split('<style id="ui-fonts">')[1]!.split("</style>")[0]!;
+    const latin = fontStyle(await renderHtml(await buildView([await seedPad()]), "Notes", undefined, { exportMode: true, offline: true }));
+    expect(latin).not.toContain("cdn.jsdelivr.net");
+    expect(latin).toContain("font-family:'IBM Plex Mono'");
+    expect(latin).toContain("font-family:'Playfair Display'");
+    expect(latin).toContain("font-family:'IBM Plex Sans'");
+    expect(latin).not.toContain("font-family:'IBM Plex Serif'"); // only the active reading font
+    const faces = UI_FONTS.filter((f) => !f.reading || f.reading === "sans").reduce((n, f) => n + f.faces.length, 0);
+    expect(latin.match(/data:font\/woff2;base64,[A-Za-z0-9+/]/g)!.length).toBe(faces);
+    const serif = fontStyle(await renderHtml(await buildView([await seedPad()]), "Notes",
+      { themeMode: "system", colorTheme: "ember", readingFont: "serif" }, { exportMode: true, offline: true }));
+    expect(serif).toContain("font-family:'IBM Plex Serif'");
+    expect(serif).not.toContain("font-family:'IBM Plex Sans'");
+
+    const dir = join(root, "cyr");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "uk.md"), "# Привіт\n\nҐанок і їжак.\n", "utf8");
+    const m = newManifest("Cyr");
+    m.files.push({ path: "uk.md", title: "Українська", type: "note" });
+    await writeManifest(dir, m);
+    const cyr = fontStyle(await renderHtml(await buildView([{ dir, manifest: await readManifest(dir) }]), "Cyr", undefined, { exportMode: true, offline: true }));
+    expect(cyr.match(/U\+0400-045F/g)!.length).toBe(faces);
+    expect(cyr).not.toContain("U+1EA0-1EF9"); // no Vietnamese text, no Vietnamese subset
+  });
+
   test("a no-mermaid pad omits the multi-MB mermaid bundle", async () => {
     const pad = await seedPad(); // code only, no mermaid, no math
     const html = await renderHtml(await buildView([pad]), "Notes", undefined, { exportMode: true, offline: true });
@@ -435,12 +464,29 @@ describe("renderHtml --offline", () => {
     const island = JSON.parse(html.split('id="vendor-gz" type="application/json">')[1]!.split("</script>")[0]!);
     expect(island.hljs).toBeString(); // hljs IS inlined (code present)
     expect(island.mermaid).toBeUndefined(); // mermaid (3.3MB) NOT pulled in
-    expect(html.length).toBeLessThan(500_000);
+    expect(html.length).toBeLessThan(650_000); // includes ~205KB of latin UI fonts
   });
 
   test("non-offline export still emits CDN tags (unchanged default)", async () => {
     const html = await renderHtml(await buildView([await seedRichPad()]), "Rich", undefined, { exportMode: true });
     expect(html).toMatch(/<script src="https:\/\/cdn\.jsdelivr\.net[^"]+mermaid@[^"]+" integrity="sha384-/);
+  });
+
+  test("non-offline pages load every UI font subset from the pinned CDN", async () => {
+    const html = await renderHtml(await buildView([await seedPad()]), "Notes");
+    const css = html.split('<style id="ui-fonts">')[1]!.split("</style>")[0]!;
+    expect(css).not.toContain("data:");
+    const rules = UI_FONTS.reduce((n, f) => n + f.faces.length * f.subsets.length, 0);
+    expect(css.match(/url\(https:\/\/cdn\.jsdelivr\.net\/npm\/@fontsource\/[a-z-]+@\d+\.\d+\.\d+\/files\/[a-z0-9-]+\.woff2\)/g)!.length).toBe(rules);
+    expect(html.indexOf('id="ui-fonts"')).toBeLessThan(html.indexOf("<style>")); // before THEME_CSS
+  });
+
+  test("subsetsFor picks latin plus the scripts present", () => {
+    expect([...subsetsFor("plain ascii")]).toEqual(["latin"]);
+    expect(subsetsFor("café Łódź")).toEqual(new Set(["latin", "latin-ext"]));
+    expect(subsetsFor("Привіт").has("cyrillic")).toBe(true);
+    expect(subsetsFor("Tiếng Việt").has("vietnamese")).toBe(true);
+    expect(subsetsFor("日本語 Ελληνικά").size).toBe(1); // not in the bundled fonts
   });
 });
 

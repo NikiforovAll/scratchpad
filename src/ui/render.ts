@@ -8,10 +8,11 @@ import { stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pkg from "../../package.json" with { type: "json" };
-import type { ScratchConfig } from "../config.ts";
+import { READING_FONTS, type ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath, toPosix } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry, type Layout, MANIFEST_NAME } from "../manifest.ts";
 import { type CommentItem, toCommentItems } from "../comments.ts";
+import { UI_FONT_CSS_CDN, subsetsFor, uiFontCss } from "./fonts.ts";
 import { KIT_CSS, KIT_SVG_DEFS } from "./kit.ts";
 import { COLOR_THEMES, DEFAULT_COLOR_THEME, THEME_CSS } from "./theme.ts";
 
@@ -513,6 +514,7 @@ const DEFAULT_UI: UiSettings = {
   starredThemes: [],
   gridStyle: "dots",
   wideMode: false,
+  readingFont: "sans",
   sidebarCollapsed: false,
   topbarCollapsed: false,
   autoReload: true,
@@ -539,6 +541,7 @@ export async function renderHtml(
   const zoom = opts.exportMode ? 1 : (ui.zoom ?? 1);
   const gridStyle = ui.gridStyle ?? "dots";
   const wideMode = ui.wideMode ?? false;
+  const readingFont = ui.readingFont ?? "sans";
   // Collapsed panes are baked into the boot markup (not applied by the client)
   // so a remembered-collapsed sidebar/topbar never flashes open on first paint.
   const sidebarCollapsed = ui.sidebarCollapsed ?? false;
@@ -554,6 +557,7 @@ export async function renderHtml(
   const htmlAttrs =
     ` data-color-theme="${escapeHtml(ui.colorTheme)}"` +
     ` data-grid="${escapeHtml(gridStyle)}"` +
+    (readingFont === "sans" ? "" : ` data-read="${escapeHtml(readingFont)}"`) +
     (ui.themeMode === "system" ? "" : ` data-theme="${ui.themeMode}"`) +
     (wideMode ? " data-wide" : "") +
     // Static export: no host listens, so the page file is the comment store.
@@ -570,6 +574,7 @@ export async function renderHtml(
     starredThemes: ui.starredThemes ?? [],
     gridStyle,
     wideMode,
+    readingFont,
     sidebarCollapsed,
     topbarCollapsed,
     zoom,
@@ -607,6 +612,12 @@ export async function renderHtml(
       vendorCss += `<style id="hljs-light">${b.HLJS_THEME_LIGHT_CSS}</style>\n`;
     }
     if (needs.math) vendorCss += `<style id="katex-css">${b.KATEX_CSS}</style>\n`;
+    // UI fonts as data: URIs, limited to the subsets the pad's text uses (latin is
+    // always in). Comments a reader adds later in another script fall back to the
+    // system font in the stack. Only the exporter's reading font is embedded; a
+    // reader who switches it gets the system sans/serif from the stack.
+    const fontCss = uiFontCss({ b64: b.UI_FONT_B64, only: subsetsFor(data), reading: readingFont });
+    vendorCss += `<style id="ui-fonts">${fontCss}</style>\n`;
   } else {
     // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
     // before the client script runs. SRI + crossorigin guard integrity; on load
@@ -629,6 +640,7 @@ export async function renderHtml(
     // KaTeX CSS is theme-agnostic (math inherits the page `color`), so a single
     // link — no light/dark pair like hljs.
     if (needs.math) vendorCss += cssLink("katex-css", KATEX_CSS);
+    vendorCss += `<style id="ui-fonts">${UI_FONT_CSS_CDN}</style>\n`;
   }
   // In-place Excalidraw editor CDN roots — injected ONLY into the live viewer.
   // Exports carry zero excalidraw references (code AND urls; the offline test
@@ -786,6 +798,14 @@ function settingsModalHtml(): string {
           <div class="seg" id="widthSeg">
             <button data-wide="off">Normal</button>
             <button data-wide="on">Wide</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Reading font</div>
+          <div class="seg" id="readSeg">
+            <button data-read="sans">Sans</button>
+            <button data-read="serif">Serif</button>
+            <button data-read="mono">Mono</button>
           </div>
         </div>
         <div class="settings-section">
@@ -1095,6 +1115,7 @@ function cmtAnchorFromRange(container, range) {
 // and auto-detected theme. Kept dependency-free; vendored libs are optional.
 const CLIENT_JS = String.raw`
 let DATA = JSON.parse(document.getElementById('data').textContent);
+const READING_FONTS = ${JSON.stringify(READING_FONTS)};
 // Static export (scratch export bakes data-export onto <html>): no host listens,
 // so the page file itself is where comments persist. Capture the pristine source
 // now, before any rendering mutates the DOM — saveCopy() splices the live DATA
@@ -3024,7 +3045,7 @@ const SETTINGS = (function () {
   // tocVisible is deliberately NOT persisted — the TOC is on-demand and always
   // boots hidden, toggled ('o' / settings) for the current session only. So it's
   // absent from the embedded snapshot / localStorage / saveConfig, unlike the rest.
-  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
+  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, readingFont: 'sans', sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // With no host the embedded snapshot is whatever the exporting machine had
   // saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -3042,6 +3063,7 @@ const SETTINGS = (function () {
       try { st = clampStarred(JSON.parse(localStorage.getItem('scratch.starredThemes') || 'null')); } catch (_) {}
       const g = localStorage.getItem('scratch.gridStyle');
       const w = localStorage.getItem('scratch.wideMode');
+      const rf = localStorage.getItem('scratch.readingFont');
       const z = parseFloat(localStorage.getItem('scratch.zoom'));
       const sc = localStorage.getItem('scratch.sidebarCollapsed');
       const tc = localStorage.getItem('scratch.topbarCollapsed');
@@ -3052,6 +3074,7 @@ const SETTINGS = (function () {
       if (st) s.starredThemes = st;
       if (g === 'off' || g === 'dots' || g === 'lines') s.gridStyle = g;
       if (w === 'true' || w === 'false') s.wideMode = w === 'true';
+      if (READING_FONTS.includes(rf)) s.readingFont = rf;
       if (z >= 0.5 && z <= 2) s.zoom = z;
     } catch (_) {}
   }
@@ -3080,7 +3103,7 @@ function postToHost(key, path, payload, onFail) {
   return false;
 }
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, readingFont: SETTINGS.readingFont, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
   if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
@@ -3088,6 +3111,7 @@ function persistSettings() {
     localStorage.setItem('scratch.starredThemes', JSON.stringify(SETTINGS.starredThemes));
     localStorage.setItem('scratch.gridStyle', SETTINGS.gridStyle);
     localStorage.setItem('scratch.wideMode', String(SETTINGS.wideMode));
+    localStorage.setItem('scratch.readingFont', SETTINGS.readingFont);
     localStorage.setItem('scratch.zoom', String(SETTINGS.zoom));
     // '1'/'0' (not String(bool)): keeps reading values that older exports wrote
     // when these keys were localStorage-only.
@@ -3162,12 +3186,14 @@ function applyTheme() {
   r.dataset.colorTheme = SETTINGS.colorTheme;
   r.dataset.grid = SETTINGS.gridStyle;
   r.toggleAttribute('data-wide', !!SETTINGS.wideMode);
+  r.dataset.read = SETTINGS.readingFont;
   syncThemeIcon();
   // Reflect the active choice in the settings modal.
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === SETTINGS.themeMode));
   syncThemeCards();
   document.querySelectorAll('#gridSeg button').forEach((b) => b.classList.toggle('on', b.dataset.grid === SETTINGS.gridStyle));
   document.querySelectorAll('#widthSeg button').forEach((b) => b.classList.toggle('on', b.dataset.wide === (SETTINGS.wideMode ? 'on' : 'off')));
+  document.querySelectorAll('#readSeg button').forEach((b) => b.classList.toggle('on', b.dataset.read === SETTINGS.readingFont));
   document.querySelectorAll('#autoReloadSeg button').forEach((b) => b.classList.toggle('on', b.dataset.auto === (SETTINGS.autoReload ? 'on' : 'off')));
   document.querySelectorAll('#tocSeg button').forEach((b) => b.classList.toggle('on', b.dataset.toc === (SETTINGS.tocVisible ? 'on' : 'off')));
   updateToc();
@@ -3194,6 +3220,11 @@ function setGridStyle(g) {
 }
 function setWideMode(on) {
   SETTINGS.wideMode = on;
+  applyTheme();
+  persistSettings();
+}
+function setReadingFont(f) {
+  SETTINGS.readingFont = f;
   applyTheme();
   persistSettings();
 }
@@ -3341,6 +3372,7 @@ settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal)
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));
 document.querySelectorAll('#gridSeg button').forEach((b) => b.addEventListener('click', () => setGridStyle(b.dataset.grid)));
 document.querySelectorAll('#widthSeg button').forEach((b) => b.addEventListener('click', () => setWideMode(b.dataset.wide === 'on')));
+document.querySelectorAll('#readSeg button').forEach((b) => b.addEventListener('click', () => setReadingFont(b.dataset.read)));
 document.querySelectorAll('#autoReloadSeg button').forEach((b) => b.addEventListener('click', () => setAutoReload(b.dataset.auto === 'on')));
 document.querySelectorAll('#tocSeg button').forEach((b) => b.addEventListener('click', () => setTocVisible(b.dataset.toc === 'on')));
 
@@ -3423,6 +3455,7 @@ window.__scratchSettings = function (cfg) {
   if (starred && JSON.stringify(starred) !== JSON.stringify(SETTINGS.starredThemes)) { SETTINGS.starredThemes = starred; drift = true; }
   if ((cfg.gridStyle === 'off' || cfg.gridStyle === 'dots' || cfg.gridStyle === 'lines') && cfg.gridStyle !== SETTINGS.gridStyle) { SETTINGS.gridStyle = cfg.gridStyle; drift = true; }
   if (typeof cfg.wideMode === 'boolean' && cfg.wideMode !== SETTINGS.wideMode) { SETTINGS.wideMode = cfg.wideMode; drift = true; }
+  if (READING_FONTS.includes(cfg.readingFont) && cfg.readingFont !== SETTINGS.readingFont) { SETTINGS.readingFont = cfg.readingFont; drift = true; }
   if (typeof cfg.autoReload === 'boolean' && cfg.autoReload !== SETTINGS.autoReload) { SETTINGS.autoReload = cfg.autoReload; drift = true; }
   if (typeof cfg.sidebarCollapsed === 'boolean' && cfg.sidebarCollapsed !== SETTINGS.sidebarCollapsed) { SETTINGS.sidebarCollapsed = cfg.sidebarCollapsed; drift = true; }
   if (typeof cfg.topbarCollapsed === 'boolean' && cfg.topbarCollapsed !== SETTINGS.topbarCollapsed) { SETTINGS.topbarCollapsed = cfg.topbarCollapsed; drift = true; }

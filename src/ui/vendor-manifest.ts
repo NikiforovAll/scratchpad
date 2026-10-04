@@ -89,6 +89,77 @@ export const VENDOR_ASSETS: VendorAsset[] = [
 /** Base URL for the KaTeX woff2 fonts referenced (relatively) by katex.min.css. */
 export const KATEX_FONTS_BASE = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/";
 
+// UI webfonts (theme.ts --mono / --serif), from @fontsource npm packages on jsdelivr.
+// @font-face fetches cannot carry SRI, so like the KaTeX fonts the trust anchor is
+// the immutable npm version in the URL. Each face is split into Google-Fonts
+// unicode-range subsets: online the browser fetches only the subsets a page uses;
+// --offline embeds only the subsets the pad's text needs (render.ts).
+export interface FontSubset {
+  name: "latin" | "latin-ext" | "cyrillic" | "cyrillic-ext" | "vietnamese";
+  range: string;
+}
+export const FONT_SUBSETS: FontSubset[] = [
+  { name: "latin", range: "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD" },
+  { name: "latin-ext", range: "U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF" },
+  { name: "cyrillic", range: "U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116" },
+  { name: "cyrillic-ext", range: "U+0460-052F,U+1C80-1C8A,U+20B4,U+2DE0-2DFF,U+A640-A69F,U+FE2E-FE2F" },
+  { name: "vietnamese", range: "U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB" },
+];
+
+export interface FontFace { weight: number; style: "normal" | "italic" }
+export interface UiFont {
+  family: string;
+  pkg: string;
+  subsets: FontSubset["name"][];
+  faces: FontFace[];
+  /** Set on a prose font: an offline export embeds it only when it is the active reading font. */
+  reading?: "sans" | "serif";
+}
+export const UI_FONTS: UiFont[] = [
+  {
+    family: "IBM Plex Mono",
+    pkg: "@fontsource/ibm-plex-mono@5.3.0",
+    subsets: ["latin", "latin-ext", "cyrillic", "cyrillic-ext", "vietnamese"],
+    faces: [
+      { weight: 400, style: "normal" }, { weight: 500, style: "normal" },
+      { weight: 700, style: "normal" }, { weight: 400, style: "italic" },
+    ],
+  },
+  {
+    family: "Playfair Display",
+    pkg: "@fontsource/playfair-display@5.3.0",
+    subsets: ["latin", "latin-ext", "cyrillic", "vietnamese"],
+    faces: [{ weight: 500, style: "normal" }, { weight: 600, style: "normal" }],
+  },
+  {
+    family: "IBM Plex Sans",
+    pkg: "@fontsource/ibm-plex-sans@5.3.0",
+    subsets: ["latin", "latin-ext", "cyrillic", "cyrillic-ext", "vietnamese"],
+    faces: [{ weight: 400, style: "normal" }, { weight: 600, style: "normal" }, { weight: 400, style: "italic" }],
+    reading: "sans",
+  },
+  {
+    family: "IBM Plex Serif",
+    pkg: "@fontsource/ibm-plex-serif@5.3.0",
+    subsets: ["latin", "latin-ext", "cyrillic", "cyrillic-ext", "vietnamese"],
+    faces: [{ weight: 400, style: "normal" }, { weight: 600, style: "normal" }, { weight: 400, style: "italic" }],
+    reading: "serif",
+  },
+];
+// Faces are the minimum theme.ts needs; each one costs ~15–23 KB per subset in an
+// offline export. CSS font matching covers the gaps: 600 mono resolves to the 700
+// face, 700 Playfair/Plex Sans/Plex Serif to the 600 face; only bold italic is
+// synthesized (from 400 italic).
+
+/** Cache filename under src/ui/vendor/fonts/ui/, identical to the package's own. */
+export function uiFontFile(font: UiFont, subset: string, face: FontFace): string {
+  const id = font.pkg.slice("@fontsource/".length, font.pkg.lastIndexOf("@"));
+  return `${id}-${subset}-${face.weight}-${face.style}.woff2`;
+}
+export function uiFontUrl(font: UiFont, file: string): string {
+  return `https://cdn.jsdelivr.net/npm/${font.pkg}/files/${file}`;
+}
+
 // The live viewer's in-place Excalidraw editor loads react + @excalidraw/excalidraw
 // from esm.sh (excalidraw's official browser path: an ESM graph whose react peer
 // deps esm.sh resolves in-URL — responses aren't byte-stable, so no SRI, unlike

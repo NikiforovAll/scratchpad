@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { KATEX_CSS, KATEX_FONTS_BASE, VENDOR_ASSETS } from "../src/ui/vendor-manifest.ts";
+import { KATEX_CSS, KATEX_FONTS_BASE, UI_FONTS, VENDOR_ASSETS, uiFontFile, uiFontUrl } from "../src/ui/vendor-manifest.ts";
 
 const VENDOR_DIR = join(import.meta.dir, "..", "src", "ui", "vendor");
 const FONTS_DIR = join(VENDOR_DIR, "fonts");
@@ -57,6 +57,22 @@ async function ensure(file: string, url: string, sri: string): Promise<Uint8Arra
   return buf;
 }
 
+/** Unpinned asset (fonts): use the cached file if present, else download it. */
+async function ensureUnpinned(file: string, url: string): Promise<Uint8Array> {
+  if (existsSync(file)) {
+    skipped++;
+    return readFile(file);
+  }
+  if (FROZEN) throw new Error(`frozen: missing font ${file}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch-vendor: ${url} → HTTP ${res.status}`);
+  const buf = new Uint8Array(await res.arrayBuffer());
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, buf);
+  fetched++;
+  return buf;
+}
+
 await mkdir(VENDOR_DIR, { recursive: true });
 
 for (const a of VENDOR_ASSETS) {
@@ -69,27 +85,27 @@ for (const a of VENDOR_ASSETS) {
 // woff2 (every target engine supports it); the offline render path drops woff/ttf.
 const css = await readFile(join(VENDOR_DIR, KATEX_CSS.file), "utf8");
 const fontRefs = [...new Set([...css.matchAll(/url\(fonts\/([A-Za-z0-9_.-]+\.woff2)\)/g)].map((m) => m[1]!))];
-await mkdir(FONTS_DIR, { recursive: true });
-for (const name of fontRefs) {
-  const file = join(FONTS_DIR, name);
-  if (existsSync(file)) {
-    skipped++;
-    continue;
-  }
-  if (FROZEN) throw new Error(`frozen: missing font ${file}`);
-  const res = await fetch(KATEX_FONTS_BASE + "fonts/" + name);
-  if (!res.ok) throw new Error(`fetch-vendor: font ${name} → HTTP ${res.status}`);
-  await writeFile(file, new Uint8Array(await res.arrayBuffer()));
-  fetched++;
-}
-
 // Build a KaTeX stylesheet with the woff2 fonts inlined as data: URIs and the
 // woff/ttf @font-face sources stripped — so an offline export keeps math glyphs
 // with zero network. Order matters: drop legacy formats first, then inline woff2.
 let katexCss = css.replace(/,?url\(fonts\/[A-Za-z0-9_.-]+\.(?:woff|ttf)\)\s*format\("(?:woff|truetype)"\)/g, "");
 for (const name of fontRefs) {
-  const b64 = Buffer.from(await readFile(join(FONTS_DIR, name))).toString("base64");
+  const font = await ensureUnpinned(join(FONTS_DIR, name), KATEX_FONTS_BASE + "fonts/" + name);
+  const b64 = Buffer.from(font).toString("base64");
   katexCss = katexCss.replaceAll(`url(fonts/${name})`, `url(data:font/woff2;base64,${b64})`);
+}
+
+// UI webfonts (every face × subset in UI_FONTS). Cache file names carry no
+// package version, so after a version bump delete src/ui/vendor/fonts/ui/ to refetch.
+const uiFontB64: Record<string, string> = {};
+for (const font of UI_FONTS) {
+  for (const face of font.faces) {
+    for (const subset of font.subsets) {
+      const name = uiFontFile(font, subset, face);
+      const buf = await ensureUnpinned(join(FONTS_DIR, "ui", name), uiFontUrl(font, name));
+      uiFontB64[name] = Buffer.from(buf).toString("base64");
+    }
+  }
 }
 
 // Generate the offline bundle module consumed (dynamically) by render.ts on the
@@ -112,7 +128,8 @@ export const KATEX_JS_GZ = ${JSON.stringify(gzb64(bytes.katex))};
 export const HLJS_THEME_DARK_CSS = ${lit(new TextDecoder().decode(bytes.hljsThemeDark))};
 export const HLJS_THEME_LIGHT_CSS = ${lit(new TextDecoder().decode(bytes.hljsThemeLight))};
 export const KATEX_CSS = ${lit(katexCss)};
+export const UI_FONT_B64: Record<string, string> = ${JSON.stringify(uiFontB64)};
 `;
 await writeFile(join(VENDOR_DIR, "bundle.ts"), bundle);
 
-console.log(`fetch-vendor: ${fetched} fetched, ${skipped} cached (${VENDOR_ASSETS.length} libs + ${fontRefs.length} fonts) → src/ui/vendor/ (+bundle.ts, JS gzip+base64)`);
+console.log(`fetch-vendor: ${fetched} fetched, ${skipped} cached (${VENDOR_ASSETS.length} libs + ${fontRefs.length} KaTeX fonts + ${Object.keys(uiFontB64).length} UI fonts) → src/ui/vendor/ (+bundle.ts, JS gzip+base64)`);

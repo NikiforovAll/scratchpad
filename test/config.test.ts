@@ -99,6 +99,17 @@ describe("loadConfig", () => {
     expect((await loadConfig()).ui.wideMode).toBe(false); // non-boolean → default
   });
 
+  test("readingFont: defaults to sans; reads valid value; rejects garbage", async () => {
+    process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
+    expect((await loadConfig()).ui.readingFont).toBe("sans");
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { readingFont: "serif" } }), "utf8");
+    expect((await loadConfig()).ui.readingFont).toBe("serif");
+    await writeFile(f, JSON.stringify({ ui: { readingFont: "comic" } }), "utf8");
+    expect((await loadConfig()).ui.readingFont).toBe("sans");
+  });
+
   test("sidebarCollapsed/topbarCollapsed: default false; read booleans; reject garbage", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     let cfg = await loadConfig();
@@ -175,8 +186,9 @@ describe("saveConfig", () => {
   test("creates dir + file and round-trips through loadConfig", async () => {
     const f = join(dir, "nested", "config.json"); // parent doesn't exist yet
     process.env.SCRATCHPAD_CONFIG = f;
-    await saveConfig({ themeMode: "dark", colorTheme: "tokyo-night", gridStyle: "lines", wideMode: true });
+    await saveConfig({ themeMode: "dark", colorTheme: "tokyo-night", gridStyle: "lines", wideMode: true, readingFont: "mono" });
     const cfg = await loadConfig();
+    expect(cfg.ui.readingFont).toBe("mono");
     expect(cfg.ui.themeMode).toBe("dark");
     expect(cfg.ui.colorTheme).toBe("tokyo-night");
     expect(cfg.ui.gridStyle).toBe("lines");

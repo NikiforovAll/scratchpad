@@ -19,6 +19,8 @@ import { COLOR_THEME_IDS, DEFAULT_COLOR_THEME } from "./ui/theme.ts";
 export const THEME_MODES = ["dark", "light", "system"] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
 export type GridStyle = "off" | "dots" | "lines";
+export const READING_FONTS = ["sans", "serif", "mono"] as const;
+export type ReadingFont = (typeof READING_FONTS)[number];
 
 export interface ScratchConfig {
   ui: {
@@ -36,6 +38,8 @@ export interface ScratchConfig {
     gridStyle: GridStyle;
     /** Wide reading column: roomier card that still leaves a margin (default false). */
     wideMode: boolean;
+    /** Font for markdown prose; code, paths and metadata stay mono. */
+    readingFont: ReadingFont;
     /** Sidebar (file tree) collapsed away — toggled with '[' or the pane button. */
     sidebarCollapsed: boolean;
     /** Top bar collapsed away — toggled with ']'. */
@@ -58,6 +62,7 @@ const DEFAULTS: ScratchConfig = {
     starredThemes: [],
     gridStyle: "dots",
     wideMode: false,
+    readingFont: "sans",
     sidebarCollapsed: false,
     topbarCollapsed: false,
     zoom: 1,
@@ -85,6 +90,9 @@ function sanitizeStarred(v: unknown): string[] | null {
 }
 function validGridStyle(v: unknown): v is GridStyle {
   return v === "off" || v === "dots" || v === "lines";
+}
+function validReadingFont(v: unknown): v is ReadingFont {
+  return typeof v === "string" && (READING_FONTS as readonly string[]).includes(v);
 }
 function validZoom(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0.5 && v <= 2;
@@ -116,6 +124,7 @@ export async function loadConfig(): Promise<ScratchConfig> {
           ? raw.ui.gridStyle
           : DEFAULTS.ui.gridStyle,
         wideMode: bool(raw?.ui?.wideMode, DEFAULTS.ui.wideMode),
+        readingFont: validReadingFont(raw?.ui?.readingFont) ? raw.ui.readingFont : DEFAULTS.ui.readingFont,
         sidebarCollapsed: bool(raw?.ui?.sidebarCollapsed, DEFAULTS.ui.sidebarCollapsed),
         topbarCollapsed: bool(raw?.ui?.topbarCollapsed, DEFAULTS.ui.topbarCollapsed),
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
@@ -151,6 +160,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (starred) ui.starredThemes = starred;
   if (validGridStyle(patch.gridStyle)) ui.gridStyle = patch.gridStyle;
   if (typeof patch.wideMode === "boolean") ui.wideMode = patch.wideMode;
+  if (validReadingFont(patch.readingFont)) ui.readingFont = patch.readingFont;
   if (typeof patch.sidebarCollapsed === "boolean") ui.sidebarCollapsed = patch.sidebarCollapsed;
   if (typeof patch.topbarCollapsed === "boolean") ui.topbarCollapsed = patch.topbarCollapsed;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;

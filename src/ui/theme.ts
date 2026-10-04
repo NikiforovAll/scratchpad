@@ -362,6 +362,8 @@ const BASE_CSS = `
      would follow the OS instead of the theme the user pinned. */
   --embed-paper: ${KIT_BG.dark};
   --serif: 'Playfair Display', Georgia, serif;
+  --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', sans-serif;
+  --serif-text: 'IBM Plex Serif', Georgia, serif;
   --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
 }
 :root[data-theme="light"] {
@@ -734,11 +736,16 @@ html:not([data-native]) .sc-native { display: none; }
    heading levels are color-coded down the ember ramp for at-a-glance hierarchy. */
 /* Single sizing knob: heading sizes below are em-relative, so adjusting this one
    font-size scales the whole reading column proportionally. */
-.md { max-width: 100%; color: var(--ink-2); font-size: 15px; line-height: 1.7; }
+:root { --read: var(--sans); --read-size: 16px; --read-lh: 1.65; }
+:root[data-read="serif"] { --read: var(--serif-text); }
+:root[data-read="mono"] { --read: var(--mono); --read-size: 15px; --read-lh: 1.7; }
+.md { max-width: 100%; color: var(--ink-2); font-family: var(--read); font-size: var(--read-size); line-height: var(--read-lh); }
 .md strong, .md b { font-weight: 700; color: var(--ink-1); }
 .md del { color: var(--ink-3); }
+/* Display serif only where it is large; its hairlines fade at body sizes. */
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
-  font-family: var(--serif); font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
+  font-family: var(--read); font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
+.md h1, .md h2 { font-family: var(--serif); }
 /* Stepped progression: h1 accent, then a uniform size + ink-ramp descent. */
 .md h1 { font-size: 1.625em; color: var(--ember-glow); }
 .md h2 { font-size: 1.3125em; color: var(--ink-1); border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
@@ -800,7 +807,7 @@ html:not([data-native]) .sc-native { display: none; }
 .md pre { background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0;
-  font-size: 14px; line-height: 1.7; }
+  font-family: var(--mono); font-size: 14px; line-height: 1.7; }
 /* inherit, not a value: .md code's 0.9em would otherwise shrink fenced code. */
 .md pre code { background: none; border: 0; padding: 0; font-size: inherit; }
 /* Fences tagged \`callstack\` (paintStack): the guides recede so the identifiers
