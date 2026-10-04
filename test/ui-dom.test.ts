@@ -2306,6 +2306,17 @@ async function renderTwoFilePad(exportMode = false): Promise<string> {
   return renderHtml(await buildView([pad]), "P", undefined, { exportMode });
 }
 
+test("sidebar rows with comments carry a dot marker", async () => {
+  await boot(await renderTwoFilePad());
+  try {
+    const rows = Array.from(document.querySelectorAll(".frow"));
+    expect(rows.map((r) => r.classList.contains("hascmt"))).toEqual([true, false]);
+    expect(rows[0]!.getAttribute("title")).toBe("A · note");
+  } finally {
+    await teardown();
+  }
+});
+
 test("Ctrl+Shift+S saves only the focused file, as a sidebar-less export", async () => {
   const saved: Saved = newSaved();
   await boot(await renderTwoFilePad(), undefined, armSavePicker(saved));

@@ -681,11 +681,11 @@ html:not([data-native]) .sc-native { display: none; }
    with class="label", so an unscoped rule upper-cased and letter-spaced every
    diagram label — and since mermaid sizes each box by measuring the raw string,
    the wider painted text then overflowed the box. */
-.tree .label { font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--ink-muted); padding: 6px 10px 10px; }
+.tree .label { font-size: 11px; font-weight: 500; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-muted); padding: 6px 10px; }
 /* Stacked group headers: separate each group from the rows above it. The first
-   group sits flush at the top; only subsequent ones get the gap + hairline. */
-.ggroup + .ggroup .glabel { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+   group sits flush at the top; only subsequent ones get the gap. */
+.ggroup + .ggroup .glabel { margin-top: 14px; }
 /* Collapsible group header: caret + label, click/Enter toggles its rows. */
 .glabel { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
 .glabel:hover { color: var(--ink-2); }
@@ -717,7 +717,8 @@ html:not([data-native]) .sc-native { display: none; }
 .frow:hover .ficon, .frow.active .ficon { opacity: 1; }
 .frow.active .ficon { color: var(--ember); }
 .frow .fttl { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.frow .ftag { flex: none; color: var(--ink-muted); font-size: 8.5px; letter-spacing: 0.02em; }
+.frow .fdot { display: none; flex: none; width: 6px; height: 6px; border-radius: 50%; align-self: center; background: var(--ember); }
+:root:not([data-comments-off]) .frow.hascmt .fdot { display: block; }
 
 /* preview */
 .phead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }

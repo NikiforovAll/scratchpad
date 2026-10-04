@@ -2928,10 +2928,9 @@ function buildTree(preferKey, prevSelJson) {
       const key = pad.dir + '::' + f.path;
       const cls = 'frow' + (f.registered ? '' : ' unreg') + (f.hidden ? ' revealed' : '');
       const ttl = f.title || f.path;
-      const tag = f.registered ? (f.type || 'note') : '·';
-      html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '">' +
-        fileIcon(f.kind) +
-        '<span class="fttl" title="' + esc(ttl) + '">' + esc(ttl) + '</span><span class="ftag">' + esc(tag) + '</span></div>';
+      const tip = ttl + ' · ' + (f.registered ? (f.type || 'note') : 'unregistered');
+      html += '<div class="' + cls + '" data-key="' + esc(key) + '" data-pi="' + pi + '" data-fi="' + fi + '" title="' + esc(tip) + '">' +
+        fileIcon(f.kind) + '<span class="fttl">' + esc(ttl) + '</span><span class="fdot" aria-hidden="true"></span></div>';
     });
     html += '</div></div>';
   });
@@ -4780,7 +4779,14 @@ function updateCommentsCount() {
     el.textContent = n > 99 ? '99+' : String(n);
     el.hidden = n === 0;
   }
+  syncTreeCommentDots();
   syncClearCommentsBtn();
+}
+function syncTreeCommentDots() {
+  document.querySelectorAll('#tree .frow[data-fi]').forEach(row => {
+    const cs = DATA.pads[+row.dataset.pi]?.files[+row.dataset.fi]?.comments;
+    row.classList.toggle('hascmt', !!(cs && cs.length));
+  });
 }
 function clearCommentsLabel() {
   const f = currentRef && currentRef.f;
