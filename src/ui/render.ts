@@ -8,7 +8,7 @@ import { stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pkg from "../../package.json" with { type: "json" };
-import { READING_FONTS, READING_SIZES, type ScratchConfig } from "../config.ts";
+import { MEASURE_DEFAULT, MEASURE_MAX, MEASURE_MIN, READING_FONTS, READING_SIZES, type ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath, toPosix } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry, type Layout, MANIFEST_NAME } from "../manifest.ts";
 import { type CommentItem, toCommentItems } from "../comments.ts";
@@ -516,6 +516,7 @@ const DEFAULT_UI: UiSettings = {
   wideMode: false,
   readingFont: "sans",
   readingSize: "m",
+  measure: MEASURE_DEFAULT,
   sidebarCollapsed: false,
   topbarCollapsed: false,
   autoReload: true,
@@ -544,6 +545,8 @@ export async function renderHtml(
   const wideMode = ui.wideMode ?? false;
   const readingFont = ui.readingFont ?? "sans";
   const readingSize = ui.readingSize ?? "m";
+  const measure = ui.measure ?? MEASURE_DEFAULT;
+  const rootStyle = [zoom === 1 ? "" : `zoom: ${zoom}`, measure === MEASURE_DEFAULT ? "" : `--measure-ch: ${measure}`].filter(Boolean).join("; ");
   // Collapsed panes are baked into the boot markup (not applied by the client)
   // so a remembered-collapsed sidebar/topbar never flashes open on first paint.
   const sidebarCollapsed = ui.sidebarCollapsed ?? false;
@@ -569,7 +572,7 @@ export async function renderHtml(
     (opts.exportMode ? " data-export" : "") +
     (pinned ? ` data-theme-pinned="${escapeHtml(pinned)}"` : "") +
     ` data-export-name="${escapeHtml(exportName)}"` +
-    (zoom === 1 ? "" : ` style="zoom: ${zoom}"`);
+    (rootStyle ? ` style="${rootStyle}"` : "");
   // NOT part of payloadJson: __scratchReload diff-compares the data island to
   // detect "no changes", and settings must not break that.
   const settingsJson = JSON.stringify({
@@ -579,6 +582,7 @@ export async function renderHtml(
     wideMode,
     readingFont,
     readingSize,
+    measure,
     sidebarCollapsed,
     topbarCollapsed,
     zoom,
@@ -1130,6 +1134,8 @@ const CLIENT_JS = String.raw`
 let DATA = JSON.parse(document.getElementById('data').textContent);
 const READING_FONTS = ${JSON.stringify(READING_FONTS)};
 const READING_SIZES = ${JSON.stringify(READING_SIZES)};
+const MEASURE_MIN = ${MEASURE_MIN}, MEASURE_DEFAULT = ${MEASURE_DEFAULT}, MEASURE_MAX = ${MEASURE_MAX};
+const validMeasure = (v) => Number.isInteger(v) && v >= MEASURE_MIN && v <= MEASURE_MAX;
 // Static export (scratch export bakes data-export onto <html>): no host listens,
 // so the page file itself is where comments persist. Capture the pristine source
 // now, before any rendering mutates the DOM — saveCopy() splices the live DATA
@@ -2681,7 +2687,7 @@ function renderPreview(pad, f, nav) {
   // One reading column wraps the whole view so the header strip, title, meta,
   // and body all share a single left edge (per-element margins no longer fight
   // the centering).
-  preview.innerHTML = '<div class="pbody">' +
+  preview.innerHTML = '<div class="pbody"><div class="mgrip" title="Drag to set width · double-click to reset"></div>' +
     '<div class="phead"><span class="pfile" title="' + esc(f.path) + '">' + crumb + '</span>' + datesHtml + ctrls + '</div>' +
     '<div class="pintro"><h1 class="ptitle">' + esc(title) + '</h1>' +
     '<div class="pmeta">' + metaLine + '</div>' +
@@ -3079,7 +3085,7 @@ const SETTINGS = (function () {
   // tocVisible is deliberately NOT persisted — the TOC is on-demand and always
   // boots hidden, toggled ('o' / settings) for the current session only. So it's
   // absent from the embedded snapshot / localStorage / saveConfig, unlike the rest.
-  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, readingFont: 'sans', readingSize: 'm', sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
+  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, readingFont: 'sans', readingSize: 'm', measure: MEASURE_DEFAULT, sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // With no host the embedded snapshot is whatever the exporting machine had
   // saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -3099,6 +3105,7 @@ const SETTINGS = (function () {
       const w = localStorage.getItem('scratch.wideMode');
       const rf = localStorage.getItem('scratch.readingFont');
       const rs = localStorage.getItem('scratch.readingSize');
+      const ms = Number(localStorage.getItem('scratch.measure'));
       const z = parseFloat(localStorage.getItem('scratch.zoom'));
       const sc = localStorage.getItem('scratch.sidebarCollapsed');
       const tc = localStorage.getItem('scratch.topbarCollapsed');
@@ -3111,6 +3118,7 @@ const SETTINGS = (function () {
       if (w === 'true' || w === 'false') s.wideMode = w === 'true';
       if (READING_FONTS.includes(rf)) s.readingFont = rf;
       if (READING_SIZES.includes(rs)) s.readingSize = rs;
+      if (validMeasure(ms)) s.measure = ms;
       if (z >= 0.5 && z <= 2) s.zoom = z;
     } catch (_) {}
   }
@@ -3139,7 +3147,7 @@ function postToHost(key, path, payload, onFail) {
   return false;
 }
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, readingFont: SETTINGS.readingFont, readingSize: SETTINGS.readingSize, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, readingFont: SETTINGS.readingFont, readingSize: SETTINGS.readingSize, measure: SETTINGS.measure, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
   if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
@@ -3149,6 +3157,7 @@ function persistSettings() {
     localStorage.setItem('scratch.wideMode', String(SETTINGS.wideMode));
     localStorage.setItem('scratch.readingFont', SETTINGS.readingFont);
     localStorage.setItem('scratch.readingSize', SETTINGS.readingSize);
+    localStorage.setItem('scratch.measure', String(SETTINGS.measure));
     localStorage.setItem('scratch.zoom', String(SETTINGS.zoom));
     // '1'/'0' (not String(bool)): keeps reading values that older exports wrote
     // when these keys were localStorage-only.
@@ -3225,6 +3234,7 @@ function applyTheme() {
   r.toggleAttribute('data-wide', !!SETTINGS.wideMode);
   r.dataset.read = SETTINGS.readingFont;
   r.dataset.readSize = SETTINGS.readingSize;
+  applyMeasure();
   syncThemeIcon();
   // Reflect the active choice in the settings modal.
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === SETTINGS.themeMode));
@@ -3487,6 +3497,7 @@ window.__scratchSettings = function (cfg) {
   if (typeof cfg.wideMode === 'boolean' && cfg.wideMode !== SETTINGS.wideMode) { SETTINGS.wideMode = cfg.wideMode; drift = true; }
   if (READING_FONTS.includes(cfg.readingFont) && cfg.readingFont !== SETTINGS.readingFont) { SETTINGS.readingFont = cfg.readingFont; drift = true; }
   if (READING_SIZES.includes(cfg.readingSize) && cfg.readingSize !== SETTINGS.readingSize) { SETTINGS.readingSize = cfg.readingSize; drift = true; }
+  if (validMeasure(cfg.measure) && cfg.measure !== SETTINGS.measure) { SETTINGS.measure = cfg.measure; drift = true; }
   if (typeof cfg.autoReload === 'boolean' && cfg.autoReload !== SETTINGS.autoReload) { SETTINGS.autoReload = cfg.autoReload; drift = true; }
   if (typeof cfg.sidebarCollapsed === 'boolean' && cfg.sidebarCollapsed !== SETTINGS.sidebarCollapsed) { SETTINGS.sidebarCollapsed = cfg.sidebarCollapsed; drift = true; }
   if (typeof cfg.topbarCollapsed === 'boolean' && cfg.topbarCollapsed !== SETTINGS.topbarCollapsed) { SETTINGS.topbarCollapsed = cfg.topbarCollapsed; drift = true; }
@@ -3715,47 +3726,101 @@ document.getElementById('repoLink').addEventListener('click', (e) => {
   webview.postMessage({ __glimpse_open: e.currentTarget.href });
 });
 
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// Drag-to-resize for any handle matching selector under root (delegated, so it
+// works for handles re-created by a render). start returns false to cancel.
+// Body cursor and user-select hold through the drag; double-click calls reset.
+// preventDefault stops the browser's double-click default (text selection /
+// smart-zoom) from firing on the handle.
+function dragHandle(root, selector, cursor, h) {
+  let el = null;
+  const hit = (e) => e.target.closest && e.target.closest(selector);
+  root.addEventListener('mousedown', (e) => {
+    const t = hit(e);
+    if (!t) return;
+    e.preventDefault();
+    if (h.start && h.start(e, t) === false) return;
+    el = t;
+    el.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = cursor;
+  });
+  document.addEventListener('mousemove', (e) => { if (el) h.move(e); });
+  document.addEventListener('mouseup', () => {
+    if (!el) return;
+    el.classList.remove('dragging');
+    el = null;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    if (h.end) h.end();
+  });
+  root.addEventListener('dblclick', (e) => { if (hit(e)) { e.preventDefault(); h.reset(); } });
+}
+
 // Resizable sidebar: drag the handle to set the tree width, persisted across
 // sessions. Width is clamped so neither pane can be dragged away entirely.
 (function () {
   const TREE_MIN = 200, TREE_MAX = 640;
-  const resizer = document.getElementById('resizer');
   const tree = document.getElementById('sidebar');
-  const setW = (px) => {
-    const w = Math.max(TREE_MIN, Math.min(TREE_MAX, px));
-    document.documentElement.style.setProperty('--tree-w', w + 'px');
-    return w;
-  };
+  const setW = (px) => document.documentElement.style.setProperty('--tree-w', clamp(px, TREE_MIN, TREE_MAX) + 'px');
   try { const saved = parseInt(localStorage.getItem('scratch.treeW'), 10); if (saved) setW(saved); } catch (_) {}
-  let dragging = false;
-  const onMove = (e) => { if (dragging) setW(e.clientX - tree.getBoundingClientRect().left); };
-  const onUp = () => {
-    if (!dragging) return;
-    dragging = false;
-    resizer.classList.remove('dragging');
-    tree.classList.remove('resizing');
-    document.body.style.userSelect = '';
-    document.body.style.cursor = '';
-    try { localStorage.setItem('scratch.treeW', String(tree.getBoundingClientRect().width | 0)); } catch (_) {}
-  };
-  resizer.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    dragging = true;
-    resizer.classList.add('dragging');
-    tree.classList.add('resizing');
-    // Suppress text selection + keep the resize cursor through the whole drag.
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'col-resize';
+  dragHandle(document.body, '#resizer', 'col-resize', {
+    start: () => { tree.classList.add('resizing'); },
+    move: (e) => setW(e.clientX - tree.getBoundingClientRect().left),
+    end: () => {
+      tree.classList.remove('resizing');
+      try { localStorage.setItem('scratch.treeW', String(tree.getBoundingClientRect().width | 0)); } catch (_) {}
+    },
+    reset: () => {
+      document.documentElement.style.removeProperty('--tree-w');
+      try { localStorage.removeItem('scratch.treeW'); } catch (_) {}
+      showToast('Sidebar width reset', 'info');
+    },
   });
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
-  // Double-click resets to the default width. preventDefault stops the browser's
-  // double-click default (text selection / smart-zoom) from firing on the handle.
-  resizer.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    document.documentElement.style.removeProperty('--tree-w');
-    try { localStorage.removeItem('scratch.treeW'); } catch (_) {}
-    showToast('Sidebar width reset', 'info');
+})();
+
+function applyMeasure() {
+  document.documentElement.style.setProperty('--measure-ch', String(SETTINGS.measure));
+}
+// Card-edge grip sets the normal-mode measure. A card sized by its prose is
+// centered, so its edge moves half as far as the width changes: dx counts twice.
+// A card held wider by a code block or table stays put while the prose, pinned
+// to its left edge, follows dx one to one. The rate is re-read on every move, as
+// a drag can cross from one layout to the other.
+(function () {
+  let drag = null;
+  const proseBound = () => {
+    const cs = getComputedStyle(drag.card);
+    const inner = drag.card.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    return inner <= parseFloat(getComputedStyle(drag.host).getPropertyValue('--measure')) + 1;
+  };
+  dragHandle(document.getElementById('preview'), '.mgrip', 'ew-resize', {
+    start: (e, grip) => {
+      const card = grip.parentElement;
+      const host = card.querySelector('.md') || card;
+      // --measure is registered, so its computed value is px in the host's own font.
+      // The rect/offset ratio converts that to screen px under CSS zoom.
+      const chPx = parseFloat(getComputedStyle(host).getPropertyValue('--measure')) / SETTINGS.measure *
+        (card.getBoundingClientRect().width / card.offsetWidth || 1);
+      if (!(chPx > 0)) return false;
+      drag = { card, host, chPx, x: e.clientX, m: SETTINGS.measure, start: SETTINGS.measure };
+    },
+    move: (e) => {
+      drag.m += (proseBound() ? 2 : 1) * (e.clientX - drag.x) / drag.chPx;
+      drag.m = clamp(drag.m, MEASURE_MIN, MEASURE_MAX);
+      drag.x = e.clientX;
+      const v = Math.round(drag.m);
+      if (v === SETTINGS.measure) return;
+      SETTINGS.measure = v;
+      applyMeasure();
+    },
+    end: () => { if (SETTINGS.measure !== drag.start) persistSettings(); drag = null; },
+    reset: () => {
+      SETTINGS.measure = MEASURE_DEFAULT;
+      applyMeasure();
+      persistSettings();
+      showToast('Width reset', 'info');
+    },
   });
 })();
 

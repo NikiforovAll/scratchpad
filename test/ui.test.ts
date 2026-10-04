@@ -358,6 +358,13 @@ describe("renderHtml", () => {
     expect(plain).toContain('"zoom":1');
   });
 
+  test("a non-default measure is baked as --measure-ch next to zoom", async () => {
+    const view = await buildView([await seedPad()]);
+    const html = await renderHtml(view, "Notes", { themeMode: "system", colorTheme: "ember", zoom: 1.25, measure: 96 });
+    expect(html).toContain('style="zoom: 1.25; --measure-ch: 96"');
+    expect(html).toContain('"measure":96');
+  });
+
   test("escapes </script> in embedded data", async () => {
     const dir = join(root, "x");
     await mkdir(dir, { recursive: true });

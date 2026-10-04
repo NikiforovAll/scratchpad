@@ -121,6 +121,21 @@ describe("loadConfig", () => {
     expect((await loadConfig()).ui.readingSize).toBe("m");
   });
 
+  test("measure: defaults to 70; reads an in-range integer; rejects out of range and fractions", async () => {
+    process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
+    expect((await loadConfig()).ui.measure).toBe(70);
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { measure: 96 } }), "utf8");
+    expect((await loadConfig()).ui.measure).toBe(96);
+    for (const bad of [10, 500, 72.5, "80"]) {
+      await writeFile(f, JSON.stringify({ ui: { measure: bad } }), "utf8");
+      expect((await loadConfig()).ui.measure).toBe(70);
+    }
+    await saveConfig({ measure: 88 });
+    expect((await loadConfig()).ui.measure).toBe(88);
+  });
+
   test("sidebarCollapsed/topbarCollapsed: default false; read booleans; reject garbage", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     let cfg = await loadConfig();

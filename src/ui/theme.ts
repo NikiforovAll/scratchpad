@@ -587,9 +587,9 @@ html:not([data-native]) .sc-native { display: none; }
    thin centered visual line that brightens on hover/drag. */
 .resizer { flex: 0 0 6px; cursor: col-resize; position: relative; background: transparent;
   margin: 0 -3px; z-index: 5; user-select: none; touch-action: none; }
-.resizer::after { content: ""; position: absolute; inset: 0 auto 0 50%; width: 1px;
+:is(.resizer, .mgrip)::after { content: ""; position: absolute; inset: 0 auto 0 50%; width: 1px;
   transform: translateX(-50%); background: var(--border); transition: background 0.15s ease; }
-.resizer:hover::after, .resizer.dragging::after { background: var(--ember); width: 2px; }
+:is(.resizer, .mgrip):is(:hover, .dragging)::after { background: var(--ember); width: 2px; }
 /* Recessed margin field. The optional grid (settings > background) is an
    engineering-notebook texture drawn from the ink ramp so it tracks every color
    theme + mode; it reads only in the margins around the raised .pbody card. The
@@ -619,7 +619,7 @@ html:not([data-native]) .sc-native { display: none; }
    code blocks, tables, images, mermaid), centered, up to a cap. Prose is held to
    a readable measure (below) so ordinary paragraphs DON'T balloon the card to the
    cap — only genuinely wide content widens it. */
-.pbody { width: fit-content; max-width: min(100%, 1360px); margin: 0 auto 28px;
+.pbody { position: relative; width: fit-content; max-width: min(100%, 1360px); margin: 0 auto 28px;
   padding: 34px 44px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.12); }
@@ -628,13 +628,18 @@ html:not([data-native]) .sc-native { display: none; }
    img, mermaid) are intentionally excluded — they're what may widen the card.
    Wide mode (settings > width) lifts the cap (--measure: none) so the column uses
    the window, and widens the card itself (still leaving a margin for the grid).
-   Registered so 70ch resolves to a length where it is declared and children
-   inherit that length, not 70 of their own characters. Declared on .md as well so
-   the prose cap follows the reading font and size, not the header's mono. */
+   Registered so the ch value resolves to a length where it is declared and
+   children inherit that length, not a count of their own characters. Declared on
+   .md as well so the prose cap follows the reading font and size, not the
+   header's mono. --measure-ch is the user's width (config ui.measure); the 70
+   fallback must match MEASURE_DEFAULT in config.ts. */
 @property --measure { syntax: '<length> | none'; inherits: true; initial-value: none; }
-:is(.pbody, .md) { --measure: 70ch; }
+:is(.pbody, .md) { --measure: calc(var(--measure-ch, 70) * 1ch); }
 :root[data-wide] :is(.pbody, .md) { --measure: none; }
 :root[data-wide] .pbody { width: auto; max-width: 95%; }
+.mgrip { position: absolute; top: 12px; bottom: 12px; right: -4px; width: 8px; cursor: ew-resize; z-index: 2; }
+.mgrip::after { background: transparent; }
+:root[data-wide] .mgrip { display: none; }
 .pbody > .pintro,
 .md > p, .md > ul, .md > ol, .md > blockquote, .md > dl,
 .md > :is(h1, h2, h3, h4, h5, h6) { max-width: var(--measure); }

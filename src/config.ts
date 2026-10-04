@@ -23,6 +23,7 @@ export const READING_FONTS = ["sans", "serif", "mono"] as const;
 export type ReadingFont = (typeof READING_FONTS)[number];
 export const READING_SIZES = ["s", "m", "l", "xl"] as const;
 export type ReadingSize = (typeof READING_SIZES)[number];
+export const MEASURE_MIN = 40, MEASURE_DEFAULT = 70, MEASURE_MAX = 160;
 
 export interface ScratchConfig {
   ui: {
@@ -44,6 +45,8 @@ export interface ScratchConfig {
     readingFont: ReadingFont;
     /** Prose text size step; scales the reading font only, unlike zoom. */
     readingSize: ReadingSize;
+    /** Prose column width in ch for normal (not wide) mode; set by dragging the card edge. */
+    measure: number;
     /** Sidebar (file tree) collapsed away — toggled with '[' or the pane button. */
     sidebarCollapsed: boolean;
     /** Top bar collapsed away — toggled with ']'. */
@@ -68,6 +71,7 @@ const DEFAULTS: ScratchConfig = {
     wideMode: false,
     readingFont: "sans",
     readingSize: "m",
+    measure: MEASURE_DEFAULT,
     sidebarCollapsed: false,
     topbarCollapsed: false,
     zoom: 1,
@@ -98,6 +102,9 @@ function validGridStyle(v: unknown): v is GridStyle {
 }
 const validReadingFont = oneOf(READING_FONTS);
 const validReadingSize = oneOf(READING_SIZES);
+function validMeasure(v: unknown): v is number {
+  return Number.isInteger(v) && (v as number) >= MEASURE_MIN && (v as number) <= MEASURE_MAX;
+}
 function validZoom(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0.5 && v <= 2;
 }
@@ -130,6 +137,7 @@ export async function loadConfig(): Promise<ScratchConfig> {
         wideMode: bool(raw?.ui?.wideMode, DEFAULTS.ui.wideMode),
         readingFont: validReadingFont(raw?.ui?.readingFont) ? raw.ui.readingFont : DEFAULTS.ui.readingFont,
         readingSize: validReadingSize(raw?.ui?.readingSize) ? raw.ui.readingSize : DEFAULTS.ui.readingSize,
+        measure: validMeasure(raw?.ui?.measure) ? raw.ui.measure : DEFAULTS.ui.measure,
         sidebarCollapsed: bool(raw?.ui?.sidebarCollapsed, DEFAULTS.ui.sidebarCollapsed),
         topbarCollapsed: bool(raw?.ui?.topbarCollapsed, DEFAULTS.ui.topbarCollapsed),
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
@@ -167,6 +175,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (typeof patch.wideMode === "boolean") ui.wideMode = patch.wideMode;
   if (validReadingFont(patch.readingFont)) ui.readingFont = patch.readingFont;
   if (validReadingSize(patch.readingSize)) ui.readingSize = patch.readingSize;
+  if (validMeasure(patch.measure)) ui.measure = patch.measure;
   if (typeof patch.sidebarCollapsed === "boolean") ui.sidebarCollapsed = patch.sidebarCollapsed;
   if (typeof patch.topbarCollapsed === "boolean") ui.topbarCollapsed = patch.topbarCollapsed;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;
