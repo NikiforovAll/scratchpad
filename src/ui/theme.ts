@@ -809,10 +809,15 @@ html:not([data-native]) .sc-native { display: none; }
    tip/warning/caution reuse the semantic tokens so every color theme inherits
    them; note/important have no palette counterpart, so like code.cs's --cs-type
    they carry their own blue/purple with a light-mode override for contrast. */
-.md blockquote.alert { --alert: var(--ink-3); border-left: 3px solid var(--alert); color: var(--ink-2); }
-.md .alert-title { display: flex; align-items: center; gap: 8px; margin: 0.7em 0;
-  font-weight: 600; color: var(--alert); }
-.md .alert-title .alert-icon { flex: none; }
+.md blockquote.alert { --alert: var(--ink-3); position: relative; padding: 8px 12px 8px 36px;
+  border: 1px solid color-mix(in srgb, var(--alert) 30%, transparent); border-radius: 6px;
+  background: color-mix(in srgb, var(--alert) 9%, transparent); color: var(--ink-2); }
+.md blockquote.alert > * { margin: 0.5em 0; }
+.md blockquote.alert > :is(:first-child, .alert-title + *) { margin-top: 0; }
+.md blockquote.alert > :last-child { margin-bottom: 0; }
+.md blockquote.alert > .alert-title { float: left; margin: 0 0.5em 0 0; font-weight: 600; color: var(--alert); }
+.md blockquote.alert > .alert-title + :not(p) { clear: left; margin-top: 0.4em; }
+.md .alert-title .alert-icon { position: absolute; left: 12px; top: calc(8px + (1lh - 16px) / 2); }
 .md blockquote.alert-note { --alert: #4493f8; }
 .md blockquote.alert-important { --alert: #ab7df8; }
 :root[data-theme="light"] .md blockquote.alert-note { --alert: #0969da; }
