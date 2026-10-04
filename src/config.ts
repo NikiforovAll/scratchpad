@@ -21,6 +21,8 @@ export type ThemeMode = (typeof THEME_MODES)[number];
 export type GridStyle = "off" | "dots" | "lines";
 export const READING_FONTS = ["sans", "serif", "mono"] as const;
 export type ReadingFont = (typeof READING_FONTS)[number];
+export const READING_SIZES = ["s", "m", "l", "xl"] as const;
+export type ReadingSize = (typeof READING_SIZES)[number];
 
 export interface ScratchConfig {
   ui: {
@@ -40,6 +42,8 @@ export interface ScratchConfig {
     wideMode: boolean;
     /** Font for markdown prose; code, paths and metadata stay mono. */
     readingFont: ReadingFont;
+    /** Prose text size step; scales the reading font only, unlike zoom. */
+    readingSize: ReadingSize;
     /** Sidebar (file tree) collapsed away — toggled with '[' or the pane button. */
     sidebarCollapsed: boolean;
     /** Top bar collapsed away — toggled with ']'. */
@@ -63,6 +67,7 @@ const DEFAULTS: ScratchConfig = {
     gridStyle: "dots",
     wideMode: false,
     readingFont: "sans",
+    readingSize: "m",
     sidebarCollapsed: false,
     topbarCollapsed: false,
     zoom: 1,
@@ -70,9 +75,9 @@ const DEFAULTS: ScratchConfig = {
   },
 };
 
-export function validThemeMode(v: unknown): v is ThemeMode {
-  return typeof v === "string" && (THEME_MODES as readonly string[]).includes(v);
-}
+const oneOf = <T extends string>(list: readonly T[]) => (v: unknown): v is T =>
+  typeof v === "string" && (list as readonly string[]).includes(v);
+export const validThemeMode = oneOf(THEME_MODES);
 export function validColorTheme(v: unknown): v is string {
   return typeof v === "string" && COLOR_THEME_IDS.includes(v);
 }
@@ -91,9 +96,8 @@ function sanitizeStarred(v: unknown): string[] | null {
 function validGridStyle(v: unknown): v is GridStyle {
   return v === "off" || v === "dots" || v === "lines";
 }
-function validReadingFont(v: unknown): v is ReadingFont {
-  return typeof v === "string" && (READING_FONTS as readonly string[]).includes(v);
-}
+const validReadingFont = oneOf(READING_FONTS);
+const validReadingSize = oneOf(READING_SIZES);
 function validZoom(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0.5 && v <= 2;
 }
@@ -125,6 +129,7 @@ export async function loadConfig(): Promise<ScratchConfig> {
           : DEFAULTS.ui.gridStyle,
         wideMode: bool(raw?.ui?.wideMode, DEFAULTS.ui.wideMode),
         readingFont: validReadingFont(raw?.ui?.readingFont) ? raw.ui.readingFont : DEFAULTS.ui.readingFont,
+        readingSize: validReadingSize(raw?.ui?.readingSize) ? raw.ui.readingSize : DEFAULTS.ui.readingSize,
         sidebarCollapsed: bool(raw?.ui?.sidebarCollapsed, DEFAULTS.ui.sidebarCollapsed),
         topbarCollapsed: bool(raw?.ui?.topbarCollapsed, DEFAULTS.ui.topbarCollapsed),
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
@@ -161,6 +166,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (validGridStyle(patch.gridStyle)) ui.gridStyle = patch.gridStyle;
   if (typeof patch.wideMode === "boolean") ui.wideMode = patch.wideMode;
   if (validReadingFont(patch.readingFont)) ui.readingFont = patch.readingFont;
+  if (validReadingSize(patch.readingSize)) ui.readingSize = patch.readingSize;
   if (typeof patch.sidebarCollapsed === "boolean") ui.sidebarCollapsed = patch.sidebarCollapsed;
   if (typeof patch.topbarCollapsed === "boolean") ui.topbarCollapsed = patch.topbarCollapsed;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;

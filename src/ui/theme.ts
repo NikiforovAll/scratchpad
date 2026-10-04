@@ -627,9 +627,13 @@ html:not([data-native]) .sc-native { display: none; }
    contribution to the fit-content card is bounded. Non-text blocks (pre, table,
    img, mermaid) are intentionally excluded — they're what may widen the card.
    Wide mode (settings > width) lifts the cap (--measure: none) so the column uses
-   the window, and widens the card itself (still leaving a margin for the grid). */
-:root { --measure: 820px; }
-:root[data-wide] { --measure: none; }
+   the window, and widens the card itself (still leaving a margin for the grid).
+   Registered so 70ch resolves to a length where it is declared and children
+   inherit that length, not 70 of their own characters. Declared on .md as well so
+   the prose cap follows the reading font and size, not the header's mono. */
+@property --measure { syntax: '<length> | none'; inherits: true; initial-value: none; }
+:is(.pbody, .md) { --measure: 70ch; }
+:root[data-wide] :is(.pbody, .md) { --measure: none; }
 :root[data-wide] .pbody { width: auto; max-width: 95%; }
 .pbody > .phead, .pbody > .ptitle, .pbody > .pmeta, .pbody > .pdesc,
 .md > p, .md > ul, .md > ol, .md > blockquote, .md > dl,
@@ -736,10 +740,15 @@ html:not([data-native]) .sc-native { display: none; }
    heading levels are color-coded down the ember ramp for at-a-glance hierarchy. */
 /* Single sizing knob: heading sizes below are em-relative, so adjusting this one
    font-size scales the whole reading column proportionally. */
-:root { --read: var(--sans); --read-size: 16px; --read-lh: 1.65; }
+:root { --read: var(--sans); --read-size: 17px; --read-lh: 1.65; --read-scale: 1;
+  --code-size: calc(14px * var(--read-scale)); }
 :root[data-read="serif"] { --read: var(--serif-text); }
-:root[data-read="mono"] { --read: var(--mono); --read-size: 15px; --read-lh: 1.7; }
-.md { max-width: 100%; color: var(--ink-2); font-family: var(--read); font-size: var(--read-size); line-height: var(--read-lh); }
+:root[data-read="mono"] { --read: var(--mono); --read-size: 16px; --read-lh: 1.7; }
+:root[data-read-size="s"] { --read-scale: 0.88; }
+:root[data-read-size="l"] { --read-scale: 1.12; }
+:root[data-read-size="xl"] { --read-scale: 1.25; }
+.md { max-width: 100%; color: var(--ink-2); font-family: var(--read);
+  font-size: calc(var(--read-size) * var(--read-scale)); line-height: var(--read-lh); }
 .md strong, .md b { font-weight: 700; color: var(--ink-1); }
 .md del { color: var(--ink-3); }
 /* Display serif only where it is large; its hairlines fade at body sizes. */
@@ -807,7 +816,7 @@ html:not([data-native]) .sc-native { display: none; }
 .md pre { background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0;
-  font-family: var(--mono); font-size: 14px; line-height: 1.7; }
+  font-family: var(--mono); font-size: var(--code-size); line-height: 1.7; }
 /* inherit, not a value: .md code's 0.9em would otherwise shrink fenced code. */
 .md pre code { background: none; border: 0; padding: 0; font-size: inherit; }
 /* Fences tagged \`callstack\` (paintStack): the guides recede so the identifiers
@@ -857,13 +866,13 @@ code.cs .cs-neu { --cs: var(--ink-muted); --cs-fg: var(--ink-2);
 code.cs .cs-x { font-size: 0; }
 /* width:max-content (not 100%) so a wide table widens the fit-content card like a
    code block, then scrolls once the card hits its cap. */
-.md table { border-collapse: collapse; margin: 1em 0; font-size: 13px; width: max-content; max-width: 100%; display: block; overflow-x: auto; }
+.md table { border-collapse: collapse; margin: 1em 0; font-size: var(--code-size); width: max-content; max-width: 100%; display: block; overflow-x: auto; }
 .md th, .md td { border: 1px solid var(--border); padding: 6px 11px; text-align: left; vertical-align: top; }
 .md thead th { background: color-mix(in srgb, var(--ink-muted) 12%, transparent); color: var(--ink-1); font-weight: 600; }
 .md tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ink-muted) 5%, transparent); }
 
 /* code / raw — larger, more readable monospace for source/raw views */
-pre.code { font-family: var(--mono); font-size: 15px; line-height: 1.75;
+pre.code { font-family: var(--mono); font-size: calc(15px * var(--read-scale)); line-height: 1.75;
   background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 14px 16px; margin: 0;
