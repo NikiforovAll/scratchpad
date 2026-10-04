@@ -2577,6 +2577,14 @@ window.addEventListener('popstate', (e) => {
   try { renderPreview(it.pad, it.f); } finally { navApplying = false; }
 });
 
+const PICONS = Object.fromEntries(Object.entries({
+  link: '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  full: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+}).map(([k, d]) => [k, svgIcon(d)]));
+
 // nav describes how this render was triggered, which decides the scroll target:
 //   • { anchor }   — a link with a #fragment → land on that heading
 //   • { top:true } — a plain link → top of the doc (a fresh read, not a resume)
@@ -2597,11 +2605,15 @@ function renderPreview(pad, f, nav) {
   concealLinkRevealsExcept(current);
   navRecord(current);
   curIdx = ITEMS.findIndex(it => it.pad === pad && it.f === f);
-  // Meta is a single tight dot-separated line (type · #tags) — not scattered chips.
-  const metaBits = [f.registered ? esc(f.type || 'note') : 'unregistered'];
-  if (f.external) metaBits.push('linked');
-  (f.tags || []).forEach(t => metaBits.push('#' + esc(t)));
-  const metaLine = metaBits.join(' · ');
+  // Meta is one row of chips: type, then linked, then #tags.
+  const title = f.title || f.path;
+  const chip = (text, cls) => '<span class="chip' + (cls ? ' ' + cls : '') + '">' + text + '</span>';
+  const metaLine = chip(f.registered ? esc(f.type || 'note') : 'unregistered', 'ctype') +
+    (f.external ? chip('linked') : '') +
+    (f.tags || []).map(t => chip('#' + esc(t))).join('');
+  const slash = f.path.lastIndexOf('/');
+  const crumb = (slash < 0 ? '' : '<span class="pdir">' + esc(f.path.slice(0, slash + 1)) + '</span>') +
+    '<b>' + esc(f.path.slice(slash + 1)) + '</b>';
   const canRaw = (f.kind === 'markdown' || f.kind === 'html') && f.content != null;
   const canFull = f.kind === 'html' && f.content != null && !rawMode;
   const canCopyContent = f.content != null && (f.kind === 'markdown' || f.kind === 'html' || f.kind === 'code' || f.kind === 'text');
@@ -2610,17 +2622,19 @@ function renderPreview(pad, f, nav) {
   // #exca-cdn island the editor loads from, so no button there.
   // f.source is set only for .excalidraw scenes — it IS the drawing marker.
   const canDraw = HAS_HOST && excaCdn() && f.kind === 'image' && f.source;
+  const ib = (id, cls, icon, title) => '<button class="icon-btn sm' + (cls ? ' ' + cls : '') + '"' + (id ? ' id="' + id + '"' : '') +
+    ' title="' + title + '" aria-label="' + title + '">' + PICONS[icon] + '</button>';
   const ctrls = '<span class="pctrls">' +
+    (canRaw
+      ? '<span class="seg sm"><button class="' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
+        '<button class="' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button></span>'
+      : '') +
     // The path is the exporter's local filesystem path — meaningless to whoever
     // receives an exported copy, so exports don't offer it.
-    (EXPORT_MODE ? '' : '<button class="pbtn" id="copyPath">🔗 path</button>') +
-    (canDraw ? '<button class="pbtn excaEditBtn">✏️ edit</button>' : '') +
-    (canCopyContent ? '<button class="pbtn" id="copyContent">⧉ copy</button>' : '') +
-    (canFull ? '<button class="pbtn" id="vFull" title="Full window (f)">⛶ full</button>' : '') +
-    (canRaw
-      ? '<button class="pbtn ' + (!rawMode ? 'on' : '') + '" id="vRendered">rendered</button>' +
-        '<button class="pbtn ' + (rawMode ? 'on' : '') + '" id="vRaw">raw</button>'
-      : '') +
+    (EXPORT_MODE ? '' : ib('copyPath', '', 'link', 'Copy path')) +
+    (canDraw ? ib('', 'excaEditBtn', 'edit', 'Edit drawing') : '') +
+    (canCopyContent ? ib('copyContent', '', 'copy', 'Copy content') : '') +
+    (canFull ? ib('vFull', '', 'full', 'Full window (f)') : '') +
     '</span>';
   // File dates, kept quiet next to the controls. An untouched file has
   // created === updated — one "created" entry says it all.
@@ -2668,12 +2682,17 @@ function renderPreview(pad, f, nav) {
   // and body all share a single left edge (per-element margins no longer fight
   // the centering).
   preview.innerHTML = '<div class="pbody">' +
-    '<div class="phead"><span class="pfile">' + esc(f.path) + '</span>' + datesHtml + ctrls + '</div>' +
-    '<h1 class="ptitle">' + esc(f.title || f.path) + '</h1>' +
+    '<div class="phead"><span class="pfile" title="' + esc(f.path) + '">' + crumb + '</span>' + datesHtml + ctrls + '</div>' +
+    '<div class="pintro"><h1 class="ptitle">' + esc(title) + '</h1>' +
     '<div class="pmeta">' + metaLine + '</div>' +
     (f.description ? '<div class="pdesc">' + esc(f.description) + '</div>' : '') +
-    '<hr class="divider"/>' + bodyHtml +
+    '</div>' + bodyHtml +
     '</div>';
+  // The doc's own leading H1 already names it; showing the manifest title too repeats it.
+  const firstH1 = preview.querySelector('.pbody > .md > h1:first-child');
+  if (firstH1 && firstH1.textContent.trim().toLowerCase() === title.trim().toLowerCase()) {
+    preview.querySelector('.ptitle').remove();
+  }
 
   // The preview pane is the only scrollable element (html/body are overflow:hidden),
   // so keyboard scrolling and a browser Vimium need it focused to act on it — they
@@ -2692,24 +2711,24 @@ function renderPreview(pad, f, nav) {
     rd.addEventListener('click', () => { if (rawMode) { setRaw(false); renderPreview(pad, f); } });
     rw.addEventListener('click', () => { if (!rawMode) { setRaw(true); renderPreview(pad, f); } });
   }
-  // Flash the button label (✓ copied) and pop a toast so the action registers
+  // Swap to a check icon and pop a toast so the action registers
   // whether the user is looking at the button or the corner.
-  const flash = (btn, label, toast) => {
-    btn.textContent = '✓ copied';
+  const flash = (btn, icon, toast) => {
+    btn.innerHTML = PICONS.check;
     btn.classList.add('on');
     clearTimeout(btn._flashTimer);
-    btn._flashTimer = setTimeout(() => { btn.textContent = label; btn.classList.remove('on'); }, 1200);
+    btn._flashTimer = setTimeout(() => { btn.innerHTML = PICONS[icon]; btn.classList.remove('on'); }, 1200);
     showToast(toast, 'success');
   };
   const cp = document.getElementById('copyPath');
   if (cp) cp.addEventListener('click', () =>
     copyText(f.abs || f.path)
-      .then(() => flash(cp, '🔗 path', 'Path copied'))
+      .then(() => flash(cp, 'link', 'Path copied'))
       .catch(() => showToast('Copy failed')));
   const cc = document.getElementById('copyContent');
   if (cc) cc.addEventListener('click', () =>
     copyText(f.content)
-      .then(() => flash(cc, '⧉ copy', 'Content copied'))
+      .then(() => flash(cc, 'copy', 'Content copied'))
       .catch(() => showToast('Copy failed')));
   // Every edit entry point (toolbar button, empty-scene placeholder) shares one class.
   preview.querySelectorAll('.excaEditBtn').forEach((b) =>
@@ -2764,9 +2783,11 @@ const FILE_ICON_PATHS = {
   text: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/>',
 };
 const FILE_ICON_DEFAULT = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>';
+function svgIcon(paths, cls) {
+  return '<svg' + (cls ? ' class="' + cls + '"' : '') + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + '</svg>';
+}
 function fileIcon(kind) {
-  const p = FILE_ICON_PATHS[kind] || FILE_ICON_DEFAULT;
-  return '<svg class="ficon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
+  return svgIcon(FILE_ICON_PATHS[kind] || FILE_ICON_DEFAULT, 'ficon');
 }
 // Session-only group collapse overrides: group key -> collapsed bool. Set when the
 // user toggles a group header; consulted on every rebuild so a toggle survives a
@@ -4797,7 +4818,7 @@ function syncClearCommentsBtn() {
     clr.id = 'clearComments';
     clr.title = 'Delete all comments on this file';
     bindClearComments(clr);
-    ctrls.insertBefore(clr, document.getElementById('vFull') || document.getElementById('vRendered'));
+    ctrls.prepend(clr);
   }
   if (!clr.classList.contains('on')) clr.textContent = clearCommentsLabel();
 }

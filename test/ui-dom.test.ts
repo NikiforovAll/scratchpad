@@ -454,6 +454,16 @@ test("renders markdown, highlights code, invokes mermaid, builds tree", async ()
     expect(preview.querySelector(".pmeta")?.textContent).toContain("#t");
     // tree built with the file row
     expect(document.querySelector(".frow")?.textContent).toContain("Doc");
+    expect(preview.querySelector(".ptitle")?.textContent).toBe("Doc");
+  } finally {
+    await teardown();
+  }
+});
+
+test("the manifest title hides when the doc opens with the same H1", async () => {
+  await boot(await renderPadWithContent("# doc \n\ntext\n"));
+  try {
+    expect(document.querySelector("#preview .ptitle")).toBeNull();
   } finally {
     await teardown();
   }

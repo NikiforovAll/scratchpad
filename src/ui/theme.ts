@@ -635,7 +635,7 @@ html:not([data-native]) .sc-native { display: none; }
 :is(.pbody, .md) { --measure: 70ch; }
 :root[data-wide] :is(.pbody, .md) { --measure: none; }
 :root[data-wide] .pbody { width: auto; max-width: 95%; }
-.pbody > .phead, .pbody > .ptitle, .pbody > .pmeta, .pbody > .pdesc,
+.pbody > .pintro,
 .md > p, .md > ul, .md > ol, .md > blockquote, .md > dl,
 .md > :is(h1, h2, h3, h4, h5, h6) { max-width: var(--measure); }
 
@@ -720,20 +720,20 @@ html:not([data-native]) .sc-native { display: none; }
 .frow .ftag { flex: none; color: var(--ink-muted); font-size: 8.5px; letter-spacing: 0.02em; }
 
 /* preview */
-/* header strip: filename crumb (left) + rendered/raw controls (right), with a
-   hairline rule under it so the title block below reads as one grouped unit. */
-.phead { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
-.pfile { font-family: var(--mono); font-size: 12px; color: var(--accent-text);
+.phead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.pfile { font-family: var(--mono); font-size: 12px; color: var(--ink-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* file dates ride the right edge of the header strip, next to the controls */
+.pfile b { font-weight: 500; color: var(--accent-text); }
 .pdates { margin-left: auto; font-family: var(--mono); font-size: 11px;
   color: var(--ink-muted); white-space: nowrap; flex-shrink: 0; }
-.ptitle { font-family: var(--serif); font-weight: 500; font-size: 22px; line-height: 1.2; margin: 0 0 4px; }
-.pmeta { font-family: var(--mono); font-size: 12px; color: var(--ink-muted);
-  letter-spacing: 0.02em; margin-bottom: 6px; }
-.pdesc { color: var(--ink-3); font-size: 13px; margin: 4px 0 18px; }
-.divider { border: 0; border-top: 1px solid var(--border); margin: 14px 0 20px; }
+.ptitle { font-family: var(--serif); font-weight: 500; font-size: 26px; line-height: 1.2; margin: 0 0 8px; }
+.pmeta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.pmeta .chip { font-family: var(--mono); font-size: 11px; line-height: 1; padding: 3px 7px;
+  border-radius: 999px; border: 1px solid var(--border); color: var(--ink-muted); }
+.pmeta .chip.ctype { color: var(--accent-text); border-color: var(--ember-dim); }
+.pdesc { font-family: var(--read); color: var(--ink-3); font-size: 14.5px; margin: 0; }
+.pintro { margin-bottom: 28px; }
+.pintro > :last-child { margin-bottom: 0; }
 
 /* markdown — fills the reading column (width governed by .pbody). Body copy sits
    one step down the ink ramp so bold (full-strength + heavier) clearly stands out;
@@ -959,7 +959,12 @@ pre.has-nos > code { flex: 1 1 auto; min-width: 0; display: block; overflow-x: a
 :root[data-focus] .focus-close { display: inline-flex; }
 
 /* preview header controls */
-.pctrls { display: inline-flex; gap: 6px; margin-left: 8px; }
+.pctrls { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; }
+.pctrls .seg { margin-right: 4px; }
+.seg.sm button { font-size: 11px; padding: 3px 8px; }
+.icon-btn.sm { width: 24px; height: 24px; border: 0; border-radius: 5px; }
+.icon-btn.sm svg { width: 14px; height: 14px; }
+.icon-btn.sm.on { color: var(--accent-text); }
 .pbtn { display: inline-flex; align-items: center; gap: 4px; line-height: 1;
   background: var(--field); color: var(--ink-muted); border: 1px solid var(--border);
   border-radius: 4px; padding: 3px 8px; font-family: var(--mono); font-size: 11px; cursor: pointer;
