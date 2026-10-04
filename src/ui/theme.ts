@@ -841,7 +841,7 @@ html:not([data-native]) .sc-native { display: none; }
 .md pre { background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0;
-  font-family: var(--mono); font-size: var(--code-size); line-height: 1.7; }
+  font-family: var(--mono); font-size: var(--code-size); line-height: 1.55; }
 /* inherit, not a value: .md code's 0.9em would otherwise shrink fenced code. */
 .md pre code { background: none; border: 0; padding: 0; font-size: inherit; }
 /* Fences tagged \`callstack\` (paintStack): the guides recede so the identifiers
@@ -897,7 +897,7 @@ code.cs .cs-x { font-size: 0; }
 .md tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ink-muted) 5%, transparent); }
 
 /* code / raw — larger, more readable monospace for source/raw views */
-pre.code { font-family: var(--mono); font-size: calc(15px * var(--read-scale)); line-height: 1.75;
+pre.code { font-family: var(--mono); font-size: calc(13px * var(--read-scale)); line-height: 1.55;
   background: color-mix(in srgb, var(--ink-muted) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 14px 16px; margin: 0;
@@ -911,26 +911,28 @@ pre.code { font-family: var(--mono); font-size: calc(15px * var(--read-scale)); 
 .cb { margin: 0.9em 0; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--ink-muted) 8%, transparent); }
 .cb > pre { margin: 0; border: 0; border-radius: 0; background: transparent; }
-.cb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+.cb-head { display: flex; align-items: center; gap: 8px;
   padding: 4px 8px 4px 14px;
   background: color-mix(in srgb, var(--ink-muted) 7%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
 .cb-lang { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
   text-transform: lowercase; color: var(--ink-muted); }
-.cb-copy { flex: none; font-family: var(--mono); font-size: 10.5px; line-height: 1;
+.cb-name { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-copy { flex: none; display: inline-flex; margin-left: auto; line-height: 1;
   color: var(--ink-muted); background: transparent; border: 1px solid transparent;
-  border-radius: 4px; padding: 3px 7px; cursor: pointer; opacity: 0;
+  border-radius: 4px; padding: 3px; cursor: pointer; opacity: 0;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease, border-color 0.12s ease; }
 .cb:hover .cb-copy, .cb-copy:focus-visible { opacity: 1; }
 .cb-copy:hover { color: var(--ink-1); background: var(--hover); border-color: var(--border); }
 .cb-copy.copied { opacity: 1; color: var(--ok); background: transparent; border-color: transparent; }
+.cb-copy svg { width: 13px; height: 13px; }
 /* line-number gutter: lives inside <pre> so it inherits that context's exact
    font metrics and aligns for free; <code> becomes the scroll box so the gutter
    stays fixed while long lines scroll under it. */
 pre.has-nos { display: flex; overflow: hidden; }
 pre.has-nos > .cb-nos { flex: none; user-select: none; text-align: right;
-  padding-right: 12px; margin-right: 12px; color: var(--ink-muted); opacity: 0.5;
-  border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+  padding-right: 16px; color: var(--ink-muted); opacity: 0.4; }
 pre.has-nos > code { flex: 1 1 auto; min-width: 0; display: block; overflow-x: auto; white-space: pre; }
 
 .imgwrap { display: flex; justify-content: center; padding: 12px 0; }
@@ -1065,7 +1067,7 @@ sup.fnref a:hover { text-decoration: underline; }
 /* highlight.js — CODE blocks get a full CDN theme (github-dark / github, loaded
    in <head>). We only strip the theme's own background + padding so blocks sit on
    our recessed code surface; token colors come from the CDN theme. */
-.hljs { background: transparent; padding: 0; }
+.hljs, pre.code > code.hljs { background: transparent; padding: 0; }
 
 /* Raw MARKDOWN source view keeps the warm Lab-Notebook palette (ink ramp + one
    ember), scoped to .mdsrc so it never touches the CDN-themed code blocks. */

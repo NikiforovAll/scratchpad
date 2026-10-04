@@ -2222,7 +2222,7 @@ function enhance(container) {
 // badge + hover-reveal Copy button) and, for real code (a language- class, not
 // the raw-markdown source view / plain text / untagged fences), a line-number
 // gutter. The gutter lives INSIDE the <pre> so it inherits that context's exact
-// font metrics (.md fenced blocks are 14px/1.7, full-file pre.code is 15px/1.75)
+// font metrics (.md fenced blocks are 14px/1.55, full-file pre.code is 13px/1.55)
 // and aligns for free; the <code> becomes the horizontal scroll box so the gutter
 // stays put while long lines scroll under it. Copy reuses copyText — the same
 // execCommand fallback the rest of the page relies on under file://.
@@ -2242,12 +2242,14 @@ function decorateCodeBlocks(container) {
     fig.className = 'cb';
     const head = document.createElement('div');
     head.className = 'cb-head';
-    head.innerHTML = '<span class="cb-lang">' + esc(lang) + '</span>';
+    head.innerHTML = (pre.dataset.name ? '<span class="cb-name">' + esc(pre.dataset.name) + '</span>' : '') +
+      '<span class="cb-lang">' + esc(lang) + '</span>';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'cb-copy';
     btn.setAttribute('aria-label', 'Copy code');
-    btn.textContent = 'Copy';
+    btn.title = 'Copy';
+    btn.innerHTML = PICONS.copy;
     head.appendChild(btn);
 
     pre.replaceWith(fig);
@@ -2268,9 +2270,9 @@ function decorateCodeBlocks(container) {
 
     btn.addEventListener('click', () => {
       copyText(text).then(() => {
-        btn.textContent = 'Copied';
+        btn.innerHTML = PICONS.check;
         btn.classList.add('copied');
-        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1200);
+        setTimeout(() => { btn.innerHTML = PICONS.copy; btn.classList.remove('copied'); }, 1200);
       }).catch(() => showToast('Copy failed'));
     });
   });
@@ -2664,6 +2666,7 @@ function renderPreview(pad, f, nav) {
       dateBits.map(([w, iso]) => w + ' ' + esc(fmtWhen(iso))).join(' · ') + '</span>'
     : '';
 
+  const codePre = (cls, body) => '<pre class="code" data-name="' + esc(f.path) + '"><code' + cls + '>' + body + '</code></pre>';
   let bodyHtml = '';
   if (f.kind === 'toolarge') bodyHtml = '<div class="notice">File too large to preview.</div>';
   // Empty scene: content is null on purpose (a blank SVG stretched full-width is
@@ -2680,17 +2683,17 @@ function renderPreview(pad, f, nav) {
   }
   else if (f.kind === 'markdown' && f.content != null) bodyHtml = rawMode
     ? (window.hljs
-        ? '<pre class="code"><code class="hljs hl-done mdsrc">' + highlightRawMarkdown(f.content) + '</code></pre>'
-        : '<pre class="code"><code class="language-markdown">' + esc(f.content) + '</code></pre>')
+        ? codePre(' class="hljs hl-done mdsrc"', highlightRawMarkdown(f.content))
+        : codePre(' class="language-markdown"', esc(f.content)))
     : '<div class="md">' + renderMarkdown(f.content) + '</div>';
   else if (f.kind === 'html' && f.content != null) bodyHtml = rawMode
-    ? '<pre class="code"><code class="language-html">' + esc(f.content) + '</code></pre>'
+    ? codePre(' class="language-html"', esc(f.content))
     // Sandboxed with allow-scripts so interactive author pages run their own JS;
     // opaque-origin iframe still blocks host/parent access. srcdoc is attr-escaped.
     : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(FRAME_SCROLLBAR + f.content + KEY_RELAY_SCRIPT + CMT_FRAME_SCRIPT) + '"></iframe>';
   else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
     const cls = f.lang ? ' class="language-' + esc(normLang(f.lang)) + '"' : '';
-    bodyHtml = '<pre class="code"><code' + cls + '>' + esc(f.content) + '</code></pre>';
+    bodyHtml = codePre(cls, esc(f.content));
   } else bodyHtml = '<div class="notice">No preview available (binary or missing file).</div>';
 
   const preview = document.getElementById('preview');
