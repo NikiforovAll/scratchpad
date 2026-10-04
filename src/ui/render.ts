@@ -684,6 +684,9 @@ ${vendorCss}<style>${THEME_CSS}</style>
 <div class="app">
   <header class="topbar${topbarCollapsed ? " collapsed" : ""}" id="topbar">
     <div class="brand">
+      <button class="icon-btn" id="drawerBtn" title="Files ([)" aria-label="Show files">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
       <span class="wordmark">scratch<span class="dot">.</span></span>
       <span class="padname" id="padname"></span>
     </div>
@@ -703,6 +706,9 @@ ${vendorCss}<style>${THEME_CSS}</style>
           <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
         </button>
         <div class="menu" id="moreMenu" role="menu" hidden>
+          <button class="menu-item narrow-only" data-proxy="reloadBtn" role="menuitem">Reload<kbd>R</kbd></button>
+          <button class="menu-item narrow-only" data-proxy="themeToggle" role="menuitem">Toggle theme<kbd>T</kbd></button>
+          <button class="menu-item narrow-only" data-proxy="settingsBtn" role="menuitem">Settings<kbd>S</kbd></button>
           <button class="menu-item" id="helpBtn" role="menuitem">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
             Keyboard shortcuts<kbd>?</kbd>
@@ -734,6 +740,7 @@ ${vendorCss}<style>${THEME_CSS}</style>
     <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
     <main class="preview" id="preview" tabindex="0"></main>
     <aside class="toc" id="toc" aria-label="On this page"></aside>
+    <div class="drawer-scrim" id="drawerScrim"></div>
     <button class="icon-btn" id="sidebarOpen" title="Show sidebar ([)" aria-label="Show sidebar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
     </button>
@@ -3006,6 +3013,7 @@ function buildTree(preferKey, prevSelJson) {
     tree.innerHTML = html;
     tree.querySelectorAll('.frow[data-fi]').forEach(row => row.addEventListener('click', () => {
       const pad = DATA.pads[+row.dataset.pi]; renderPreview(pad, pad.files[+row.dataset.fi]);
+      setDrawer(false);
     }));
     tree.querySelectorAll('.glabel').forEach(h => {
       h.addEventListener('click', () => toggleGroup(h));
@@ -3368,7 +3376,7 @@ const TOC_RAIL = TOC_RAIL_MIN + 24 + 16;
 document.documentElement.style.setProperty('--toc-rail', TOC_RAIL + 'px');
 function tocDockCard() {
   const root = document.documentElement, preview = document.getElementById('preview');
-  const card = SETTINGS.tocVisible && !root.hasAttribute('data-wide') && preview.querySelector('.pbody');
+  const card = SETTINGS.tocVisible && !root.hasAttribute('data-wide') && !root.hasAttribute('data-narrow') && preview.querySelector('.pbody');
   if (!card) return null;
   const need = card.classList.contains('fill') ? TOC_FILL_MIN : card.offsetWidth;
   return need <= preview.clientWidth - parseFloat(getComputedStyle(preview).paddingLeft) - TOC_RAIL ? card : null;
@@ -3541,6 +3549,7 @@ function applyZoom() {
   document.documentElement.style.zoom =
     document.documentElement.hasAttribute('data-focus') || document.getElementById('excaOverlay')
       ? '' : SETTINGS.zoom;
+  updateNarrow();
   const r = document.getElementById('zoomReset');
   if (r) r.textContent = Math.round(SETTINGS.zoom * 100) + '%';
 }
@@ -3624,6 +3633,13 @@ function showMoreMenu(open) {
 document.getElementById('moreBtn').addEventListener('click', () => showMoreMenu(moreMenu.hidden));
 document.addEventListener('click', (e) => {
   if (!moreMenu.hidden && !(e.target.closest && e.target.closest('#moreBtn'))) showMoreMenu(false);
+});
+moreMenu.querySelectorAll('[data-proxy]').forEach(b => {
+  const target = document.getElementById(b.dataset.proxy);
+  const icon = target.querySelector('svg').cloneNode(true);
+  icon.removeAttribute('style');
+  b.prepend(icon);
+  b.addEventListener('click', () => target.click());
 });
 document.getElementById('helpBtn').addEventListener('click', () => showHelp(true));
 document.getElementById('helpClose').addEventListener('click', () => showHelp(false));
@@ -3936,10 +3952,29 @@ function setBar(el, collapsed, animate) {
   if (!animate) { el.style.transition = 'none'; setTimeout(() => { el.style.transition = ''; }, 0); }
   el.classList.toggle('collapsed', collapsed);
 }
+// Measured in layout px so zoom > 1 reaches the narrow layout sooner. The drawer
+// state is per-visit and never persisted: the saved sidebarCollapsed belongs to
+// the desktop layout. No module-level names here: the boot applyZoom calls
+// updateNarrow before this point in the script runs.
+function setDrawer(open) { document.documentElement.toggleAttribute('data-drawer', open); }
+function updateNarrow() {
+  const root = document.documentElement;
+  const narrow = window.innerWidth / (parseFloat(root.style.zoom) || 1) <= 760;
+  if (narrow === root.hasAttribute('data-narrow')) return;
+  // Crossing the breakpoint must not play the drawer's slide.
+  const sidebar = document.getElementById('sidebar');
+  sidebar.style.transition = 'none';
+  setTimeout(() => { sidebar.style.transition = ''; }, 0);
+  root.toggleAttribute('data-narrow', narrow);
+  if (!narrow) setDrawer(false);
+  updateToc();
+}
 function toggleSidebar() {
   // A solo page has no tree to toggle, and persisting the flip would leak a
   // collapsed sidebar into every other export sharing this file:// origin.
   if (SOLO) return;
+  const root = document.documentElement;
+  if (root.hasAttribute('data-narrow')) { setDrawer(!root.hasAttribute('data-drawer')); return; }
   SETTINGS.sidebarCollapsed = !SETTINGS.sidebarCollapsed;
   setBar(sidebarEl, SETTINGS.sidebarCollapsed, true);
   persistSettings();
@@ -3955,6 +3990,9 @@ document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar
 // The in-pane toggle collapses away with the pane; this floater (top-left of
 // the body, shown by CSS only while collapsed) is the way back.
 document.getElementById('sidebarOpen').addEventListener('click', toggleSidebar);
+document.getElementById('drawerBtn').addEventListener('click', toggleSidebar);
+document.getElementById('drawerScrim').addEventListener('click', () => setDrawer(false));
+window.addEventListener('resize', updateNarrow);
 setBar(sidebarEl, SETTINGS.sidebarCollapsed, false);
 setBar(topbarEl, SETTINGS.topbarCollapsed, false);
 
@@ -4028,6 +4066,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     // Esc only dismisses open overlays — never closes the window ('q' does that).
     if (!moreMenu.hidden) showMoreMenu(false);
+    else if (document.documentElement.hasAttribute('data-drawer')) setDrawer(false);
     else if (diagramModal.style.display !== 'none') showDiagram(false);
     else if (galleryModal.style.display !== 'none') showGallery(false);
     else if (settingsModal.style.display !== 'none') showSettings(false);

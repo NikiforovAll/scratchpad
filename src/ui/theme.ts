@@ -588,6 +588,29 @@ html:not([data-native]) .sc-native { display: none; }
    !important beats the .collapsed ~ #sidebarOpen rule above. */
 :root[data-solo] .sidebar, :root[data-solo] .resizer,
 :root[data-solo] #sidebarOpen { display: none !important; }
+/* Narrow layout (data-narrow, set by the client from the zoomed width): the
+   sidebar slides over the preview as a drawer, top bar actions move into ⋯. */
+#drawerBtn { width: 30px; height: 30px; flex: none; align-self: center;
+  border-color: transparent; -webkit-app-region: no-drag; }
+:root:not([data-narrow]) :is(#drawerBtn, .narrow-only), :root[data-solo] #drawerBtn { display: none; }
+.drawer-scrim { display: none; position: absolute; inset: 0; z-index: 39; background: rgba(0,0,0,0.4); }
+:root[data-narrow] .topbar { padding: 8px 10px; gap: 8px; }
+:root[data-narrow] .brand { align-items: center; gap: 6px; }
+:root[data-narrow] :is(.wordmark, #reloadBtn, #themeToggle, #settingsBtn, .tb-div, .resizer, #sidebarOpen) { display: none; }
+:root[data-narrow] .sidebar {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 40; width: min(320px, 85%);
+  border-right: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+  transform: translateX(-100%); visibility: hidden;
+  transition: transform 0.2s ease, visibility 0s linear 0.2s; }
+:root[data-drawer] .sidebar { transform: none; visibility: visible; transition: transform 0.2s ease; }
+:root[data-drawer] .drawer-scrim { display: block; }
+:root[data-narrow] .topbar.collapsed ~ .body #sidebarOpen { display: flex; }
+:root[data-narrow] .toc { display: none !important; }
+:root[data-narrow] .preview { padding: 10px 8px 0; }
+:root[data-narrow] .pbody { padding: 18px 16px; margin-bottom: 10px; border-radius: 8px; }
+:root[data-narrow] .modal { min-width: 0; max-width: calc(100% - 24px);
+  max-height: calc(100% - 24px); overflow-y: auto; }
+:root[data-narrow] .cmt-pop { max-width: calc(100% - 16px); }
 .tree { flex: 1; overflow-y: auto; padding: 14px 10px; }
 /* App version, pinned to the sidebar foot (bottom-left). */
 .appver { flex: 0 0 auto; padding: 6px 12px; border-top: 1px solid var(--border);
@@ -743,7 +766,7 @@ html:not([data-native]) .sc-native { display: none; }
 :root:not([data-comments-off]) .frow.hascmt .fdot { display: block; }
 
 /* preview */
-.phead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.phead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 12px; }
 .pfile { font-family: var(--mono); font-size: 12px; color: var(--ink-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pfile b { font-weight: 500; color: var(--accent-text); }

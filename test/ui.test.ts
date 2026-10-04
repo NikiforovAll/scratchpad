@@ -158,7 +158,7 @@ describe("renderHtml", () => {
     // One page-weight tripwire for the whole suite (a CDN page is ~300KB of mostly
     // client script plus ~20KB of UI @font-face rules). Catches an accidentally
     // inlined asset; not a style budget.
-    expect(html.length).toBeLessThan(340_000);
+    expect(html.length).toBeLessThan(350_000);
     // The full-window frame must size with % — a DOM test can't catch this (happy-dom
     // does no layout) and both alternatives fail in a real browser: vw/vh resolve
     // against the unzoomed window under CSS zoom, and auto on a replaced element

@@ -1871,6 +1871,41 @@ test("sidebar collapses via the in-pane button and '[', persisting to localStora
   }
 });
 
+test("narrow window: '[' and ☰ open a drawer that is never persisted", async () => {
+  const html = await renderPad();
+  await boot(html);
+  const root = document.documentElement;
+  const setWidth = (w: number) => {
+    (window as any).happyDOM.setViewport({ width: w });
+    window.dispatchEvent(new Event("resize"));
+  };
+  try {
+    setWidth(400);
+    expect(root.hasAttribute("data-narrow")).toBe(true);
+    expect(root.hasAttribute("data-drawer")).toBe(false);
+    (document.getElementById("drawerBtn") as any).click();
+    expect(root.hasAttribute("data-drawer")).toBe(true);
+    (document.getElementById("drawerScrim") as any).click();
+    expect(root.hasAttribute("data-drawer")).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "[" }));
+    expect(root.hasAttribute("data-drawer")).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(root.hasAttribute("data-drawer")).toBe(false);
+    (document.getElementById("drawerBtn") as any).click();
+    (document.querySelector(".frow[data-fi]") as any).click();
+    expect(root.hasAttribute("data-drawer")).toBe(false);
+    expect(document.getElementById("sidebar")!.classList.contains("collapsed")).toBe(false);
+    expect(localStorage.getItem("scratch.sidebarCollapsed")).not.toBe("1");
+    (document.getElementById("drawerBtn") as any).click();
+    setWidth(1200);
+    expect(root.hasAttribute("data-narrow")).toBe(false);
+    expect(root.hasAttribute("data-drawer")).toBe(false);
+  } finally {
+    setWidth(1024);
+    await teardown();
+  }
+});
+
 test("j/k, d/u, g/G scroll the preview; arrows still switch files", async () => {
   // Two files so arrow navigation has somewhere to go.
   const dir = join(root, "p");
