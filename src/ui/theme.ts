@@ -834,10 +834,10 @@ html:not([data-native]) .sc-native { display: none; }
    inline-comment feature, which owns the .cmt-* classes. */
 .md .md-comment { color: var(--ink-muted); font-style: italic; white-space: pre-wrap; }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.4em 0; }
-.md code { font-family: var(--mono); font-size: 0.9em;
+.md code { font-family: var(--mono); font-size: 0.82em;
   background: color-mix(in srgb, var(--ink-muted) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  border-radius: 3px; padding: 1px 5px; }
+  border-radius: 3px; padding: 0.05em 0.3em; }
 /* The code metrics live on <pre>, not on <pre><code>, because the line-number
    gutter is a SIBLING of <code> — putting them a level down leaves the gutter on
    the .md body size and it drifts a fraction of a line per row. */
@@ -845,7 +845,7 @@ html:not([data-native]) .sc-native { display: none; }
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0.9em 0;
   font-family: var(--mono); font-size: var(--code-size); line-height: 1.55; }
-/* inherit, not a value: .md code's 0.9em would otherwise shrink fenced code. */
+/* inherit, not a value: .md code's 0.82em would otherwise shrink fenced code. */
 .md pre code { background: none; border: 0; padding: 0; font-size: inherit; }
 /* Fences tagged \`callstack\` (paintStack): the guides recede so the identifiers
    carry the line, and the trailing change markers come forward as badges. Scoped
@@ -894,7 +894,7 @@ code.cs .cs-neu { --cs: var(--ink-muted); --cs-fg: var(--ink-2);
 code.cs .cs-x { font-size: 0; }
 /* width:max-content (not 100%) so a narrow table keeps its own width; a wider one
    wraps its long cells at the card width and then scrolls. */
-.md table { border-collapse: collapse; margin: 1em 0; font-size: var(--code-size); width: max-content; max-width: 100%; display: block; overflow-x: auto; }
+.md table { border-collapse: collapse; margin: 1em 0; font-size: calc(15px * var(--read-scale)); width: max-content; max-width: 100%; display: block; overflow-x: auto; }
 .md th, .md td { border: 1px solid var(--border); padding: 6px 11px; text-align: left; vertical-align: top; }
 .md :is(th, td).nw { white-space: nowrap; }
 .md :is(th, td):not(.nw) { min-width: 20ch; }
