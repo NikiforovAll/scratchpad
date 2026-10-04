@@ -389,7 +389,7 @@ describe("renderHtml --offline", () => {
     if (existsSync(join(import.meta.dir, "..", "src", "ui", "vendor", "bundle.ts"))) return;
     const p = Bun.spawn(["bun", "scripts/fetch-vendor.ts"], { cwd: join(import.meta.dir, ".."), stdout: "ignore", stderr: "inherit" });
     if ((await p.exited) !== 0) throw new Error("fetch-vendor failed — cannot run offline tests");
-  });
+  }, 120_000);
 
   // A pad with code + a mermaid block + math — exercises all three vendor libs.
   async function seedRichPad(): Promise<Pad> {
