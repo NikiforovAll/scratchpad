@@ -1154,6 +1154,36 @@ test("layout controls group order + collapsed default; header click toggles", as
   }
 });
 
+test("initial selection follows sidebar order, not manifest order", async () => {
+  const dir = join(root, "p");
+  await mkdir(dir, { recursive: true });
+  for (const n of ["data.json", "readme.md", "notes.md"]) await writeFile(join(dir, n), "x\n", "utf8");
+  const m = newManifest("P");
+  m.files.push({ path: "data.json", title: "Data", type: "output", group: "data" });
+  m.files.push({ path: "readme.md", title: "Readme", type: "note", group: "start" });
+  m.files.push({ path: "notes.md", title: "Notes", type: "note", group: "details" });
+  m.layout = { groups: [{ name: "start" }, { name: "details" }, { name: "data", collapsed: true }] };
+  await writeManifest(dir, m);
+  const pad: Pad = { dir, manifest: await readManifest(dir) };
+  await boot(await renderHtml(await buildView([pad]), "P"));
+  try {
+    expect(document.querySelector(".frow.active")?.textContent).toContain("Readme");
+  } finally {
+    await teardown();
+  }
+});
+
+test("initial selection skips a collapsed first group", async () => {
+  await boot(await renderLayoutPad());
+  try {
+    expect(document.querySelector(".frow.active")?.textContent).toContain("A");
+    const beta = document.querySelector('.ggroup[data-group="beta"]') as any;
+    expect(beta.classList.contains("collapsed")).toBe(true);
+  } finally {
+    await teardown();
+  }
+});
+
 test("arrow-key nav reaches a file in a collapsed group and auto-expands it", async () => {
   await boot(await renderLayoutPad());
   try {

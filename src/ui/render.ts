@@ -3027,8 +3027,13 @@ function buildTree(preferKey, prevSelJson) {
 
   // On a hot-reload we re-select the file the user was on (by pad::path) so the
   // view doesn't jump back to the top. If it's gone (deleted/renamed), fall back
-  // to the first file and drop raw mode.
-  let sel = items[0];
+  // to the first file in sidebar order that is not in a collapsed group, and drop
+  // raw mode.
+  const isFolded = (it) => {
+    const g = groupKey(it.f.group);
+    return g in groupCollapseState ? groupCollapseState[g] : collapsedDefault.has(g);
+  };
+  let sel = ITEMS.find(it => !isFolded(it)) ?? ITEMS[0];
   if (preferKey) {
     const m = items.find(it => (it.pad.dir + '::' + it.f.path) === preferKey);
     if (m) sel = m;
