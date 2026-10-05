@@ -4,9 +4,9 @@
 // NavigateToString (setHTML) when it fits, falling back to a file:// temp file
 // (loadFile) only for oversized pages — see present() for the why. If glimpse's
 // backend is unavailable, fall back to serving the SAME HTML over a local
-// server + the default browser, so `scratch ui` always works.
+// server and print its URL (the user or agent opens it), so `scratch ui` always works.
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -806,7 +806,6 @@ async function serveBrowser(
   io.out(dim(
     `  (${autoReload ? "edits reload automatically; " : ""}reload the page to refresh from disk; 'q' or Ctrl+C to stop)`,
   ));
-  openBrowser(url);
   // Keep alive until quit from the terminal ('q'/Ctrl+C via watchQuitKey when
   // stdin is a TTY, plain SIGINT otherwise).
   await new Promise<void>((resolve) => {
@@ -828,19 +827,4 @@ async function serveBrowser(
     process.on("SIGINT", stop);
   });
   return 0;
-}
-
-function openBrowser(url: string): void {
-  const p = process.platform;
-  const [cmd, args] =
-    p === "win32"
-      ? ["cmd", ["/c", "start", "", url]]
-      : p === "darwin"
-        ? ["open", [url]]
-        : ["xdg-open", [url]];
-  try {
-    spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
-  } catch {
-    // Best-effort; URL was already printed.
-  }
 }

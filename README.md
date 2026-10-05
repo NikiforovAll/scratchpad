@@ -117,4 +117,4 @@ Read-only, 2-pane (pad/file tree + preview), **auto-detects** OS light/dark, 17 
 - **Inline comments** — select text, attach a note; quote-anchored, read back via `scratch comments`.
 - GFM **task checkboxes** are clickable and persist to the source file — the viewer's one deliberate write.
 
-Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server + the browser.
+Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window; if its per-OS backend is unavailable (Windows needs .NET 8 SDK + WebView2), it falls back to serving the same HTML over a local server and prints its URL. It does not open a browser.

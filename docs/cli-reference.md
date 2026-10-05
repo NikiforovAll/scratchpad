@@ -84,7 +84,7 @@ Read-only viewer: glimpse native window by default, browser fallback.
 | Flag | Meaning |
 |------|---------|
 | `--all` | Open every pad under the root, tabbed. |
-| `--browser` | Force the browser viewer (always works). |
+| `--browser` | Force the browser viewer (always works). It prints its URL and does not open a browser. |
 | `--install-native` | Build the native host on demand (needs .NET 8 SDK). |
 
 See [Viewer](/viewer) for details.

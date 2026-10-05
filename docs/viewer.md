@@ -45,7 +45,7 @@ Press `?` in the viewer for the full keyboard shortcut list (navigation, vim-sty
 
 ## Native window vs. browser
 
-Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window. If its per-OS backend is unavailable, it falls back to serving the same HTML over a local server + the browser.
+Transport is [glimpse](https://github.com/HazAT/glimpse) for a native window. If its per-OS backend is unavailable, it falls back to serving the same HTML over a local server. The browser viewer prints its URL and does not open a browser: open the link yourself, or let the agent open or embed it.
 
 ```bash
 scratch ui "<name>"                   # native window by default

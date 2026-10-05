@@ -99,7 +99,8 @@ the root for all pads.
 Read-only and **blocking** — keeps a local server alive until Ctrl+C. Always
 launch it **backgrounded** (don't await it) so the session keeps moving, then
 report the URL. Native glimpse window with automatic browser+server fallback
-(`--browser` forces it); shows all files in the pad (unregistered ones dimmed),
+(`--browser` forces it; it prints the URL and opens no browser, so open or
+embed the link yourself); shows all files in the pad (unregistered ones dimmed),
 renders markdown/code/`mermaid`, `.excalidraw` scenes, TeX math, GFM alerts
 (`> [!TIP]`, uppercase), embeds HTML diagrams (below), raw↔rendered toggle,
 auto light/dark.
