@@ -8,7 +8,7 @@ import { stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pkg from "../../package.json" with { type: "json" };
-import { MEASURE_DEFAULT, MEASURE_MAX, MEASURE_MIN, READING_FONTS, READING_SIZES, type ScratchConfig } from "../config.ts";
+import { FONT_PRESETS, type FontSlot, MEASURE_DEFAULT, MEASURE_MAX, MEASURE_MIN, READING_FONTS, READING_SIZES, type ScratchConfig } from "../config.ts";
 import { type Pad, exportFileSlug, resolveEntryPath, toPosix } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry, type Layout, MANIFEST_NAME } from "../manifest.ts";
 import { type CommentItem, toCommentItems } from "../comments.ts";
@@ -508,12 +508,15 @@ function needsMath(files: FileView[]): boolean {
 export type UiSettings = Pick<ScratchConfig["ui"], "themeMode" | "colorTheme"> &
   Partial<Omit<ScratchConfig["ui"], "themeMode" | "colorTheme" | "frameless">>;
 
+const FONT_VARS: Record<FontSlot, string> = { prose: "--read", heading: "--serif", mono: "--mono" };
+
 const DEFAULT_UI: UiSettings = {
   themeMode: "system",
   colorTheme: DEFAULT_COLOR_THEME,
   starredThemes: [],
   gridStyle: "dots",
   wideMode: false,
+  fontPreset: "system",
   readingFont: "sans",
   readingSize: "m",
   measure: MEASURE_DEFAULT,
@@ -543,10 +546,13 @@ export async function renderHtml(
   const zoom = opts.exportMode ? 1 : (ui.zoom ?? 1);
   const gridStyle = ui.gridStyle ?? "dots";
   const wideMode = ui.wideMode ?? false;
+  const fontPreset = ui.fontPreset ?? "system";
   const readingFont = ui.readingFont ?? "sans";
   const readingSize = ui.readingSize ?? "m";
   const measure = ui.measure ?? MEASURE_DEFAULT;
-  const rootStyle = [zoom === 1 ? "" : `zoom: ${zoom}`, measure === MEASURE_DEFAULT ? "" : `--measure-ch: ${measure}`].filter(Boolean).join("; ");
+  // Inline style beats every preset and reading-font rule in THEME_CSS.
+  const fontStyle = Object.entries(ui.fonts ?? {}).map(([slot, v]) => `${FONT_VARS[slot as FontSlot]}: ${v}`);
+  const rootStyle = [zoom === 1 ? "" : `zoom: ${zoom}`, measure === MEASURE_DEFAULT ? "" : `--measure-ch: ${measure}`, ...fontStyle].filter(Boolean).join("; ");
   // Collapsed panes are baked into the boot markup (not applied by the client)
   // so a remembered-collapsed sidebar/topbar never flashes open on first paint.
   const sidebarCollapsed = ui.sidebarCollapsed ?? false;
@@ -562,6 +568,7 @@ export async function renderHtml(
   const htmlAttrs =
     ` data-color-theme="${escapeHtml(ui.colorTheme)}"` +
     ` data-grid="${escapeHtml(gridStyle)}"` +
+    (fontPreset === "system" ? "" : ` data-fonts="${escapeHtml(fontPreset)}"`) +
     (readingFont === "sans" ? "" : ` data-read="${escapeHtml(readingFont)}"`) +
     (readingSize === "m" ? "" : ` data-read-size="${escapeHtml(readingSize)}"`) +
     (ui.themeMode === "system" ? "" : ` data-theme="${ui.themeMode}"`) +
@@ -572,7 +579,7 @@ export async function renderHtml(
     (opts.exportMode ? " data-export" : "") +
     (pinned ? ` data-theme-pinned="${escapeHtml(pinned)}"` : "") +
     ` data-export-name="${escapeHtml(exportName)}"` +
-    (rootStyle ? ` style="${rootStyle}"` : "");
+    (rootStyle ? ` style="${escapeHtml(rootStyle)}"` : "");
   // NOT part of payloadJson: __scratchReload diff-compares the data island to
   // detect "no changes", and settings must not break that.
   const settingsJson = JSON.stringify({
@@ -580,6 +587,7 @@ export async function renderHtml(
     starredThemes: ui.starredThemes ?? [],
     gridStyle,
     wideMode,
+    fontPreset,
     readingFont,
     readingSize,
     measure,
@@ -623,9 +631,12 @@ export async function renderHtml(
     // UI fonts as data: URIs, limited to the subsets the pad's text uses (latin is
     // always in). Comments a reader adds later in another script fall back to the
     // system font in the stack. Only the exporter's reading font is embedded; a
-    // reader who switches it gets the system sans/serif from the stack.
-    const fontCss = uiFontCss({ b64: b.UI_FONT_B64, only: subsetsFor(data), reading: readingFont });
-    vendorCss += `<style id="ui-fonts">${fontCss}</style>\n`;
+    // reader who switches it gets the system sans/serif from the stack. The system
+    // preset embeds none, and a reader who switches to bundled gets the fallbacks.
+    if (fontPreset === "bundled") {
+      const fontCss = uiFontCss({ b64: b.UI_FONT_B64, only: subsetsFor(data), reading: readingFont });
+      vendorCss += `<style id="ui-fonts">${fontCss}</style>\n`;
+    }
   } else {
     // CDN tags are blocking (no defer) so window.hljs/window.mermaid are ready
     // before the client script runs. SRI + crossorigin guard integrity; on load
@@ -826,6 +837,13 @@ function settingsModalHtml(): string {
           </div>
         </div>
         <div class="settings-section">
+          <div class="settings-label">Fonts</div>
+          <div class="seg" id="fontsSeg">
+            <button data-fonts="system">System</button>
+            <button data-fonts="bundled">Bundled</button>
+          </div>
+        </div>
+        <div class="settings-section" id="readSection">
           <div class="settings-label">Reading font</div>
           <div class="seg" id="readSeg">
             <button data-read="sans">Sans</button>
@@ -1149,6 +1167,7 @@ function cmtAnchorFromRange(container, range) {
 // and auto-detected theme. Kept dependency-free; vendored libs are optional.
 const CLIENT_JS = String.raw`
 let DATA = JSON.parse(document.getElementById('data').textContent);
+const FONT_PRESETS = ${JSON.stringify(FONT_PRESETS)};
 const READING_FONTS = ${JSON.stringify(READING_FONTS)};
 const READING_SIZES = ${JSON.stringify(READING_SIZES)};
 const MEASURE_MIN = ${MEASURE_MIN}, MEASURE_DEFAULT = ${MEASURE_DEFAULT}, MEASURE_MAX = ${MEASURE_MAX};
@@ -3152,7 +3171,7 @@ function clampStarred(v) {
   return out.slice(-3);
 }
 const SETTINGS = (function () {
-  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, readingFont: 'sans', readingSize: 'm', measure: MEASURE_DEFAULT, sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
+  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, fontPreset: 'system', readingFont: 'sans', readingSize: 'm', measure: MEASURE_DEFAULT, sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // With no host the embedded snapshot is whatever the exporting machine had
   // saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -3170,6 +3189,7 @@ const SETTINGS = (function () {
       try { st = clampStarred(JSON.parse(localStorage.getItem('scratch.starredThemes') || 'null')); } catch (_) {}
       const g = localStorage.getItem('scratch.gridStyle');
       const w = localStorage.getItem('scratch.wideMode');
+      const fp = localStorage.getItem('scratch.fontPreset');
       const rf = localStorage.getItem('scratch.readingFont');
       const rs = localStorage.getItem('scratch.readingSize');
       const ms = Number(localStorage.getItem('scratch.measure'));
@@ -3185,6 +3205,7 @@ const SETTINGS = (function () {
       if (st) s.starredThemes = st;
       if (g === 'off' || g === 'dots' || g === 'lines') s.gridStyle = g;
       if (w === 'true' || w === 'false') s.wideMode = w === 'true';
+      if (FONT_PRESETS.includes(fp)) s.fontPreset = fp;
       if (READING_FONTS.includes(rf)) s.readingFont = rf;
       if (READING_SIZES.includes(rs)) s.readingSize = rs;
       if (validMeasure(ms)) s.measure = ms;
@@ -3216,7 +3237,7 @@ function postToHost(key, path, payload, onFail) {
   return false;
 }
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, readingFont: SETTINGS.readingFont, readingSize: SETTINGS.readingSize, measure: SETTINGS.measure, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, tocVisible: SETTINGS.tocVisible, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, fontPreset: SETTINGS.fontPreset, readingFont: SETTINGS.readingFont, readingSize: SETTINGS.readingSize, measure: SETTINGS.measure, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, tocVisible: SETTINGS.tocVisible, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
   if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
@@ -3224,6 +3245,7 @@ function persistSettings() {
     localStorage.setItem('scratch.starredThemes', JSON.stringify(SETTINGS.starredThemes));
     localStorage.setItem('scratch.gridStyle', SETTINGS.gridStyle);
     localStorage.setItem('scratch.wideMode', String(SETTINGS.wideMode));
+    localStorage.setItem('scratch.fontPreset', SETTINGS.fontPreset);
     localStorage.setItem('scratch.readingFont', SETTINGS.readingFont);
     localStorage.setItem('scratch.readingSize', SETTINGS.readingSize);
     localStorage.setItem('scratch.measure', String(SETTINGS.measure));
@@ -3303,6 +3325,7 @@ function applyTheme() {
   r.dataset.colorTheme = SETTINGS.colorTheme;
   r.dataset.grid = SETTINGS.gridStyle;
   r.toggleAttribute('data-wide', !!SETTINGS.wideMode);
+  if (SETTINGS.fontPreset === 'bundled') r.dataset.fonts = 'bundled'; else delete r.dataset.fonts;
   r.dataset.read = SETTINGS.readingFont;
   r.dataset.readSize = SETTINGS.readingSize;
   applyMeasure();
@@ -3312,14 +3335,14 @@ function applyTheme() {
   syncThemeCards();
   document.querySelectorAll('#gridSeg button').forEach((b) => b.classList.toggle('on', b.dataset.grid === SETTINGS.gridStyle));
   document.querySelectorAll('#widthSeg button').forEach((b) => b.classList.toggle('on', b.dataset.wide === (SETTINGS.wideMode ? 'on' : 'off')));
-  document.querySelectorAll('#readSeg button').forEach((b) => b.classList.toggle('on', b.dataset.read === SETTINGS.readingFont));
+  document.querySelectorAll('#fontsSeg button').forEach((b) => b.classList.toggle('on', b.dataset.fonts === SETTINGS.fontPreset));  document.querySelectorAll('#readSeg button').forEach((b) => b.classList.toggle('on', b.dataset.read === SETTINGS.readingFont));
   document.querySelectorAll('#readSizeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.size === SETTINGS.readingSize));
   document.querySelectorAll('#autoReloadSeg button').forEach((b) => b.classList.toggle('on', b.dataset.auto === (SETTINGS.autoReload ? 'on' : 'off')));
   document.querySelectorAll('#tocSeg button').forEach((b) => b.classList.toggle('on', b.dataset.toc === (SETTINGS.tocVisible ? 'on' : 'off')));
   updateToc();
   // Mode and color theme flips swap the mermaid palette and the html-embed
-  // color scheme → re-render the open file.
-  const key = r.dataset.theme + '|' + SETTINGS.colorTheme;
+  // color scheme, and the font preset swaps the mermaid font → re-render the open file.
+  const key = r.dataset.theme + '|' + SETTINGS.colorTheme + '|' + SETTINGS.fontPreset;
   if (themeKey !== null && key !== themeKey && currentRef) renderPreview(currentRef.pad, currentRef.f);
   themeKey = key;
 }
@@ -3514,6 +3537,7 @@ settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal)
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));
 document.querySelectorAll('#gridSeg button').forEach((b) => b.addEventListener('click', () => setSetting('gridStyle', b.dataset.grid)));
 document.querySelectorAll('#widthSeg button').forEach((b) => b.addEventListener('click', () => setSetting('wideMode', b.dataset.wide === 'on')));
+document.querySelectorAll('#fontsSeg button').forEach((b) => b.addEventListener('click', () => setSetting('fontPreset', b.dataset.fonts)));
 document.querySelectorAll('#readSeg button').forEach((b) => b.addEventListener('click', () => setSetting('readingFont', b.dataset.read)));
 document.querySelectorAll('#readSizeSeg button').forEach((b) => b.addEventListener('click', () => setSetting('readingSize', b.dataset.size)));
 document.querySelectorAll('#autoReloadSeg button').forEach((b) => b.addEventListener('click', () => setAutoReload(b.dataset.auto === 'on')));
@@ -3599,6 +3623,7 @@ window.__scratchSettings = function (cfg) {
   if (starred && JSON.stringify(starred) !== JSON.stringify(SETTINGS.starredThemes)) { SETTINGS.starredThemes = starred; drift = true; }
   if ((cfg.gridStyle === 'off' || cfg.gridStyle === 'dots' || cfg.gridStyle === 'lines') && cfg.gridStyle !== SETTINGS.gridStyle) { SETTINGS.gridStyle = cfg.gridStyle; drift = true; }
   if (typeof cfg.wideMode === 'boolean' && cfg.wideMode !== SETTINGS.wideMode) { SETTINGS.wideMode = cfg.wideMode; drift = true; }
+  if (FONT_PRESETS.includes(cfg.fontPreset) && cfg.fontPreset !== SETTINGS.fontPreset) { SETTINGS.fontPreset = cfg.fontPreset; drift = true; }
   if (READING_FONTS.includes(cfg.readingFont) && cfg.readingFont !== SETTINGS.readingFont) { SETTINGS.readingFont = cfg.readingFont; drift = true; }
   if (READING_SIZES.includes(cfg.readingSize) && cfg.readingSize !== SETTINGS.readingSize) { SETTINGS.readingSize = cfg.readingSize; drift = true; }
   if (validMeasure(cfg.measure) && cfg.measure !== SETTINGS.measure) { SETTINGS.measure = cfg.measure; drift = true; }

@@ -361,6 +361,13 @@ const BASE_CSS = `
      Not light-dark(): the host stylesheet never declares color-scheme, so it
      would follow the OS instead of the theme the user pinned. */
   --embed-paper: ${KIT_BG.dark};
+  --serif: Georgia, serif;
+  --sans: system-ui, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+/* The webfonts download only when a stack names them, so the system preset
+   (no attribute) fetches nothing. */
+:root[data-fonts="bundled"] {
   --serif: 'Playfair Display', Georgia, serif;
   --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', sans-serif;
   --serif-text: 'IBM Plex Serif', Georgia, serif;
@@ -786,10 +793,13 @@ html:not([data-native]) .sc-native { display: none; }
    heading levels are color-coded down the ember ramp for at-a-glance hierarchy. */
 /* Single sizing knob: heading sizes below are em-relative, so adjusting this one
    font-size scales the whole reading column proportionally. */
-:root { --read: var(--sans); --read-size: 17px; --read-lh: 1.65; --read-scale: 1;
+:root { --read: var(--mono); --read-size: 16px; --read-lh: 1.7; --h-font: var(--serif); --read-scale: 1;
   --code-size: calc(14px * var(--read-scale)); }
-:root[data-read="serif"] { --read: var(--serif-text); }
-:root[data-read="mono"] { --read: var(--mono); --read-size: 16px; --read-lh: 1.7; }
+/* The reading font switch belongs to the bundled preset only. */
+:root[data-fonts="bundled"] { --read: var(--sans); --read-size: 17px; --read-lh: 1.65; --h-font: var(--read); }
+:root[data-fonts="bundled"][data-read="serif"] { --read: var(--serif-text); }
+:root[data-fonts="bundled"][data-read="mono"] { --read: var(--mono); --read-size: 16px; --read-lh: 1.7; }
+:root:not([data-fonts="bundled"]) #readSection { display: none; }
 :root[data-read-size="s"] { --read-scale: 0.88; }
 :root[data-read-size="l"] { --read-scale: 1.12; }
 :root[data-read-size="xl"] { --read-scale: 1.25; }
@@ -799,7 +809,7 @@ html:not([data-native]) .sc-native { display: none; }
 .md del { color: var(--ink-3); }
 /* Display serif only where it is large; its hairlines fade at body sizes. */
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
-  font-family: var(--read); font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
+  font-family: var(--h-font); font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
 .md h1, .md h2 { font-family: var(--serif); }
 /* Stepped progression: h1 accent, then a uniform size + ink-ramp descent. */
 .md h1 { font-size: 1.625em; color: var(--ember-glow); }

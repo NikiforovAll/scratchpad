@@ -90,10 +90,25 @@ User-level viewer preferences live in a single JSON file (machine-wide, not per-
                             // its own close button + drag strip). false = native chrome.
     "themeMode": "system",  // dark | light | system
     "colorTheme": "ember",  // any theme id
-    "zoom": 1
+    "zoom": 1,
+    "fontPreset": "system", // system | bundled
+    "fonts": {              // optional, hand-edited only
+      "prose": "'Iosevka Term', monospace",
+      "heading": "Georgia, serif",
+      "mono": "'Cascadia Code', monospace"
+    }
     // ...every viewer setting round-trips here
   }
 }
 ```
+
+### Fonts
+
+`fontPreset` picks one of two font sets. You can also change it in Settings > Fonts.
+
+- `system` (default): uses only fonts installed on the machine and loads no webfonts. Prose and UI use the monospace stack (Cascadia Code, Consolas), and headings use Georgia. Offline exports are smaller because they embed no font files.
+- `bundled`: uses the pinned IBM Plex and Playfair Display webfonts. Settings > Reading font then switches prose between sans, serif and mono.
+
+`fonts` overrides a slot with a CSS `font-family` list, over either preset: `prose` (markdown body text), `heading` (page title and serif headings) and `mono` (UI, code, paths). A `prose` value also replaces the Reading font choice. The fonts must be installed locally; nothing is downloaded. A value that holds characters outside letters, digits, spaces, `, ' " . - _` is ignored. The viewer never writes this key, so edit it in the file and relaunch.
 
 The config file is resolved from (in order): `SCRATCHPAD_CONFIG` env var → `$XDG_CONFIG_HOME/scratchpad/config.json` → `~/.config/scratchpad/config.json` — the same path on every platform, deliberately **not** `%APPDATA%` (that would make the path depend on the launching shell's environment).

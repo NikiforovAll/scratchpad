@@ -440,7 +440,8 @@ describe("renderHtml --offline", () => {
 
   test("UI fonts are data: URIs, only for the subsets the pad's text uses", async () => {
     const fontStyle = (html: string) => html.split('<style id="ui-fonts">')[1]!.split("</style>")[0]!;
-    const latin = fontStyle(await renderHtml(await buildView([await seedPad()]), "Notes", undefined, { exportMode: true, offline: true }));
+    const bundled = { themeMode: "system", colorTheme: "ember", fontPreset: "bundled" } as const;
+    const latin = fontStyle(await renderHtml(await buildView([await seedPad()]), "Notes", bundled, { exportMode: true, offline: true }));
     expect(latin).not.toContain("cdn.jsdelivr.net");
     expect(latin).toContain("font-family:'IBM Plex Mono'");
     expect(latin).toContain("font-family:'Playfair Display'");
@@ -449,7 +450,7 @@ describe("renderHtml --offline", () => {
     const faces = UI_FONTS.filter((f) => !f.reading || f.reading === "sans").reduce((n, f) => n + f.faces.length, 0);
     expect(latin.match(/data:font\/woff2;base64,[A-Za-z0-9+/]/g)!.length).toBe(faces);
     const serif = fontStyle(await renderHtml(await buildView([await seedPad()]), "Notes",
-      { themeMode: "system", colorTheme: "ember", readingFont: "serif" }, { exportMode: true, offline: true }));
+      { ...bundled, readingFont: "serif" }, { exportMode: true, offline: true }));
     expect(serif).toContain("font-family:'IBM Plex Serif'");
     expect(serif).not.toContain("font-family:'IBM Plex Sans'");
 
@@ -459,9 +460,29 @@ describe("renderHtml --offline", () => {
     const m = newManifest("Cyr");
     m.files.push({ path: "uk.md", title: "Українська", type: "note" });
     await writeManifest(dir, m);
-    const cyr = fontStyle(await renderHtml(await buildView([{ dir, manifest: await readManifest(dir) }]), "Cyr", undefined, { exportMode: true, offline: true }));
+    const cyr = fontStyle(await renderHtml(await buildView([{ dir, manifest: await readManifest(dir) }]), "Cyr", bundled, { exportMode: true, offline: true }));
     expect(cyr.match(/U\+0400-045F/g)!.length).toBe(faces);
     expect(cyr).not.toContain("U+1EA0-1EF9"); // no Vietnamese text, no Vietnamese subset
+  });
+
+  test("the system font preset (default) embeds no UI fonts and sets no data-fonts", async () => {
+    const html = await renderHtml(await buildView([await seedPad()]), "Notes", undefined, { exportMode: true, offline: true });
+    expect(html).not.toContain('id="ui-fonts"');
+    expect(html).not.toMatch(/<html[^>]*data-fonts=/);
+    const bundled = await renderHtml(await buildView([await seedPad()]), "Notes",
+      { themeMode: "system", colorTheme: "ember", fontPreset: "bundled" });
+    expect(bundled).toMatch(/<html[^>]*data-fonts="bundled"/);
+  });
+
+  test("font overrides land as escaped CSS variables on <html>", async () => {
+    const html = await renderHtml(await buildView([await seedPad()]), "Notes", {
+      themeMode: "system", colorTheme: "ember",
+      fonts: { prose: `"Iosevka Term", monospace`, heading: "Georgia, serif", mono: "Consolas" },
+    });
+    const style = html.match(/<html[^>]*style="([^"]*)"/)![1]!;
+    expect(style).toContain("--read: &quot;Iosevka Term&quot;, monospace");
+    expect(style).toContain("--serif: Georgia, serif");
+    expect(style).toContain("--mono: Consolas");
   });
 
   test("a no-mermaid pad omits the multi-MB mermaid bundle", async () => {
@@ -471,7 +492,7 @@ describe("renderHtml --offline", () => {
     const island = JSON.parse(html.split('id="vendor-gz" type="application/json">')[1]!.split("</script>")[0]!);
     expect(island.hljs).toBeString(); // hljs IS inlined (code present)
     expect(island.mermaid).toBeUndefined(); // mermaid (3.3MB) NOT pulled in
-    expect(html.length).toBeLessThan(650_000); // includes ~205KB of latin UI fonts
+    expect(html.length).toBeLessThan(650_000);
   });
 
   test("non-offline export still emits CDN tags (unchanged default)", async () => {

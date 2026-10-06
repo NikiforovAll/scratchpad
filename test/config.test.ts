@@ -110,6 +110,32 @@ describe("loadConfig", () => {
     expect((await loadConfig()).ui.readingFont).toBe("sans");
   });
 
+  test("fontPreset: defaults to system; reads valid value; rejects garbage; saves", async () => {
+    process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
+    expect((await loadConfig()).ui.fontPreset).toBe("system");
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { fontPreset: "bundled" } }), "utf8");
+    expect((await loadConfig()).ui.fontPreset).toBe("bundled");
+    await writeFile(f, JSON.stringify({ ui: { fontPreset: "comic" } }), "utf8");
+    expect((await loadConfig()).ui.fontPreset).toBe("system");
+    await saveConfig({ fontPreset: "bundled" });
+    expect((await loadConfig()).ui.fontPreset).toBe("bundled");
+  });
+
+  test("fonts: keeps valid family lists, drops unsafe values, survives a viewer save", async () => {
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    await writeFile(f, JSON.stringify({ ui: { fonts: {
+      prose: " 'Iosevka Term', monospace ", heading: "x; color: red", mono: "url(evil)", extra: "Arial",
+    } } }), "utf8");
+    expect((await loadConfig()).ui.fonts).toEqual({ prose: "'Iosevka Term', monospace" });
+    await saveConfig({ zoom: 1.25 });
+    expect((await loadConfig()).ui.fonts).toEqual({ prose: "'Iosevka Term', monospace" });
+    await writeFile(f, JSON.stringify({ ui: { fonts: "Arial" } }), "utf8");
+    expect((await loadConfig()).ui.fonts).toEqual({});
+  });
+
   test("readingSize: defaults to m; reads valid value; rejects garbage", async () => {
     process.env.SCRATCHPAD_CONFIG = join(dir, "missing.json");
     expect((await loadConfig()).ui.readingSize).toBe("m");

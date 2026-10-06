@@ -19,6 +19,11 @@ import { COLOR_THEME_IDS, DEFAULT_COLOR_THEME } from "./ui/theme.ts";
 export const THEME_MODES = ["dark", "light", "system"] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
 export type GridStyle = "off" | "dots" | "lines";
+export const FONT_PRESETS = ["system", "bundled"] as const;
+export type FontPreset = (typeof FONT_PRESETS)[number];
+export const FONT_SLOTS = ["prose", "heading", "mono"] as const;
+export type FontSlot = (typeof FONT_SLOTS)[number];
+export type FontOverrides = Partial<Record<FontSlot, string>>;
 export const READING_FONTS = ["sans", "serif", "mono"] as const;
 export type ReadingFont = (typeof READING_FONTS)[number];
 export const READING_SIZES = ["s", "m", "l", "xl"] as const;
@@ -41,7 +46,13 @@ export interface ScratchConfig {
     gridStyle: GridStyle;
     /** Wide reading column: roomier card that still leaves a margin (default false). */
     wideMode: boolean;
-    /** Font for markdown prose; code, paths and metadata stay mono. */
+    /** "system": locally installed fonts only, no webfonts loaded (mono prose,
+     * Georgia headings). "bundled": the pinned IBM Plex / Playfair webfonts. */
+    fontPreset: FontPreset;
+    /** CSS font-family lists that override a preset slot. Set by hand in the
+     * config file only; the viewer never writes them. */
+    fonts: FontOverrides;
+    /** Font for markdown prose under the bundled preset; code, paths and metadata stay mono. */
     readingFont: ReadingFont;
     /** Prose text size step; scales the reading font only, unlike zoom. */
     readingSize: ReadingSize;
@@ -71,6 +82,8 @@ const DEFAULTS: ScratchConfig = {
     starredThemes: [],
     gridStyle: "dots",
     wideMode: false,
+    fontPreset: "system",
+    fonts: {},
     readingFont: "sans",
     readingSize: "m",
     measure: MEASURE_DEFAULT,
@@ -102,6 +115,20 @@ function sanitizeStarred(v: unknown): string[] | null {
 }
 function validGridStyle(v: unknown): v is GridStyle {
   return v === "off" || v === "dots" || v === "lines";
+}
+const validFontPreset = oneOf(FONT_PRESETS);
+// The values land in an inline style on <html>: no ; { } < > ( ) so a value
+// cannot close the declaration or pull in url().
+const FONT_FAMILY_RE = /^[\w\s,'".-]{1,200}$/;
+function sanitizeFonts(v: unknown): FontOverrides {
+  const out: FontOverrides = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  for (const slot of FONT_SLOTS) {
+    const s = (v as Record<string, unknown>)[slot];
+    const t = typeof s === "string" ? s.trim() : "";
+    if (FONT_FAMILY_RE.test(t)) out[slot] = t;
+  }
+  return out;
 }
 const validReadingFont = oneOf(READING_FONTS);
 const validReadingSize = oneOf(READING_SIZES);
@@ -138,6 +165,8 @@ export async function loadConfig(): Promise<ScratchConfig> {
           ? raw.ui.gridStyle
           : DEFAULTS.ui.gridStyle,
         wideMode: bool(raw?.ui?.wideMode, DEFAULTS.ui.wideMode),
+        fontPreset: validFontPreset(raw?.ui?.fontPreset) ? raw.ui.fontPreset : DEFAULTS.ui.fontPreset,
+        fonts: sanitizeFonts(raw?.ui?.fonts),
         readingFont: validReadingFont(raw?.ui?.readingFont) ? raw.ui.readingFont : DEFAULTS.ui.readingFont,
         readingSize: validReadingSize(raw?.ui?.readingSize) ? raw.ui.readingSize : DEFAULTS.ui.readingSize,
         measure: validMeasure(raw?.ui?.measure) ? raw.ui.measure : DEFAULTS.ui.measure,
@@ -177,6 +206,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (starred) ui.starredThemes = starred;
   if (validGridStyle(patch.gridStyle)) ui.gridStyle = patch.gridStyle;
   if (typeof patch.wideMode === "boolean") ui.wideMode = patch.wideMode;
+  if (validFontPreset(patch.fontPreset)) ui.fontPreset = patch.fontPreset;
   if (validReadingFont(patch.readingFont)) ui.readingFont = patch.readingFont;
   if (validReadingSize(patch.readingSize)) ui.readingSize = patch.readingSize;
   if (validMeasure(patch.measure)) ui.measure = patch.measure;
