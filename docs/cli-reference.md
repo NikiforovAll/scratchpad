@@ -62,6 +62,7 @@ Read the inline comments left in the [viewer](/viewer#inline-comments) back out 
 |------|---------|
 | `<file>` | Filter: exact path, glob (`*.md`), or case-insensitive substring. |
 | `--json` | Agent-friendly output (same shape the viewer's copy-comments shortcut produces). |
+| `--related` | Cover the pad's [set](#pad-sets). Each comment carries `pad`; `--json` adds `pads`. Works with `--rm`. |
 
 Comments whose quoted text can no longer be found are reported as **orphaned**, never dropped.
 
@@ -86,6 +87,8 @@ Read-only viewer: glimpse native window by default, browser fallback.
 | `--all` | Open every pad under the root, tabbed. |
 | `--browser` | Force the browser viewer (always works). It prints its URL and does not open a browser. |
 | `--install-native` | Build the native host on demand (needs .NET 8 SDK). |
+
+A named pad opens with its [pad set](#pad-sets). `scratch export <pad>` embeds the same set.
 
 See [Viewer](/viewer) for details.
 
@@ -144,3 +147,16 @@ Notes:
 - Manifest `created`/`updated` dates are set to the import time — an export does not carry the pad-level dates.
 
 Import is a deliberate exception to the rule that the CLI never authors content: the content is your own export, and the restore is explicit.
+
+## Pad sets
+
+Link pads that depend on each other with a top-level `related` list in `scratchpad.json`:
+
+```json
+"related": ["client-sdk", { "pad": "../other/pad", "rel": "feeds" }]
+```
+
+- An entry is a pad name or a path. A name resolves among the pad's sibling folders first, then under the root. A path is relative to the pad's folder. `rel` is an optional label shown in the viewer.
+- `scratch ui <pad>`, `scratch export <pad>` and `scratch comments <pad> --related` cover the set: the pad, the pads it lists, and the pads that list it. One level only, each pad once. A ref that does not resolve prints a warning and is skipped.
+- The viewer gives each pad its own sidebar section, with that pad's groups, `layout` order and folding. A markdown link to a file registered in another pad of the set opens it there.
+- `scratch import` does not restore `related`; add it again after an import.

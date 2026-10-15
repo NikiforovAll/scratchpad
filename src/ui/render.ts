@@ -9,7 +9,7 @@ import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pkg from "../../package.json" with { type: "json" };
 import { FONT_PRESETS, type FontSlot, MEASURE_DEFAULT, MEASURE_MAX, MEASURE_MIN, READING_FONTS, READING_SIZES, type ScratchConfig } from "../config.ts";
-import { type Pad, exportFileSlug, resolveEntryPath, toPosix } from "../discovery.ts";
+import { type Pad, type SetRole, exportFileSlug, pathKey, resolveEntryPath, toPosix } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry, type Layout, MANIFEST_NAME } from "../manifest.ts";
 import { type CommentItem, toCommentItems } from "../comments.ts";
 import { UI_FONT_CSS_CDN, subsetsFor, uiFontCss } from "./fonts.ts";
@@ -128,6 +128,40 @@ export interface PadView {
   /** "<file path>::<href as written, sans #fragment>" → key into `linked`, so the
    * client never resolves paths itself (the server did, once, with node:path). */
   linkKeys?: Record<string, string>;
+  /** The pad's role when the view is a pad set (see resolvePadSet). */
+  set?: SetRole;
+  /** "<file path>::<href as written, sans #fragment>" → the registered file
+   * another pad of the view holds at that link's target. */
+  xrefs?: Record<string, { dir: string; path: string }>;
+}
+
+/** Links from each pad's markdown to files registered in OTHER pads of the view,
+ * resolved here with node:path so the client only looks them up. */
+function collectCrossPadLinks(view: PadView[]): void {
+  if (view.length < 2) return;
+  const owner = new Map<string, { dir: string; path: string }>();
+  for (const p of view) for (const f of p.files) owner.set(pathKey(f.abs), { dir: p.dir, path: f.path });
+  for (const p of view) {
+    const xrefs: Record<string, { dir: string; path: string }> = {};
+    for (const { key, abs } of markdownLinks(p.files)) {
+      const hit = owner.get(pathKey(abs));
+      if (hit && hit.dir !== p.dir) xrefs[key] = hit;
+    }
+    if (Object.keys(xrefs).length) p.xrefs = xrefs;
+  }
+}
+
+/** Local file links (`[text](href)`, not images) in the files' markdown: `key` is
+ * "<file path>::<href sans #fragment>", the lookup key the client uses. */
+function* markdownLinks(files: FileView[]): Generator<{ key: string; abs: string }> {
+  for (const f of files) {
+    if (f.kind !== "markdown" || !f.content) continue;
+    for (const m of f.content.matchAll(/(^|[^!])\[[^\]]*\]\(([^)]+)\)/g)) {
+      const href = imageSrcToken(m[2]!).split("#")[0]!;
+      const abs = hrefToAbs(f.abs, href);
+      if (abs) yield { key: f.path + "::" + href, abs };
+    }
+  }
 }
 
 /** Every FileView the page may render — sidebar files plus link-embedded ones. */
@@ -401,23 +435,14 @@ export async function buildLinkedView(abs: string): Promise<FileView | null> {
 /** Files that the pad's markdown links to (`[text](href)`, local, not an image)
  * but that no manifest lists — in the pad dir or anywhere else on disk. One
  * level deep: a linked doc's own links are not followed, or an export could pull
- * in an unbounded slice of the disk. Registered targets are skipped (the click
- * handler finds those in `files` first). */
+ * in an unbounded slice of the disk. Targets in `known` (files registered in any
+ * pad of the view) are skipped: the click handler finds those first. */
 async function collectLinkedViews(
   files: FileView[],
+  known: Set<string>,
 ): Promise<Pick<PadView, "linked" | "linkKeys">> {
-  const known = new Set(files.map((f) => toPosix(f.abs)));
   const linkKeys: Record<string, string> = {};
-  for (const f of files) {
-    if (f.kind !== "markdown" || !f.content) continue;
-    for (const m of f.content.matchAll(/(^|[^!])\[[^\]]*\]\(([^)]+)\)/g)) {
-      const href = imageSrcToken(m[2]!).split("#")[0]!;
-      const abs = hrefToAbs(f.abs, href);
-      if (!abs) continue;
-      const key = toPosix(abs);
-      if (!known.has(key)) linkKeys[f.path + "::" + href] = key;
-    }
-  }
+  for (const { key, abs } of markdownLinks(files)) if (!known.has(pathKey(abs))) linkKeys[key] = toPosix(abs);
   const linked: Record<string, FileView> = {};
   await Promise.all(
     [...new Set(Object.values(linkKeys))].map(async (key) => {
@@ -437,7 +462,7 @@ export async function buildView(
   reveal?: RevealState,
   opts: { linked?: boolean } = {},
 ): Promise<PadView[]> {
-  return Promise.all(
+  const view: PadView[] = await Promise.all(
     pads.map(async (p) => {
       // One partition decides visibility: `hidden` entries stay registered in the
       // manifest and never reach the viewer, unless a session reveal (RevealState)
@@ -456,10 +481,16 @@ export async function buildView(
         files,
         ...(p.manifest.layout ? { layout: p.manifest.layout } : {}),
         ...(hiddenPaths.length ? { hiddenPaths } : {}),
-        ...(opts.linked ? await collectLinkedViews(files) : {}),
+        ...(p.set ? { set: p.set } : {}),
       };
     }),
   );
+  collectCrossPadLinks(view);
+  if (opts.linked) {
+    const known = new Set(view.flatMap((p) => p.files.map((f) => pathKey(f.abs))));
+    await Promise.all(view.map(async (p) => Object.assign(p, await collectLinkedViews(p.files, known))));
+  }
+  return view;
 }
 
 const MERMAID_RE = /```[ \t]*mermaid\b/;
@@ -2883,6 +2914,17 @@ function fileIcon(kind) {
 // hot-reload. Never persisted — a fresh page load starts empty, restoring the
 // layout-authored default (see decision: collapse toggles are ephemeral).
 const groupCollapseState = {};
+// Pad dir -> collapsed bool, for the pad sections of a pad set.
+const padCollapseState = {};
+
+// Mark the pad section that holds the open file, and unfold it so a link from
+// another pad lands on a visible row.
+function syncCurrentPad() {
+  const sec = document.querySelector('.frow.active')?.closest('.padsec');
+  document.querySelectorAll('.padsec').forEach(el => el.classList.toggle('cur', el === sec));
+  document.querySelectorAll('#padname .hpad').forEach(el => el.classList.toggle('cur', !!sec && el.dataset.pad === sec.dataset.pad));
+  if (sec && sec.classList.contains('collapsed')) setGroupCollapsed(sec, false);
+}
 
 // Client mirror of groupKey() in manifest.ts — normalize a group name to its
 // comparison key ('' = ungrouped). Guards against non-strings since the layout
@@ -2917,17 +2959,20 @@ function layoutCollapsedSet(layout) {
   return s;
 }
 
-// Single write-through for a group's collapse state: DOM class, the header's
-// aria-expanded, and the in-session override map (never persisted — see buildTree).
+// Single write-through for the collapse state of a group or a pad section: DOM
+// class, the header's aria-expanded, and the in-session override map (never
+// persisted — see buildTree).
 function setGroupCollapsed(box, collapsed) {
   if (!box) return;
+  const pad = box.classList.contains('padsec');
   box.classList.toggle('collapsed', collapsed);
-  box.querySelector('.glabel')?.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-  groupCollapseState[box.dataset.group] = collapsed;
+  box.querySelector(pad ? '.plabel' : '.glabel')?.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  if (pad) padCollapseState[box.dataset.pad] = collapsed;
+  else groupCollapseState[box.dataset.group] = collapsed;
 }
 
 function toggleGroup(headerEl) {
-  const box = headerEl.closest('.ggroup');
+  const box = headerEl.closest('.ggroup, .padsec');
   if (box) setGroupCollapsed(box, !box.classList.contains('collapsed'));
 }
 
@@ -2941,6 +2986,7 @@ function setActiveGroupCollapsed(collapsed) {
 // visible (nav order spans collapsed groups — see ITEMS).
 function expandActiveGroup() {
   setGroupCollapsed(document.querySelector('.frow.active')?.closest('.ggroup.collapsed'), false);
+  syncCurrentPad();
 }
 
 // Keep the active row inside the tree's own scroll viewport, so walking the list
@@ -2976,21 +3022,53 @@ function buildTree(preferKey, prevSelJson) {
   // the final grouped order so keyboard navigation matches the visible layout.
   // Grouping is case-insensitive (headers render uppercase, so "Resolved" and
   // "RESOLVED" are the same group); the first-seen casing wins as the label.
-  const groups = new Map();
-  items.forEach((it) => {
-    const g = groupKey(it.f.group);
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(it);
+  // A pad set gets one section per pad, each grouped and ordered by its own
+  // layout; otherwise every pad shares one section. A section's scope prefixes
+  // its group keys so same-named groups in two pads fold independently.
+  const setMode = DATA.pads.some(p => p.set);
+  const sections = (setMode ? DATA.pads.map((pad, pi) => ({ pad, pi, its: items.filter(it => it.pi === pi) }))
+    : [{ pad: null, pi: -1, its: items }]).map((s) => {
+    const scope = s.pad ? s.pad.dir + '\\u0001' : '';
+    const groups = new Map();
+    s.its.forEach((it) => {
+      const g = scope + groupKey(it.f.group);
+      it.gk = g;
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(it);
+    });
+    // Group DISPLAY order honors the pad's optional layout (mirror of orderGroupKeys
+    // in manifest.ts). Layout is a per-pad hint, so a merged multi-pad section
+    // falls back to first-appearance (the Map preserves it).
+    const layout = s.pad ? s.pad.layout : DATA.pads.length === 1 ? DATA.pads[0].layout : null;
+    const bare = [...groups.keys()].map(k => k.slice(scope.length));
+    const groupOrder = orderGroups(bare, layout).map(k => scope + k);
+    const collapsedDefault = new Set([...layoutCollapsedSet(layout)].map(k => scope + k));
+    return { ...s, groups, groupOrder, collapsedDefault };
   });
-  // Group DISPLAY order honors the pad's optional layout (mirror of orderGroupKeys
-  // in manifest.ts). Layout is a per-pad hint, so only apply it in the single-pad
-  // view; multi-pad falls back to first-appearance (the Map preserves it).
-  const layout = DATA.pads.length === 1 ? DATA.pads[0].layout : null;
-  const groupOrder = orderGroups([...groups.keys()], layout);
-  const collapsedDefault = layoutCollapsedSet(layout);
-  ITEMS = groupOrder.flatMap((g) => groups.get(g));
+  const collapsedDefault = new Set(sections.flatMap(s => [...s.collapsedDefault]));
+  ITEMS = sections.flatMap(s => s.groupOrder.flatMap((g) => s.groups.get(g)));
 
-  document.getElementById('padname').textContent = DATA.pads.length === 1 ? DATA.pads[0].name : DATA.rootLabel;
+  const primary = setMode ? DATA.pads.find(p => p.set && p.set.primary) : null;
+  const relOf = (pad) => (pad.set && pad.set.rel) || 'related';
+  const relTip = (pad) => {
+    const pn = primary ? primary.name : '';
+    return pad.set && pad.set.direction === 'in' ? pad.name + ' ' + relOf(pad) + ' ' + pn : pn + ' ' + relOf(pad) + ' ' + pad.name;
+  };
+  const padname = document.getElementById('padname');
+  if (primary) {
+    padname.innerHTML = '<button class="hpad primary" data-pad="' + esc(primary.dir) + '">' + esc(primary.name) + '</button>' +
+      DATA.pads.filter(p => p !== primary).map(p =>
+        '<button class="hpad" data-pad="' + esc(p.dir) + '" title="' + esc(relTip(p)) + '">' +
+        '<span class="hrel">' + esc(relOf(p)) + '</span>' + esc(p.name) + '</button>').join('');
+    padname.querySelectorAll('.hpad').forEach(b => b.addEventListener('click', () => {
+      const sec = Array.from(document.querySelectorAll('.padsec')).find(s => s.dataset.pad === b.dataset.pad);
+      if (!sec) return;
+      setGroupCollapsed(sec, false);
+      sec.scrollIntoView({ block: 'start' });
+    }));
+  } else {
+    padname.textContent = DATA.pads.length === 1 ? DATA.pads[0].name : DATA.rootLabel;
+  }
 
   if (!items.length) {
     const msg = DATA.pads.length
@@ -3002,6 +3080,16 @@ function buildTree(preferKey, prevSelJson) {
   }
 
   let html = '';
+  sections.forEach(({ pad, groups, groupOrder }) => {
+  if (pad) {
+    const folded = !!padCollapseState[pad.dir];
+    const tag = pad === primary ? ''
+      : '<span class="prel" title="' + esc(relTip(pad)) + '">' + esc(relOf(pad)) + '</span>';
+    html += '<div class="padsec' + (folded ? ' collapsed' : '') + '" data-pad="' + esc(pad.dir) + '">' +
+      '<div class="label plabel" role="button" tabindex="0" aria-expanded="' + (folded ? 'false' : 'true') + '">' +
+      '<span class="gcaret" aria-hidden="true"></span><span class="pname">' + esc(pad.name) + '</span>' +
+      tag + '</div><div class="prows">';
+  }
   groupOrder.forEach((g) => {
     // First-seen casing labels the group (headers render uppercase); '' → "FILES".
     const label = groups.get(g)[0].f.group || '';
@@ -3023,6 +3111,8 @@ function buildTree(preferKey, prevSelJson) {
     });
     html += '</div></div>';
   });
+  if (pad) html += '</div></div>';
+  });
   // Only swap the tree DOM when the markup actually changed — otherwise reloading
   // (or re-selecting) needlessly destroys/recreates the sidebar = a visible flash.
   // Compare against the last GENERATED string (reading back innerHTML is unreliable
@@ -3034,7 +3124,7 @@ function buildTree(preferKey, prevSelJson) {
       const pad = DATA.pads[+row.dataset.pi]; renderPreview(pad, pad.files[+row.dataset.fi]);
       setDrawer(false);
     }));
-    tree.querySelectorAll('.glabel').forEach(h => {
+    tree.querySelectorAll('.glabel, .plabel').forEach(h => {
       h.addEventListener('click', () => toggleGroup(h));
       h.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(h); }
@@ -3049,8 +3139,8 @@ function buildTree(preferKey, prevSelJson) {
   // to the first file in sidebar order that is not in a collapsed group, and drop
   // raw mode.
   const isFolded = (it) => {
-    const g = groupKey(it.f.group);
-    return g in groupCollapseState ? groupCollapseState[g] : collapsedDefault.has(g);
+    if (setMode && padCollapseState[it.pad.dir]) return true;
+    return it.gk in groupCollapseState ? groupCollapseState[it.gk] : collapsedDefault.has(it.gk);
   };
   let sel = ITEMS.find(it => !isFolded(it)) ?? ITEMS[0];
   if (preferKey) {
@@ -3693,8 +3783,9 @@ function pickerSelect(i) {
 function renderPicker() {
   const q = pickerInput.value.trim().toLowerCase();
   const multi = DATA.pads.length > 1;
-  const hay = ({ pad, f }) => [f.title, f.path, f.group, multi && pad.name].filter(Boolean).join('\n').toLowerCase();
-  pickerRows = q ? ITEMS.filter((it) => hay(it).includes(q)) : ITEMS.slice();
+  const hay = ({ pad, f }) => [f.title, f.path, f.group, multi && pad.name, multi && pad.name + '/' + f.path].filter(Boolean).join('\n').toLowerCase();
+  const words = q.split(/\s+/).filter(Boolean);
+  pickerRows = q ? ITEMS.filter((it) => { const h = hay(it); return words.every(w => h.includes(w)); }) : ITEMS.slice();
   if (!pickerRows.length) { pickerList.innerHTML = '<div class="picker-empty">No matching files</div>'; return; }
   pickerList.innerHTML = pickerRows.map(({ pad, f }, i) => {
     const key = pad.dir + '::' + f.path;
@@ -4233,6 +4324,12 @@ previewEl.addEventListener('click', (e) => {
   }
   const target = resolveRel(currentRef.f.path, filePart);
   const pad = currentRef.pad;
+  // A file registered in another pad of the set: open it there (the server
+  // resolved the href; see collectCrossPadLinks).
+  const xr = pad.xrefs && pad.xrefs[currentRef.f.path + '::' + filePart];
+  const xpad = xr && DATA.pads.find(p => p.dir === xr.dir);
+  const xf = xpad && xpad.files.find(x => x.path === xr.path);
+  if (xf) { renderPreview(xpad, xf, hash ? { anchor: hash } : { top: true }); return; }
   // One matcher for both lookups below — visible files and hidden paths must
   // resolve links by the same rules.
   const matchesLink = p => p === target || p === filePart || p.endsWith('/' + target);
@@ -4757,7 +4854,12 @@ function openCommentsSummary(btn) {
       if (f !== lastFile) {
         lastFile = f;
         const fh = document.createElement('div'); fh.className = 'cmt-sfile';
-        fh.textContent = f.title || f.path;
+        if (DATA.pads.length > 1) {
+          const tag = document.createElement('span'); tag.className = 'cmt-spad';
+          tag.textContent = pad.name;
+          fh.appendChild(tag);
+        }
+        fh.appendChild(document.createTextNode(f.title || f.path));
         el.appendChild(fh);
       }
       const row = document.createElement('div'); row.className = 'cmt-srow';

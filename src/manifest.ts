@@ -80,6 +80,14 @@ export interface Layout {
   groups: LayoutGroup[];
 }
 
+/** One entry in `related`: another pad shown in the same viewer as this one.
+ * `pad` is a pad name or a path (relative to this pad's dir, or absolute);
+ * `rel` is an optional short label for the link, e.g. "feeds". */
+export interface RelatedRef {
+  pad: string;
+  rel?: string;
+}
+
 export interface Manifest {
   version: number;
   name: string;
@@ -90,6 +98,10 @@ export interface Manifest {
   updated: string;
   files: FileEntry[];
   layout?: Layout;
+  /** Related pads, as the author wrote them: a bare string is shorthand for
+   * `{ pad }`. Kept in that form so a CLI write does not rewrite the author's
+   * spelling; read through `relatedRefs`. */
+  related?: (string | RelatedRef)[];
 }
 
 export function nowIso(): string {
@@ -189,6 +201,29 @@ export function orderGroupKeys(present: string[], layout?: Layout): string[] {
   return out;
 }
 
+/** Keep the usable `related` entries (non-empty string, or an object with a
+ * non-empty `pad`); undefined when none survive. */
+export function sanitizeRelated(raw: unknown): (string | RelatedRef)[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: (string | RelatedRef)[] = [];
+  for (const r of raw) {
+    if (typeof r === "string") {
+      if (r.trim()) out.push(r.trim());
+    } else if (typeof r === "object" && r !== null) {
+      const o = r as Record<string, unknown>;
+      if (typeof o.pad !== "string" || !o.pad.trim()) continue;
+      const ref: RelatedRef = { pad: o.pad.trim() };
+      if (typeof o.rel === "string" && o.rel.trim()) ref.rel = o.rel.trim();
+      out.push(ref);
+    }
+  }
+  return out.length ? out : undefined;
+}
+
+export function relatedRefs(m: Manifest): RelatedRef[] {
+  return (m.related ?? []).map((r) => (typeof r === "string" ? { pad: r } : r));
+}
+
 /** Validate + normalize a parsed object into a Manifest. Throws on hard errors. */
 export function parseManifest(raw: unknown, source: string): Manifest {
   if (typeof raw !== "object" || raw === null) {
@@ -218,6 +253,7 @@ export function parseManifest(raw: unknown, source: string): Manifest {
   });
   const ts = nowIso();
   const layout = sanitizeLayout(o.layout);
+  const related = sanitizeRelated(o.related);
   return {
     version: typeof o.version === "number" ? o.version : SCHEMA_VERSION,
     name: o.name,
@@ -226,6 +262,7 @@ export function parseManifest(raw: unknown, source: string): Manifest {
     updated: typeof o.updated === "string" ? o.updated : ts,
     files,
     ...(layout ? { layout } : {}),
+    ...(related ? { related } : {}),
   };
 }
 

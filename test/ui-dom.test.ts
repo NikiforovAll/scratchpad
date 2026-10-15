@@ -3154,3 +3154,134 @@ test("Shift+P opens the file picker: title primary, path dimmed, filter + Enter 
     await teardown();
   }
 });
+
+// api-design (opened, lists client-sdk) + client-sdk. Both pads have a
+// "Notes" group; api-design's layout folds it, client-sdk's does not.
+async function renderPadSet(): Promise<{ html: string; api: string; sdk: string }> {
+  const api = join(root, "api-design");
+  const sdk = join(root, "client-sdk");
+  await mkdir(join(api, "sources"), { recursive: true });
+  await mkdir(sdk, { recursive: true });
+  await writeFile(join(api, "plan.md"), "# Plan\n", "utf8");
+  await writeFile(join(api, "sources", "notes.md"), "# Notes\n\n## Auth\n\nToken refresh.\n", "utf8");
+  await writeFile(join(sdk, "scope.md"), "# Scope\n\nSee [Auth](../api-design/sources/notes.md#auth).\n", "utf8");
+  await writeFile(join(sdk, "log.md"), "# Log\n", "utf8");
+  const pm = newManifest("api-design");
+  pm.files.push({ path: "plan.md", type: "note", group: "Run" });
+  pm.files.push({ path: "sources/notes.md", type: "note", group: "Notes" });
+  pm.layout = { groups: [{ name: "Notes", collapsed: true }, { name: "Run" }] };
+  pm.related = [{ pad: "client-sdk", rel: "feeds" }];
+  await writeManifest(api, pm);
+  const wm = newManifest("client-sdk");
+  wm.files.push({
+    path: "scope.md",
+    type: "note",
+    group: "Notes",
+    comments: [{ id: "w1", body: "needs a retry rule", anchor: { quote: "Token", prefix: "", suffix: "" }, created: "2026-10-14T00:00:00Z", updated: "2026-10-14T00:00:00Z" }],
+  });
+  wm.files.push({ path: "log.md", type: "note" });
+  await writeManifest(sdk, wm);
+  const pads: Pad[] = [
+    { dir: api, manifest: await readManifest(api), set: { primary: true } },
+    { dir: sdk, manifest: await readManifest(sdk), set: { direction: "out", rel: "feeds" } },
+  ];
+  return { html: await renderHtml(await buildView(pads), "api-design, client-sdk"), api, sdk };
+}
+
+test("pad set: one sidebar section per pad, each with its own layout and folding", async () => {
+  const { html } = await renderPadSet();
+  await boot(html);
+  try {
+    const secs = Array.from(document.querySelectorAll("#tree .padsec"));
+    expect(secs.map((s) => s.querySelector(".pname")!.textContent)).toEqual(["api-design", "client-sdk"]);
+    expect(secs[0]!.querySelector(".prel")).toBeNull();
+    const hpads = Array.from(document.querySelectorAll("#padname .hpad"));
+    expect(hpads.map((b) => b.textContent)).toEqual(["api-design", "feedsclient-sdk"]);
+    expect(hpads[0]!.classList.contains("cur")).toBe(true);
+    expect(hpads[1]!.getAttribute("title")).toBe("api-design feeds client-sdk");
+    expect(secs[1]!.querySelector(".prel")!.textContent).toBe("feeds");
+    expect(secs[1]!.querySelector(".prel")!.getAttribute("title")).toBe("api-design feeds client-sdk");
+    const groups = (s: Element) =>
+      Array.from(s.querySelectorAll(".ggroup")).map((g) => [g.querySelector(".glabel")!.textContent, g.classList.contains("collapsed")]);
+    expect(groups(secs[0]!)).toEqual([["Notes", true], ["Run", false]]);
+    expect(groups(secs[1]!)).toEqual([["Notes", false], ["FILES", false]]);
+    // The first unfolded file of the opened pad is selected, and its section is current.
+    expect(document.querySelector(".frow.active")!.textContent).toContain("plan.md");
+    expect(secs[0]!.classList.contains("cur")).toBe(true);
+    // Folding one pad's "Notes" leaves the other pad's "Notes" alone.
+    (secs[1]!.querySelector(".glabel") as any).click();
+    expect(groups(secs[0]!)[0]).toEqual(["Notes", true]);
+    expect(groups(secs[1]!)[0]).toEqual(["Notes", true]);
+    (secs[0]!.querySelector(".glabel") as any).click();
+    expect(groups(secs[0]!)[0]).toEqual(["Notes", false]);
+    expect(groups(secs[1]!)[0]).toEqual(["Notes", true]);
+    // A pad header folds the whole section.
+    (secs[1]!.querySelector(".plabel") as any).click();
+    expect(secs[1]!.classList.contains("collapsed")).toBe(true);
+  } finally {
+    await teardown();
+  }
+});
+
+test("pad set: a link to another pad's file opens it there and moves the sidebar", async () => {
+  const { html } = await renderPadSet();
+  await boot(html);
+  try {
+    const secs = Array.from(document.querySelectorAll("#tree .padsec"));
+    (secs[1]!.querySelector(".plabel") as any).click();
+    (secs[0]!.querySelector(".plabel") as any).click();
+    const scope = Array.from(document.querySelectorAll("#tree .frow")).find((r) => r.textContent!.includes("scope.md")) as any;
+    scope.click();
+    expect(secs[1]!.classList.contains("cur")).toBe(true);
+    const link = document.querySelector('#preview .md a[href="../api-design/sources/notes.md#auth"]') as any;
+    expect(link).not.toBeNull();
+    link.click();
+    expect(document.querySelector("#preview .pfile")!.textContent).toBe("sources/notes.md");
+    const active = document.querySelector(".frow.active")!;
+    expect(active.textContent).toContain("notes.md");
+    expect(active.closest(".padsec")).toBe(secs[0]!);
+    expect(secs[0]!.classList.contains("cur")).toBe(true);
+    expect(secs[1]!.classList.contains("cur")).toBe(false);
+    expect(secs[0]!.classList.contains("collapsed")).toBe(false);
+    expect(active.closest(".ggroup")!.classList.contains("collapsed")).toBe(false);
+  } finally {
+    await teardown();
+  }
+});
+
+test("pad set: the comments summary tags each file with its pad", async () => {
+  const { html } = await renderPadSet();
+  await boot(html);
+  try {
+    (document.getElementById("commentsToggle") as any).click();
+    const head = document.querySelector(".cmt-pop.cmt-summary .cmt-sfile")!;
+    expect(head.querySelector(".cmt-spad")!.textContent).toBe("client-sdk");
+    expect(head.textContent).toBe("client-sdkscope.md");
+  } finally {
+    await teardown();
+  }
+});
+
+test("pad set: the file picker finds files of a folded related pad by pad and file words", async () => {
+  const { html } = await renderPadSet();
+  await boot(html);
+  try {
+    const secs = Array.from(document.querySelectorAll("#tree .padsec"));
+    (secs[1]!.querySelector(".plabel") as any).click();
+    expect(secs[1]!.classList.contains("collapsed")).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "P", shiftKey: true }));
+    const input = document.getElementById("pickerInput") as HTMLInputElement;
+    input.value = "client scope";
+    input.dispatchEvent(new Event("input"));
+    const rows = document.querySelectorAll(".picker-row");
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.querySelector(".picker-pad")!.textContent).toBe("client-sdk");
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(document.querySelector("#preview .pfile")!.textContent).toBe("scope.md");
+    expect(secs[1]!.classList.contains("collapsed")).toBe(false);
+    expect(secs[1]!.classList.contains("cur")).toBe(true);
+    expect(document.querySelector("#padname .hpad.cur")!.textContent).toContain("client-sdk");
+  } finally {
+    await teardown();
+  }
+});

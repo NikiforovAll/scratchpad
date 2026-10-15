@@ -6,21 +6,49 @@
 // (resolved within the root) or by an explicit path.
 
 import { readdir } from "node:fs/promises";
-import { basename, isAbsolute, join, resolve } from "node:path";
-import { hasManifest, readManifest, type Manifest } from "./manifest.ts";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { hasManifest, readManifest, relatedRefs, type Manifest } from "./manifest.ts";
 
 /** Directories never descended into during a scan. */
 const IGNORE_DIRS = new Set(["node_modules", ".git", ".hg", ".svn", "dist", "build"]);
+
+/** A pad's place in a pad set (see resolvePadSet). */
+export interface SetRole {
+  primary?: boolean;
+  /** Short label of the link to the opened pad, e.g. "feeds". */
+  rel?: string;
+  /** "out": the opened pad lists this one in `related`; "in": this one lists the opened pad. */
+  direction?: "out" | "in";
+}
 
 export interface Pad {
   /** Absolute path to the pad directory. */
   dir: string;
   manifest: Manifest;
+  /** Set only when the pad was opened as part of a pad set. */
+  set?: SetRole;
 }
 
 /** Forward-slash a path — portable + safe across Git Bash, where backslashes and
  * drive letters get mangled. */
 export const toPosix = (p: string) => p.split("\\").join("/");
+
+/** Comparison key for a path: absolute, forward-slashed, and case-folded on
+ * win32, where the filesystem ignores case. */
+export const pathKey = (p: string) => {
+  const s = toPosix(resolve(p));
+  return process.platform === "win32" ? s.toLowerCase() : s;
+};
+
+/** Ref → path test shared by `resolvePad` and `related` refs. */
+const isPathRef = (ref: string) => isAbsolute(ref) || ref.includes("/") || ref.includes("\\");
+
+/** Whether a name ref picks pad `p`: by folder basename, manifest name, or either's slug. */
+function nameMatches(ref: string, p: Pad): boolean {
+  const slug = slugify(ref);
+  const base = basename(p.dir.replace(/[\\/]+$/, ""));
+  return base === ref || base === slug || p.manifest.name === ref || slugify(p.manifest.name) === slug;
+}
 
 /** Absolute on-disk path of a file entry: a linked `src` (absolute, or relative
  * to the pad dir) wins; otherwise the entry's `path` under the pad dir. */
@@ -99,7 +127,7 @@ export async function findPads(root: string, maxDepth = 6): Promise<Pad[]> {
  */
 export async function resolvePad(ref: string, root: string): Promise<Pad | null> {
   // Explicit path?
-  if (isAbsolute(ref) || ref.includes("/") || ref.includes("\\")) {
+  if (isPathRef(ref)) {
     const dir = resolve(ref);
     if (await hasManifest(dir)) return { dir, manifest: await readManifest(dir) };
     return null;
@@ -113,12 +141,54 @@ export async function resolvePad(ref: string, root: string): Promise<Pad | null>
     return { dir: directSlug, manifest: await readManifest(directSlug) };
   }
   // Otherwise scan and match by slug(name), manifest.name, or folder basename.
-  const pads = await findPads(root);
-  const wantSlug = slug;
-  for (const p of pads) {
-    const base = p.dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
-    if (base === ref || base === wantSlug) return p;
-    if (p.manifest.name === ref || slugify(p.manifest.name) === wantSlug) return p;
+  return (await findPads(root)).find((p) => nameMatches(ref, p)) ?? null;
+}
+
+/** Display label for a pad selection: the pad names, opened pad first. */
+export const setLabel = (pads: Pad[]) => pads.map((p) => p.manifest.name).join(", ");
+
+/** Resolve one `related` ref written in `from`'s manifest. A path is relative to
+ * `from`'s dir; a name is looked up among `from`'s siblings first, then under root. */
+async function resolveRelated(ref: string, from: Pad, root: string): Promise<Pad | null> {
+  if (isPathRef(ref)) return resolvePad(resolve(from.dir, ref), root);
+  return (await resolvePad(ref, dirname(from.dir))) ?? (await resolvePad(ref, root));
+}
+
+/**
+ * The opened pad plus the pads it is related to, one level deep and each pad
+ * once: pads it lists in `related` ("out"), then pads under the scan root that
+ * list it ("in"). The scan root is `root` when the pad sits under it, otherwise
+ * the pad's parent dir. Unresolvable refs in the opened pad are reported through
+ * `warn`; broken refs in other pads are ignored. A pad with no relations comes
+ * back alone and without a `set` role.
+ */
+export async function resolvePadSet(
+  pad: Pad,
+  root: string,
+  warn: (msg: string) => void = () => {},
+): Promise<Pad[]> {
+  const out: Pad[] = [{ ...pad, set: { primary: true } }];
+  const seen = new Set([pathKey(pad.dir)]);
+  const refs = relatedRefs(pad.manifest);
+  const resolved = await Promise.all(refs.map((ref) => resolveRelated(ref.pad, pad, root).catch(() => null)));
+  refs.forEach((ref, i) => {
+    const r = resolved[i];
+    if (!r) return warn(`related pad "${ref.pad}" (listed in ${pad.manifest.name}) not found`);
+    if (seen.has(pathKey(r.dir))) return;
+    seen.add(pathKey(r.dir));
+    out.push({ ...r, set: { direction: "out", ...(ref.rel ? { rel: ref.rel } : {}) } });
+  });
+  const rel = relative(root, pad.dir);
+  const scanRoot = rel && !rel.startsWith("..") && !isAbsolute(rel) ? root : dirname(pad.dir);
+  // Inbound refs are matched against the opened pad directly, not resolved, so
+  // the scan stays one tree walk however many pads list `related`.
+  const target = pathKey(pad.dir);
+  for (const q of await findPads(scanRoot)) {
+    if (seen.has(pathKey(q.dir))) continue;
+    const ref = relatedRefs(q.manifest).find((r) =>
+      isPathRef(r.pad) ? pathKey(resolve(q.dir, r.pad)) === target : nameMatches(r.pad, pad),
+    );
+    if (ref) out.push({ ...q, set: { direction: "in", ...(ref.rel ? { rel: ref.rel } : {}) } });
   }
-  return null;
+  return out.length === 1 ? [pad] : out;
 }

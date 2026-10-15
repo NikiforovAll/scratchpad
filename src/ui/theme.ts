@@ -433,6 +433,13 @@ body {
 .wordmark .dot { color: var(--ember); }
 .padname { font-family: var(--serif); font-size: 15px; color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.padname:has(.hpad) { display: flex; align-items: baseline; gap: 6px; }
+.hpad { font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: 8px;
+  padding: 0 6px; cursor: pointer; white-space: nowrap; -webkit-app-region: no-drag; }
+.hpad:not(.primary) { font-family: var(--mono); font-size: 12px; border-color: var(--border); }
+.hpad .hrel { color: var(--ink-muted); font-size: 10px; letter-spacing: 0.04em; margin-right: 5px; }
+.hpad:hover { border-color: var(--ink-muted); }
+.hpad.cur { color: var(--ember-glow); }
 .view-actions { display: flex; align-items: center; gap: 4px; -webkit-app-region: no-drag; }
 .view-actions .icon-btn:is(*, :hover) { border-color: transparent; }
 .tb-div { width: 1px; height: 18px; margin: 0 6px; background: var(--border); }
@@ -746,6 +753,17 @@ html:not([data-native]) .sc-native { display: none; }
   opacity: 0.7; transform: rotate(90deg); transition: transform 0.12s ease; }
 .ggroup.collapsed .gcaret { transform: rotate(0deg); }
 .ggroup.collapsed .grows { display: none; }
+/* Pad set: one collapsible section per pad, holding that pad's groups. */
+.padsec + .padsec { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.tree .plabel { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+  font-size: 12.5px; letter-spacing: 0.02em; text-transform: none; font-weight: 600; color: var(--ink-2); }
+.plabel .pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.padsec.cur > .plabel { color: var(--ember-glow); }
+.prel { margin-left: auto; flex: none; font-size: 10px; font-weight: 500; letter-spacing: 0.04em;
+  color: var(--ink-muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+.padsec.collapsed > .plabel .gcaret { transform: rotate(0deg); }
+.padsec.collapsed > .prows { display: none; }
+.prows .ggroup .glabel { padding-left: 18px; }
 .frow {
   display: flex; align-items: baseline; gap: 9px; cursor: pointer;
   padding: 6px 12px; border-radius: 5px;
@@ -1167,6 +1185,8 @@ sup.fnref a:hover { text-decoration: underline; }
   color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.04em;
   margin: 12px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmt-sfile::before { content: '📄'; font-size: 11px; filter: grayscale(0.3); }
+.cmt-spad { flex: none; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .cmt-srow { cursor: pointer; border-radius: 6px; padding: 8px; margin: 0 -4px;
   transition: background 0.12s ease; }
 .cmt-srow:hover { background: var(--hover); }

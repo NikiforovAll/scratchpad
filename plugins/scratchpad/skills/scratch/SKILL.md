@@ -88,6 +88,21 @@ directly; there's no CLI flag):
 - Applies to both the viewer sidebar and `scratch ls`. A layout entry with no
   matching files is skipped.
 
+## Related pads (`related`)
+
+When one pad depends on another (one reads the other's decisions, ids or notes), link them with a top-level `related` list in `scratchpad.json` (edit the file directly; there is no CLI flag):
+
+```json
+"related": ["client-sdk", { "pad": "../other/pad", "rel": "feeds" }]
+```
+
+- An entry is a pad name or a path. A name resolves among the pad's sibling folders first, then under the root. A path is relative to the pad's folder.
+- `rel` is an optional short label, shown on the pad's header in the viewer.
+- Put the link in ONE pad. `scratch ui <pad>` and `scratch export <pad>` then cover the set: the pad, the pads it lists, and the pads that list it. One level only, each pad once. A name that does not resolve prints a warning and is skipped.
+- In the viewer each pad gets its own sidebar section with its own groups, `layout` order and folding. A markdown link to a file registered in another pad of the set (`[Auth](../api-design/notes.md#auth)`) opens that file and moves the sidebar to that pad.
+- `scratch comments <pad> --related` reads comments from every pad in the set; each item carries `pad`.
+- Files stay in their own pad. Cite across pads by relative link, not by copying.
+
 ## Addressing & roots
 
 Pads resolve by **name** (within a scanned root) or by **path**. Root order:
@@ -191,6 +206,8 @@ file); reconcile manually.
 
 Comments are transient feedback — once you have acted on one, close the loop by
 deleting it: `scratch comments "<name>" --rm <id>[,<id>...]`
+
+For a pad with related pads, add `--related` to read (or `--rm`) across the whole set.
 
 ## Cleanup
 

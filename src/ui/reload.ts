@@ -50,7 +50,7 @@ export function createReloader(pads: Pad[], rootLabel: string): Reloader {
     const fresh: Pad[] = [];
     for (const p of pads) {
       try {
-        fresh.push({ dir: p.dir, manifest: await readManifest(p.dir) });
+        fresh.push({ ...p, manifest: await readManifest(p.dir) });
       } catch {
         fresh.push(p); // manifest unreadable mid-write → keep the last good one
       }

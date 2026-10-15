@@ -33,12 +33,14 @@ ${bold("USAGE")}
       No <file>: print the manifest.  With <file>: print metadata + file content.
       --json  with <file>: emit {metadata, content} (metadata null if unregistered).
 
-  ${cyan("scratch comments")} <pad> ${dim("[--file <filter>] [--dir <root>] [--json] [--rm <id,..>]")}
+  ${cyan("scratch comments")} <pad> ${dim("[--file <filter>] [--dir <root>] [--related] [--json] [--rm <id,..>]")}
       List inline comments with the markdown block each one anchors to, so an
       agent can read and act on viewer feedback. --file narrows to files by
       exact path, glob (*.md), or substring; omit it for all commented files.
       --json  emit {pad, comments:[{id, file, comment, quote, line, section_heading,
               context, context_lines, matched}]} — one flat, self-contained list.
+      --related  cover the pad's set (see PAD SETS); each comment carries "pad",
+              and --json adds pads:[<name>].
       --rm <id,..>  delete comments by id (comma-separated) after acting on them —
               the close of the feedback loop. Ids come from the --json output.
 
@@ -52,6 +54,7 @@ ${bold("USAGE")}
       --browser           force the browser path.
       --install-native    build the native host on demand (needs the .NET 8 SDK).
       With multiple pads under root, name one or pass --all to view them together.
+      A named pad opens with its set (see PAD SETS).
 
   ${cyan("scratch export")} [<pad>] ${dim("[--dir <root>] [--all] [-o <file>] [--offline] [--theme <id>] [--mode <m>]")}
       Write the viewer to a single HTML file (file contents embedded; hljs/mermaid
@@ -62,6 +65,7 @@ ${bold("USAGE")}
       Without --theme/--mode the export uses your saved config and the reader's own
       remembered choice still wins; passing either pins it for every reader.
       With multiple pads under root, name one or pass --all to merge them.
+      A named pad exports with its set (see PAD SETS).
 
   ${cyan("scratch import")} <file.html> ${dim("-o <dir> [--all] [--dry-run] [--force]")}
       Rebuild pad folder(s) from a \`scratch export\` page: embedded file contents
@@ -85,6 +89,12 @@ ${bold("ADDRESSING")}
   Pads are referenced by name (resolved within the root) or by an explicit path.
   Root = --dir, else $SCRATCH_DIR, else current directory.
 
+${bold("PAD SETS")}
+  "related": ["other-pad", {"pad": "../x", "rel": "feeds"}] in scratchpad.json
+  links pads. A name resolves among the pad's siblings, then under root; a path
+  is relative to the pad. ui, export and comments --related on a pad cover the
+  pad, the pads it lists, and the pads that list it — one level, each pad once.
+
   ${cyan("-h, --help")}        Show this help.
   ${cyan("-v, --version")}     Show version.`;
 
@@ -102,6 +112,7 @@ const FLAG_SPEC = {
   force: { type: "boolean" as const },
   rm: { type: "string" as const },
   all: { type: "boolean" as const },
+  related: { type: "boolean" as const },
   json: { type: "boolean" as const },
   browser: { type: "boolean" as const },
   offline: { type: "boolean" as const },
@@ -147,7 +158,7 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
     case "show":
       return cmdShow({ pad: rest[0], file: rest[1], dir: v.dir, json: v.json }, io);
     case "comments":
-      return cmdComments({ pad: rest[0], file: v.file, dir: v.dir, json: v.json, rm: v.rm }, io);
+      return cmdComments({ pad: rest[0], file: v.file, dir: v.dir, json: v.json, rm: v.rm, related: v.related }, io);
     case "rm":
       return cmdRm({ pad: rest[0], file: rest[1], dir: v.dir, force: v.force }, io);
     case "ui":

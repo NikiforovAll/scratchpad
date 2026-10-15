@@ -6,7 +6,19 @@ import { mkdir, readdir, rm as fsRm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { bold, cyan, dim, fail, note, ok, warn } from "./colors.ts";
-import { exportFileSlug, findPads, resolvePad, resolveRoot, slugify, toPosix, validateName, type Pad } from "./discovery.ts";
+import {
+  exportFileSlug,
+  findPads,
+  resolveEntryPath,
+  resolvePad,
+  resolvePadSet,
+  resolveRoot,
+  setLabel,
+  slugify,
+  toPosix,
+  validateName,
+  type Pad,
+} from "./discovery.ts";
 import {
   DEFAULT_TYPE,
   groupKey,
@@ -308,11 +320,11 @@ export async function cmdShow(
 /** scratch comments <pad> [<file>] [--dir <root>] [--json] — read inline comments
  * with the markdown section each one anchors to, so an agent can act on them. */
 export async function cmdComments(
-  args: { pad?: string; file?: string; dir?: string; json?: boolean; rm?: string },
+  args: { pad?: string; file?: string; dir?: string; json?: boolean; rm?: string; related?: boolean },
   io: IO,
 ): Promise<number> {
   if (!args.pad) {
-    fail(io, "usage: scratch comments <pad> [<file>] [--json]");
+    fail(io, "usage: scratch comments <pad> [<file>] [--related] [--json]");
     return 2;
   }
   const { toCommentItems } = await import("./comments.ts");
@@ -323,6 +335,9 @@ export async function cmdComments(
     return 1;
   }
   const m = pad.manifest;
+  const pads = args.related ? await resolvePadSet(pad, root, (msg) => warn(io, msg)) : [pad];
+  const multi = pads.length > 1;
+  const scope = setLabel(pads);
 
   // --rm <id,..>: delete comments by id — how an agent closes the feedback loop
   // after acting on them. Ids are minted by the viewer (unique per pad in
@@ -341,20 +356,24 @@ export async function cmdComments(
       return 2;
     }
     const found = new Set<string>();
-    for (const f of m.files) {
-      if (!f.comments?.length) continue;
-      f.comments = f.comments.filter((c) => {
-        if (!ids.has(c.id)) return true;
-        found.add(c.id);
-        return false;
-      });
-      if (f.comments.length === 0) delete f.comments;
+    for (const p of pads) {
+      const before = found.size;
+      for (const f of p.manifest.files) {
+        if (!f.comments?.length) continue;
+        f.comments = f.comments.filter((c) => {
+          if (!ids.has(c.id)) return true;
+          found.add(c.id);
+          return false;
+        });
+        if (f.comments.length === 0) delete f.comments;
+      }
+      const n = found.size - before;
+      if (n > 0) {
+        await writeManifest(p.dir, p.manifest);
+        ok(io, `deleted ${n} comment${n === 1 ? "" : "s"} from ${bold(p.manifest.name)}`);
+      }
     }
-    if (found.size > 0) {
-      await writeManifest(pad.dir, m);
-      ok(io, `deleted ${found.size} comment${found.size === 1 ? "" : "s"} from ${bold(m.name)}`);
-    }
-    for (const id of ids) if (!found.has(id)) fail(io, `no comment "${id}" in ${m.name}`);
+    for (const id of ids) if (!found.has(id)) fail(io, `no comment "${id}" in ${scope}`);
     return found.size === ids.size ? 0 : 1;
   }
   // Optional file filter: exact path, glob (`*.md`, `**/x`), or case-insensitive
@@ -366,40 +385,43 @@ export async function cmdComments(
     if (/[*?[\]{}]/.test(filter)) return new Bun.Glob(filter).match(path);
     return path.toLowerCase().includes(filter.toLowerCase());
   };
-  // Files carrying comments (optionally narrowed by the filter), in manifest order.
-  const entries = m.files.filter((f) => f.comments?.length && matches(f.path));
-
   // Resolve content the same way `show` does (linked files live at `src`), then
   // flatten each file's comments into one agent-friendly list via the shared
   // helper (also used by the viewer's copy-comments shortcut, so output matches).
-  // Files are independent → read them concurrently; the result stays in manifest
-  // order (Promise.all preserves it).
-  const items: CommentItem[] = (
+  // Files are independent → read them concurrently; the result stays in pad and
+  // manifest order (Promise.all preserves it). In a set, each item names its pad.
+  const items: (CommentItem & { pad?: string })[] = (
     await Promise.all(
-      entries.map(async (f) => {
-        const abs = f.src ? (isAbsolute(f.src) ? f.src : resolve(pad.dir, f.src)) : join(pad.dir, f.path);
-        const source = existsSync(abs) ? await Bun.file(abs).text() : "";
-        return toCommentItems(f.path, source, f.comments ?? []);
-      }),
+      pads.flatMap((p) =>
+        p.manifest.files
+          .filter((f) => f.comments?.length && matches(f.path))
+          .map(async (f) => {
+            const abs = resolveEntryPath(p.dir, f);
+            const source = existsSync(abs) ? await Bun.file(abs).text() : "";
+            const list = toCommentItems(f.path, source, f.comments ?? []);
+            return multi ? list.map((it) => ({ pad: p.manifest.name, ...it })) : list;
+          }),
+      ),
     )
   ).flat();
 
   if (args.json) {
-    emitJson(io, { pad: m.name, comments: items });
+    emitJson(io, { pad: m.name, ...(multi ? { pads: pads.map((p) => p.manifest.name) } : {}), comments: items });
     return 0;
   }
 
   if (items.length === 0) {
-    io.out(filter ? `no comments matching "${filter}" in ${m.name}` : `no comments in ${m.name}`);
+    io.out(filter ? `no comments matching "${filter}" in ${scope}` : `no comments in ${scope}`);
     return 0;
   }
-  io.out(`${bold("COMMENTS")} in ${bold(m.name)} ${dim(`(${items.length})`)}`);
+  io.out(`${bold("COMMENTS")} in ${bold(scope)} ${dim(`(${items.length})`)}`);
   let lastFile = "";
   for (const it of items) {
-    if (it.file !== lastFile) {
+    const fileLabel = it.pad ? `${it.pad}/${it.file}` : it.file;
+    if (fileLabel !== lastFile) {
       io.out("");
-      io.out(bold(it.file));
-      lastFile = it.file;
+      io.out(bold(fileLabel));
+      lastFile = fileLabel;
     }
     const where = it.matched
       ? `${it.file}:${it.line}${it.section_heading ? " · § " + it.section_heading : ""}`
@@ -474,7 +496,8 @@ async function selectPads(
       fail(io, `no scratchpad "${args.pad}" found under ${root}`);
       return null;
     }
-    return { pads: [pad], label: pad.manifest.name, defaultName: exportFileSlug(pad.manifest.name, root) };
+    const pads = await resolvePadSet(pad, root, (msg) => warn(io, msg));
+    return { pads, label: setLabel(pads), defaultName: exportFileSlug(pad.manifest.name, root) };
   }
   const pads = await findPads(root);
   if (pads.length === 0) {
