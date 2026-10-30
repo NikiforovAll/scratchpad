@@ -1311,6 +1311,22 @@ const KEY_RELAY_SCRIPT = frameScript(false);
 // No overscroll containment (see the kit's html rule for the reasoning): it only
 // dead-ended the wheel at the frame's end instead of letting the article carry on.
 const FRAME_SCROLLBAR = '<style>html{scrollbar-width:thin;scrollbar-color:rgba(136,136,136,0.55) transparent}</style>';
+// A frame's prefers-color-scheme tracks the OS, not the viewer theme: Chromium (and so
+// WebView2) ignores the iframe element's color-scheme for it. A page that opts into
+// both schemes gets its scheme queries pinned to the resolved theme, in CSS source and
+// in matchMedia; applyTheme re-renders the preview on a flip, which re-pins. A page
+// with no scheme handling is left as is (see FRAME_SCROLLBAR on why not to force it).
+const SCHEME_Q = /\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)/gi;
+const SCHEME_OPT_IN = /prefers-color-scheme|light-dark\(|color-scheme\s*:\s*(light\s+dark|dark\s+light)/i;
+function followTheme(html, dark) {
+  if (!SCHEME_OPT_IN.test(html)) return html;
+  const on = '(min-width:0)', off = '(not (min-width:0))';
+  const pins = dark ? { dark: on, light: off } : { dark: off, light: on };
+  return '<style>:root{color-scheme:' + (dark ? 'dark' : 'light') + '!important}</style>'
+    + '<' + 'script>(function(){var m=window.matchMedia.bind(window),P=' + JSON.stringify(pins) + ';'
+    + 'window.matchMedia=function(q){return m(String(q).replace(' + SCHEME_Q + ',function(_,v){return P[v.toLowerCase()];}));};})();<' + '/script>'
+    + html.replace(SCHEME_Q, (_, v) => pins[v.toLowerCase()]);
+}
 // Comments inside a STANDALONE .html preview. The host cannot read that frame's
 // selection or text (opaque origin), so the frame does its own capture, matching
 // and marking, and talks to the host over postMessage — the same relay the key
@@ -1385,17 +1401,15 @@ const CMT_FRAME_BODY = CMT_MATCH_SRC + ';(function(){' +
 const CMT_FRAME_SCRIPT = CMT_FRAME_CSS + '<' + 'script>' + CMT_FRAME_BODY + '<' + '/script>';
 function htmlFrameDoc(fragment) {
   // Force color-scheme to the RESOLVED viewer theme (not the OS) so the kit's
-  // light-dark() tokens track the toggle. data-theme is absent in system mode →
-  // fall back to the OS preference, dark-first like the rest of the viewer.
-  const t = document.documentElement.dataset.theme;
-  const dark = t === 'dark' || (!t && (!window.matchMedia || matchMedia('(prefers-color-scheme: dark)').matches));
+  // light-dark() tokens track the toggle.
+  const dark = resolvedMode() === 'dark';
   // body:flow-root (in the kit) contains child margins so the last child's bottom
   // margin is counted in scrollHeight — otherwise a collapsed margin under-reports
   // and the frame shows a phantom scrollbar (FRAME_SCRIPT measures the max metric).
   return '<style>:root{color-scheme:' + (dark ? 'dark' : 'light') + '}' + KIT.css + '</style>'
     + FIT_CSS
     + KIT.defs
-    + fragment
+    + followTheme(fragment, dark)
     + FRAME_SCRIPT;
 }
 
@@ -2789,7 +2803,7 @@ function renderPreview(pad, f, nav) {
     ? codePre(' class="language-html"', esc(f.content))
     // Sandboxed with allow-scripts so interactive author pages run their own JS;
     // opaque-origin iframe still blocks host/parent access. srcdoc is attr-escaped.
-    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(FRAME_SCROLLBAR + f.content + KEY_RELAY_SCRIPT + CMT_FRAME_SCRIPT) + '"></iframe>';
+    : '<iframe class="htmlframe" sandbox="allow-scripts" srcdoc="' + esc(FRAME_SCROLLBAR + followTheme(f.content, resolvedMode() === 'dark') + KEY_RELAY_SCRIPT + CMT_FRAME_SCRIPT) + '"></iframe>';
   else if ((f.kind === 'code' || f.kind === 'text') && f.content != null) {
     const cls = f.lang ? ' class="language-' + esc(normLang(f.lang)) + '"' : '';
     bodyHtml = codePre(cls, esc(f.content));
