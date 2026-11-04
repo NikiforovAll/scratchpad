@@ -48,10 +48,12 @@ ${bold("USAGE")}
       With <file>: unregister it (file on disk untouched).
       Without <file>: delete the whole pad dir (requires --force).
 
-  ${cyan("scratch ui")} [<pad>] ${dim("[--dir <root>] [--all] [--browser] [--install-native]")}
+  ${cyan("scratch ui")} [<pad>] ${dim("[--dir <root>] [--all] [--browser] [--json] [--install-native]")}
       Open the read-only visual viewer — glimpse native window by default, falling
       back to a browser+local-server when the native host isn't built.
       --browser           force the browser path.
+      --json              for a parent process: serve the browser viewer, print one
+                          line {url, port, token, pid, pads}, exit when stdin closes.
       --install-native    build the native host on demand (needs the .NET 8 SDK).
       With multiple pads under root, name one or pass --all to view them together.
       A named pad opens with its set (see PAD SETS).
@@ -163,7 +165,7 @@ export async function run(argv: string[], io: IO = defaultIO): Promise<number> {
       return cmdRm({ pad: rest[0], file: rest[1], dir: v.dir, force: v.force }, io);
     case "ui":
       return cmdUi(
-        { pad: rest[0], dir: v.dir, all: v.all, browser: v.browser, installNative: v["install-native"] },
+        { pad: rest[0], dir: v.dir, all: v.all, browser: v.browser, json: v.json, installNative: v["install-native"] },
         io,
       );
     case "export":

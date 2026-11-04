@@ -1219,6 +1219,9 @@ const PRISTINE = '<!doctype html>\n' + document.documentElement.outerHTML;
 // file:// and over http (embedded in a page, on a static host), where it would
 // otherwise have a live viewer's protocol but no route behind it.
 const HAS_HOST = !EXPORT_MODE && ((window.chrome && window.chrome.webview) || /^https?:$/.test(location.protocol));
+// The browser server rejects any request without the token it put in the page URL.
+const HOST_TOKEN = (() => { try { return new URLSearchParams(location.search).get('t'); } catch (_) { return null; } })();
+const hostUrl = (p) => HOST_TOKEN ? p + (p.indexOf('?') < 0 ? '?' : '&') + 't=' + encodeURIComponent(HOST_TOKEN) : p;
 const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // A pad path stripped to its basename without extension — how a wikilink [[name]]
 // refers to a file (matched case-insensitively in mdInline).
@@ -2664,7 +2667,7 @@ function requestPeek(pad, from, href, hash) {
   const payload = { fromAbs: from.abs, href: href };
   const wv = window.chrome && window.chrome.webview;
   if (wv) { pendingPeek = req; try { wv.postMessage({ __scratch_peek: payload }); } catch (_) {} return; }
-  fetch('/peek', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+  fetch(hostUrl('/peek'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
     .then(r => r.json(), () => null).then(res => applyPeek(req, res));
 }
 window.__scratchPeek = function (res) {
@@ -3332,7 +3335,7 @@ function postToHost(key, path, payload, onFail) {
   }
   if (/^https?:$/.test(location.protocol)) {
     try {
-      fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+      fetch(hostUrl(path), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
         .then(r => { if (!r.ok && onFail) onFail(); })
         .catch(() => { if (onFail) onFail(); });
     } catch (_) {}
@@ -3952,12 +3955,12 @@ try { if (sessionStorage.getItem('scratch_reloaded')) { sessionStorage.removeIte
   if (EXPORT_MODE || webview || !SETTINGS.autoReload) return;
   if (!/^https?:$/.test(location.protocol) || typeof EventSource === 'undefined') return;
   try {
-    const es = new EventSource('/events');
+    const es = new EventSource(hostUrl('/events'));
     es.onmessage = function (e) {
       let full = false;
       try { full = !!JSON.parse(e.data).full; } catch (_) {}
       if (full) { try { sessionStorage.setItem('scratch_reloaded', '1'); } catch (_) {} location.reload(); return; }
-      fetch('/data').then((r) => r.json()).then((payload) => { window.__scratchReload(payload, true); }).catch(() => {});
+      fetch(hostUrl('/data')).then((r) => r.json()).then((payload) => { window.__scratchReload(payload, true); }).catch(() => {});
     };
   } catch (_) {}
 })();

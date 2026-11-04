@@ -521,9 +521,9 @@ async function selectPads(
   return { pads, label: root, defaultName: exportFileSlug(null, root) };
 }
 
-/** scratch ui [<pad>] [--dir <root>] [--all] [--browser] [--install-native] — read-only visual viewer. */
+/** scratch ui [<pad>] [--dir <root>] [--all] [--browser] [--json] [--install-native] — read-only visual viewer. */
 export async function cmdUi(
-  args: { pad?: string; dir?: string; all?: boolean; browser?: boolean; installNative?: boolean },
+  args: { pad?: string; dir?: string; all?: boolean; browser?: boolean; json?: boolean; installNative?: boolean },
   io: IO,
 ): Promise<number> {
   const { launchViewer } = await import("./ui/launch.ts");
@@ -535,6 +535,7 @@ export async function cmdUi(
   return launchViewer(sel.pads, sel.label, io, {
     title: `scratch · ${sel.label}`,
     forceBrowser: args.browser,
+    managed: args.json,
     installNative: args.installNative,
     frameless: cfg.ui.frameless,
     autoReload: cfg.ui.autoReload,

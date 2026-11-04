@@ -82,7 +82,7 @@ scratch comments <pad> [<file>] [--dir <root>] [--json]
 scratch rm <pad> [<file>] [--dir <root>] [--force]
     # with <file>: unregister (file left on disk).  without: delete pad (--force).
 
-scratch ui [<pad>] [--dir <root>] [--browser] [--install-native]
+scratch ui [<pad>] [--dir <root>] [--browser] [--json] [--install-native]
     # read-only viewer: glimpse native window by default, browser fallback.
     # --install-native builds the native host on demand (needs .NET 8 SDK).
 

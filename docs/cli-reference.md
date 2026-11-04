@@ -77,7 +77,7 @@ With `<file>`: unregister (file left on disk). Without: delete the pad (requires
 ## `scratch ui`
 
 ```bash
-scratch ui [<pad>] [--dir <root>] [--all] [--browser] [--install-native]
+scratch ui [<pad>] [--dir <root>] [--all] [--browser] [--json] [--install-native]
 ```
 
 Read-only viewer: glimpse native window by default, browser fallback.
@@ -86,7 +86,10 @@ Read-only viewer: glimpse native window by default, browser fallback.
 |------|---------|
 | `--all` | Open every pad under the root, tabbed. |
 | `--browser` | Force the browser viewer (always works). It prints its URL and does not open a browser. |
+| `--json` | For a parent process that embeds the viewer. Serves the browser viewer, prints one line `{url, port, token, pid, pads}` on stdout, and exits when stdin closes. |
 | `--install-native` | Build the native host on demand (needs .NET 8 SDK). |
+
+The browser viewer listens on `127.0.0.1` only. Every request must carry the token from the printed URL (`?t=`) and a loopback `Host`. `GET /__scratch/health?t=<token>` answers `{pads, pid}`.
 
 A named pad opens with its [pad set](#pad-sets). `scratch export <pad>` embeds the same set.
 

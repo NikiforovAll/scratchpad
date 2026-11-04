@@ -7,12 +7,13 @@
 // server and print its URL (the user or agent opens it), so `scratch ui` always works.
 
 import { spawnSync } from "node:child_process";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Pad, resolveEntryPath } from "../discovery.ts";
+import { type Pad, resolveEntryPath, toPosix } from "../discovery.ts";
 import type { IO } from "../commands.ts";
 import { bold, cyan, dim, note, ok } from "../colors.ts";
 import { loadConfig, saveConfig } from "../config.ts";
@@ -288,6 +289,9 @@ export interface LaunchOpts {
   frameless?: boolean;
   /** Auto hot-reload the viewer when watched pad files change. Default true. */
   autoReload?: boolean;
+  /** Run under a parent process: browser transport, one JSON ready line on stdout,
+   * exit when stdin closes. */
+  managed?: boolean;
 }
 
 /** Page → host handlers, one per message key / POST route: disk write-backs plus
@@ -330,7 +334,7 @@ export async function launchViewer(
 
   // Native glimpse is the default; --browser forces the browser viewer. When the
   // native host isn't built, tryGlimpse prints how to install it and we fall back.
-  if (!opts.forceBrowser) {
+  if (!opts.forceBrowser && !opts.managed) {
     const ok = await tryGlimpse(
       snap.html, opts.title, io, reloader, opts.frameless !== false, !!opts.installNative,
       persist, opts.autoReload !== false,
@@ -338,7 +342,10 @@ export async function launchViewer(
     if (ok) return 0;
     io.err("falling back to the browser viewer.");
   }
-  return serveBrowser(snap.html, opts.title, io, reloader, persist, opts.autoReload !== false);
+  return serveBrowser(snap.html, opts.title, io, reloader, persist, opts.autoReload !== false, {
+    pads: pads.map((p) => toPosix(resolve(p.dir))),
+    managed: !!opts.managed,
+  });
 }
 
 // glimpse's WebView2 host is a compiled .NET binary. On a global `bun add -g`
@@ -657,7 +664,20 @@ async function serveBrowser(
   reloader: Reloader,
   persist: HostHandlers,
   autoReload: boolean,
+  host: { pads: string[]; managed: boolean },
 ): Promise<number> {
+  // The write routes change files on disk, and any web page can POST to a localhost
+  // port. So every request carries the token from the page URL (?t=), and the Host
+  // must be loopback, which blocks DNS rebinding.
+  const token = randomBytes(24).toString("base64url");
+  const tokenBytes = Buffer.from(token);
+  const tokenOk = (t: string | null) => {
+    if (!t) return false;
+    const b = Buffer.from(t);
+    return b.length === tokenBytes.length && timingSafeEqual(b, tokenBytes);
+  };
+  const hostOk = (h: string | null) =>
+    !!h && ["localhost", "127.0.0.1", "[::1]"].some((n) => h === `${n}:${server.port}`);
   // The browser transport is request/response: a manual reload rebuilds from disk
   // on the next GET. Auto hot-reload adds the missing push channel — an SSE stream
   // (/events) the page listens on, plus /data for an in-place patch — since the
@@ -686,8 +706,14 @@ async function serveBrowser(
   };
   const server = Bun.serve({
     port: 0,
+    hostname: "127.0.0.1",
     async fetch(req) {
       const url = new URL(req.url);
+      if (!hostOk(req.headers.get("host"))) return new Response("Forbidden", { status: 403 });
+      if (!tokenOk(url.searchParams.get("t"))) return new Response("Unauthorized", { status: 401 });
+      if (req.method === "GET" && url.pathname === "/__scratch/health") {
+        return Response.json({ pads: host.pads, pid: process.pid });
+      }
       // Settings write-back from the page's settings panel (no webview here).
       if (req.method === "POST" && url.pathname === "/settings") {
         await persistViewerSettings(await req.json().catch(() => null), io);
@@ -786,6 +812,8 @@ async function serveBrowser(
         headers: {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-store, must-revalidate",
+          // The token is in this page's URL; a link out must not carry it.
+          "referrer-policy": "no-referrer",
         },
       });
     },
@@ -800,12 +828,16 @@ async function serveBrowser(
         );
       })
     : null;
-  const url = `http://localhost:${server.port}/`;
-  io.out(bold(title));
-  io.out(`  serving viewer at ${cyan(url)}`);
-  io.out(dim(
-    `  (${autoReload ? "edits reload automatically; " : ""}reload the page to refresh from disk; 'q' or Ctrl+C to stop)`,
-  ));
+  const url = `http://127.0.0.1:${server.port}/?t=${token}`;
+  if (host.managed) {
+    io.out(JSON.stringify({ url, port: server.port, token, pid: process.pid, pads: host.pads }));
+  } else {
+    io.out(bold(title));
+    io.out(`  serving viewer at ${cyan(url)}`);
+    io.out(dim(
+      `  (${autoReload ? "edits reload automatically; " : ""}reload the page to refresh from disk; 'q' or Ctrl+C to stop)`,
+    ));
+  }
   // Keep alive until quit from the terminal ('q'/Ctrl+C via watchQuitKey when
   // stdin is a TTY, plain SIGINT otherwise).
   await new Promise<void>((resolve) => {
@@ -819,12 +851,19 @@ async function serveBrowser(
           c.close();
         } catch {}
       }
-      io.out("\nstopped.");
-      server.stop();
+      if (!host.managed) io.out("\nstopped.");
+      server.stop(true);
       resolve();
     };
     const stopKeys = watchQuitKey(stop);
     process.on("SIGINT", stop);
+    // The parent holds our stdin open for as long as it wants us; when it exits
+    // or is killed, stdin ends and the viewer goes with it.
+    if (host.managed) {
+      process.stdin.on("end", stop);
+      process.stdin.on("close", stop);
+      process.stdin.resume();
+    }
   });
   return 0;
 }
