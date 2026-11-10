@@ -91,6 +91,8 @@ Read-only viewer: glimpse native window by default, browser fallback.
 
 The browser viewer listens on `127.0.0.1` only. Every request must carry the token from the printed URL (`?t=`) and a loopback `Host`. `GET /__scratch/health?t=<token>` answers `{pads, pid}`.
 
+A page that frames the viewer can theme it. Add `hostMode` (`dark` or `light`) and `hostTheme` (a color theme id) to the URL for the first paint, then post `{__scratchHostTheme: 1, mode, colorTheme, palette}` to the frame on each change. `palette` holds the 12 color roles of a color theme (`ember`, `emberGlow`, `emberDim`, `field`, `surface`, `elevated`, `hover`, `border`, `ink1`, `ink2`, `ink3`, `inkMuted`), as hex, `rgb()`, `hsl()` or `oklch()` colors. With a valid palette, a theme the viewer does not know works too. The viewer accepts the message only from its parent window. The theme applies to that page only and is never saved. While it applies, the page hides its theme toggle and settings, and the `T` and `S` keys do nothing.
+
 A named pad opens with its [pad set](#pad-sets). `scratch export <pad>` embeds the same set.
 
 See [Viewer](/viewer) for details.

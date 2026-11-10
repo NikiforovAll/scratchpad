@@ -3322,6 +3322,35 @@ const SETTINGS = (function () {
   if (SOLO) s.topbarCollapsed = true;
   return s;
 })();
+// A theme from the framing page (cck's scratchpad pane): this page only, never saved, and the theme
+// controls hide while it is set. The palette roles are the hub's color theme roles.
+const HOST_VARS = { ember: '--ember', emberGlow: '--ember-glow', emberDim: '--ember-dim', field: '--field', surface: '--surface', elevated: '--elevated', hover: '--hover', border: '--border', ink1: '--ink-1', ink2: '--ink-2', ink3: '--ink-3', inkMuted: '--ink-muted' };
+const HOST_COLOR = /^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|(rgba?|hsla?|oklch)\([0-9a-z.,%+\/\s-]*\))$/i;
+let hostTheme = null;
+function hostThemeFrom(d) {
+  if (!d || (d.mode !== 'dark' && d.mode !== 'light')) return null;
+  const p = d.palette;
+  const palette = p && typeof p === 'object' && Object.keys(HOST_VARS).every((k) => typeof p[k] === 'string' && HOST_COLOR.test(p[k])) ? p : null;
+  return { mode: d.mode, colorTheme: THEME_IDS.includes(d.colorTheme) ? d.colorTheme : null, palette };
+}
+function setHostTheme(t) {
+  if (!t) return;
+  hostTheme = t;
+  document.documentElement.setAttribute('data-host-theme', '');
+}
+if (window.parent !== window) {
+  try {
+    const q = new URLSearchParams(location.search);
+    setHostTheme(hostThemeFrom({ mode: q.get('hostMode'), colorTheme: q.get('hostTheme') }));
+  } catch (_) {}
+  addEventListener('message', (e) => {
+    if (e.source !== window.parent || !e.data || e.data.__scratchHostTheme !== 1) return;
+    const t = hostThemeFrom(e.data);
+    if (!t) return;
+    setHostTheme(t);
+    applyTheme();
+  });
+}
 // Push a payload to whichever host is listening: WebView2 postMessage (wrapped
 // under the given message key) or a POST to the browser server. Returns false
 // when no host is listening (any export — the file itself is the store) so
@@ -3365,6 +3394,7 @@ function persistSettings() {
   } catch (_) {}
 }
 function resolvedMode() {
+  if (hostTheme) return hostTheme.mode;
   if (SETTINGS.themeMode === 'dark' || SETTINGS.themeMode === 'light') return SETTINGS.themeMode;
   const dark = !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches;
   return dark ? 'dark' : 'light';
@@ -3429,7 +3459,12 @@ let themeKey = null;
 function applyTheme() {
   const r = document.documentElement;
   r.dataset.theme = resolvedMode();
-  r.dataset.colorTheme = SETTINGS.colorTheme;
+  r.dataset.colorTheme = (hostTheme && hostTheme.colorTheme) || SETTINGS.colorTheme;
+  const palette = hostTheme && hostTheme.palette;
+  for (const k in HOST_VARS) {
+    if (palette) r.style.setProperty(HOST_VARS[k], palette[k]);
+    else r.style.removeProperty(HOST_VARS[k]);
+  }
   r.dataset.grid = SETTINGS.gridStyle;
   r.toggleAttribute('data-wide', !!SETTINGS.wideMode);
   if (SETTINGS.fontPreset === 'bundled') r.dataset.fonts = 'bundled'; else delete r.dataset.fonts;
@@ -3449,7 +3484,7 @@ function applyTheme() {
   updateToc();
   // Mode and color theme flips swap the mermaid palette and the html-embed
   // color scheme, and the font preset swaps the mermaid font → re-render the open file.
-  const key = r.dataset.theme + '|' + SETTINGS.colorTheme + '|' + SETTINGS.fontPreset;
+  const key = r.dataset.theme + '|' + r.dataset.colorTheme + '|' + SETTINGS.fontPreset + '|' + (palette ? JSON.stringify(palette) : '');
   if (themeKey !== null && key !== themeKey && currentRef) renderPreview(currentRef.pad, currentRef.f);
   themeKey = key;
 }
@@ -3632,7 +3667,7 @@ window.addEventListener('storage', (e) => {
   if (e.newValue === 'dark' || e.newValue === 'light' || e.newValue === 'system') setThemeMode(e.newValue);
 });
 // Quick toggle (topbar button / 't'): flips to an explicit light/dark mode.
-function toggleTheme() { setThemeMode(resolvedMode() === 'dark' ? 'light' : 'dark'); }
+function toggleTheme() { if (!hostTheme) setThemeMode(resolvedMode() === 'dark' ? 'light' : 'dark'); }
 document.getElementById('themeToggle').addEventListener('click', toggleTheme);
 
 // Settings modal.
@@ -4216,7 +4251,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'P') { e.preventDefault(); showPicker(true); return; }
   if (e.key === 'q' && closeWindow) { closeWindow(); return; }
   if (e.key === '?') { showHelp(helpModal.style.display === 'none'); return; }
-  if (e.key === 's') { showSettings(settingsModal.style.display === 'none'); return; }
+  if (e.key === 's') { if (!hostTheme) showSettings(settingsModal.style.display === 'none'); return; }
   if (e.key === 't') { toggleTheme(); return; }
   if (e.key === '[') { toggleSidebar(); return; }
   if (e.key === ']') { toggleTopbar(); return; }

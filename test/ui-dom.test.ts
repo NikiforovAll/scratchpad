@@ -1763,6 +1763,50 @@ test("inside the WebView2 host, settings changes post __scratch_settings", async
   }
 });
 
+test("a framing page's theme applies to this page only and is never saved", async () => {
+  const html = await renderPad();
+  const posted: any[] = [];
+  const parent = {};
+  await boot(html, undefined, (w) => {
+    Object.defineProperty(w.window, "parent", { value: parent, configurable: true });
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  const send = (data: any, source: any = parent) =>
+    window.dispatchEvent(new MessageEvent("message", { data, source } as any));
+  const roles = ["ember", "emberGlow", "emberDim", "field", "surface", "elevated", "hover", "border", "ink1", "ink2", "ink3", "inkMuted"];
+  const palette = Object.fromEntries(roles.map((r) => [r, "#123456"]));
+  const root = document.documentElement;
+  try {
+    send({ __scratchHostTheme: 1, mode: "light", colorTheme: "nord", palette }, {});
+    expect(root.style.getPropertyValue("--ember")).toBe("");
+
+    send({ __scratchHostTheme: 1, mode: "light", colorTheme: "nord", palette: { ...palette, field: "red;}" } });
+    expect(root.dataset.theme).toBe("light");
+    expect(root.dataset.colorTheme).toBe("nord");
+    expect(root.style.getPropertyValue("--field")).toBe("");
+
+    send({ __scratchHostTheme: 1, mode: "light", colorTheme: "deep-sea", palette: { ...palette, ember: "oklch(0.7 0.1 200)" } });
+    expect(root.style.getPropertyValue("--ember")).toBe("oklch(0.7 0.1 200)");
+    expect(root.style.getPropertyValue("--ink-muted")).toBe("#123456");
+    expect(root.dataset.colorTheme).toBe("ember");
+
+    expect(root.hasAttribute("data-host-theme")).toBe(true);
+    (document.getElementById("themeToggle") as any).click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "t", bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", bubbles: true }));
+    expect(root.dataset.theme).toBe("light");
+    expect(root.style.getPropertyValue("--ember")).toBe("oklch(0.7 0.1 200)");
+    expect((document.getElementById("settingsModal") as any).style.display).toBe("none");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "[", bubbles: true }));
+    const saved = posted.filter((m) => m && m.__scratch_settings).at(-1).__scratch_settings;
+    expect(saved.colorTheme).toBe("ember");
+    expect(saved.themeMode).toBe("system");
+  } finally {
+    await teardown();
+  }
+});
+
 test("'[' / ']' collapse the panes and persist through the host", async () => {
   const html = await renderPad();
   const posted: any[] = [];

@@ -475,6 +475,7 @@ body {
 /* Exports have no host: hide the reload button and the help rows for
    shortcuts that are dead there (.sc-live = live-viewer-only). */
 html[data-export] #reloadBtn, html[data-export] .sc-live { display: none; }
+html[data-host-theme] :is(#themeToggle, #settingsBtn, [data-proxy="themeToggle"], [data-proxy="settingsBtn"]) { display: none; }
 /* .sc-native = bound only inside the WebView2 host (data-native, set at boot);
    in a browser those keys stay the browser's own tab accelerators. */
 html:not([data-native]) .sc-native { display: none; }
