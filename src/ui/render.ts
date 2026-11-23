@@ -937,7 +937,7 @@ const SHORTCUT_PAIRS: [ShortcutGroup, ShortcutGroup][] = [
         { keys: ["↑", "↓"], label: "Next / previous file" },
         { keys: ["←", "→"], label: "Collapse / expand group" },
         { keys: ["Ctrl", "Tab"], combo: true, native: true, label: "Next file, wrapping (Shift: previous)" },
-        { keys: ["Shift", "P"], combo: true, label: "Jump to file" },
+        { keys: ["Ctrl", "K"], combo: true, label: "Jump to file (also Shift+P)" },
       ],
     },
     {
@@ -3817,7 +3817,7 @@ document.getElementById('helpBtn').addEventListener('click', () => showHelp(true
 document.getElementById('helpClose').addEventListener('click', () => showHelp(false));
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal) showHelp(false); });
 
-// Jump-to-file picker (Shift+P): VS Code style quick-pick over ITEMS.
+// Jump-to-file picker (Ctrl+K or Shift+P): VS Code style quick-pick over ITEMS.
 const pickerModal = document.getElementById('pickerModal');
 const pickerInput = document.getElementById('pickerInput');
 const pickerList = document.getElementById('pickerList');
@@ -4196,6 +4196,10 @@ document.addEventListener('keydown', (e) => {
     // they are the browser's real tab accelerators — Chromium reserves them and
     // wouldn't yield them anyway, so we never claim or preventDefault them.
     if (webview && e.key === 'Tab') { e.preventDefault(); switchTab(curIdx + (e.shiftKey ? -1 : 1)); return; }
+    // Chromium binds Ctrl+K to address-bar search but lets a page take it.
+    if ((e.key === 'k' || e.key === 'K') && !e.shiftKey && !focusedFrame) {
+      e.preventDefault(); showPicker(!pickerOpen()); return;
+    }
     // Take over the host's zoom accelerators so OUR (persisted) zoom is the one
     // that moves, instead of Chromium's forgotten-on-relaunch page zoom.
     if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoom(SETTINGS.zoom + 0.1); return; }

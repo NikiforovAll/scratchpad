@@ -3199,6 +3199,25 @@ test("Shift+P opens the file picker: title primary, path dimmed, filter + Enter 
   }
 });
 
+test("Ctrl+K toggles the file picker, also from inside its input", async () => {
+  const html = await renderThreeFilePad();
+  await boot(html);
+  try {
+    const modal = document.getElementById("pickerModal")!;
+    const input = document.getElementById("pickerInput") as HTMLInputElement;
+    const ctrlK = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, cancelable: true });
+    document.dispatchEvent(ctrlK);
+    expect(modal.style.display).toBe("flex");
+    expect(ctrlK.defaultPrevented).toBe(true);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
+    expect(modal.style.display).toBe("none");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "K", metaKey: true }));
+    expect(modal.style.display).toBe("flex");
+  } finally {
+    await teardown();
+  }
+});
+
 // api-design (opened, lists client-sdk) + client-sdk. Both pads have a
 // "Notes" group; api-design's layout folds it, client-sdk's does not.
 async function renderPadSet(): Promise<{ html: string; api: string; sdk: string }> {
