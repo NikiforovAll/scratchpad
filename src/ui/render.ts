@@ -8,7 +8,7 @@ import { stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pkg from "../../package.json" with { type: "json" };
-import { FONT_PRESETS, type FontSlot, MEASURE_DEFAULT, MEASURE_MAX, MEASURE_MIN, READING_FONTS, READING_SIZES, type ScratchConfig } from "../config.ts";
+import { FONT_PRESETS, type FontSlot, MEASURE_DEFAULT, MEASURE_MAX, MEASURE_MIN, READING_FONTS, READING_SIZES, SIDEBAR_SIDES, type ScratchConfig } from "../config.ts";
 import { type Pad, type SetRole, exportFileSlug, pathKey, resolveEntryPath, toPosix } from "../discovery.ts";
 import { type Comment, DEFAULT_TYPE, type FileEntry, type Layout, MANIFEST_NAME } from "../manifest.ts";
 import { type CommentItem, toCommentItems } from "../comments.ts";
@@ -552,6 +552,7 @@ const DEFAULT_UI: UiSettings = {
   readingSize: "m",
   measure: MEASURE_DEFAULT,
   sidebarCollapsed: false,
+  sidebarSide: "left",
   topbarCollapsed: false,
   autoReload: true,
 };
@@ -588,6 +589,7 @@ export async function renderHtml(
   // so a remembered-collapsed sidebar/topbar never flashes open on first paint.
   const sidebarCollapsed = ui.sidebarCollapsed ?? false;
   const topbarCollapsed = ui.topbarCollapsed ?? false;
+  const sidebarSide = ui.sidebarSide ?? "left";
   // Theme axes the exporter chose EXPLICITLY (`scratch export --theme/--mode`), as
   // opposed to inherited from its config: the client skips its localStorage seed for
   // these (see the SETTINGS comment for why that matters on file://). Boot seed only —
@@ -604,6 +606,7 @@ export async function renderHtml(
     (readingSize === "m" ? "" : ` data-read-size="${escapeHtml(readingSize)}"`) +
     (ui.themeMode === "system" ? "" : ` data-theme="${ui.themeMode}"`) +
     (wideMode ? " data-wide" : "") +
+    (sidebarSide === "right" ? ' data-sidebar="right"' : "") +
     // Static export: no host listens, so the page file is the comment store.
     // The client keys "save a copy" behavior off this attribute, and it rides
     // along when the page re-saves itself, so saved copies stay exports.
@@ -623,6 +626,7 @@ export async function renderHtml(
     readingSize,
     measure,
     sidebarCollapsed,
+    sidebarSide,
     topbarCollapsed,
     zoom,
     autoReload: ui.autoReload ?? true,
@@ -780,8 +784,10 @@ ${vendorCss}<style>${THEME_CSS}</style>
       <div class="appver" title="scratch version">v${escapeHtml(pkg.version)}</div>
     </div>
     <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
-    <main class="preview" id="preview" tabindex="0"></main>
-    <aside class="toc" id="toc" aria-label="On this page"></aside>
+    <div class="stage">
+      <main class="preview" id="preview" tabindex="0"></main>
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
     <div class="drawer-scrim" id="drawerScrim"></div>
     <button class="icon-btn" id="sidebarOpen" title="Show sidebar ([)" aria-label="Show sidebar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
@@ -865,6 +871,13 @@ function settingsModalHtml(): string {
           <div class="seg" id="widthSeg">
             <button data-wide="off">Normal</button>
             <button data-wide="on">Wide</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Sidebar</div>
+          <div class="seg" id="sideSeg">
+            <button data-side="left">Left</button>
+            <button data-side="right">Right</button>
           </div>
         </div>
         <div class="settings-section">
@@ -1201,6 +1214,7 @@ let DATA = JSON.parse(document.getElementById('data').textContent);
 const FONT_PRESETS = ${JSON.stringify(FONT_PRESETS)};
 const READING_FONTS = ${JSON.stringify(READING_FONTS)};
 const READING_SIZES = ${JSON.stringify(READING_SIZES)};
+const SIDEBAR_SIDES = ${JSON.stringify(SIDEBAR_SIDES)};
 const MEASURE_MIN = ${MEASURE_MIN}, MEASURE_DEFAULT = ${MEASURE_DEFAULT}, MEASURE_MAX = ${MEASURE_MAX};
 const validMeasure = (v) => Number.isInteger(v) && v >= MEASURE_MIN && v <= MEASURE_MAX;
 // Static export (scratch export bakes data-export onto <html>): no host listens,
@@ -3278,7 +3292,7 @@ function clampStarred(v) {
   return out.slice(-3);
 }
 const SETTINGS = (function () {
-  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, fontPreset: 'system', readingFont: 'sans', readingSize: 'm', measure: MEASURE_DEFAULT, sidebarCollapsed: false, topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
+  let s = { themeMode: 'system', colorTheme: 'ember', starredThemes: [], gridStyle: 'dots', wideMode: false, fontPreset: 'system', readingFont: 'sans', readingSize: 'm', measure: MEASURE_DEFAULT, sidebarCollapsed: false, sidebarSide: 'left', topbarCollapsed: false, tocVisible: false, zoom: 1, autoReload: true };
   try { s = Object.assign(s, JSON.parse(document.getElementById('settings').textContent)); } catch (_) {}
   // With no host the embedded snapshot is whatever the exporting machine had
   // saved — the reader's own remembered choice wins ('scratch.theme' is the
@@ -3305,6 +3319,8 @@ const SETTINGS = (function () {
       const tc = localStorage.getItem('scratch.topbarCollapsed');
       const tv = localStorage.getItem('scratch.tocVisible');
       if (sc === '1' || sc === '0') s.sidebarCollapsed = sc === '1';
+      const ss = localStorage.getItem('scratch.sidebarSide');
+      if (SIDEBAR_SIDES.includes(ss)) s.sidebarSide = ss;
       if (tc === '1' || tc === '0') s.topbarCollapsed = tc === '1';
       if (tv === '1' || tv === '0') s.tocVisible = tv === '1';
       if (PINNED.indexOf('themeMode') < 0 && (m === 'dark' || m === 'light' || m === 'system')) s.themeMode = m;
@@ -3373,7 +3389,7 @@ function postToHost(key, path, payload, onFail) {
   return false;
 }
 function persistSettings() {
-  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, fontPreset: SETTINGS.fontPreset, readingFont: SETTINGS.readingFont, readingSize: SETTINGS.readingSize, measure: SETTINGS.measure, sidebarCollapsed: SETTINGS.sidebarCollapsed, topbarCollapsed: SETTINGS.topbarCollapsed, tocVisible: SETTINGS.tocVisible, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
+  const payload = { themeMode: SETTINGS.themeMode, colorTheme: SETTINGS.colorTheme, starredThemes: SETTINGS.starredThemes, gridStyle: SETTINGS.gridStyle, wideMode: SETTINGS.wideMode, fontPreset: SETTINGS.fontPreset, readingFont: SETTINGS.readingFont, readingSize: SETTINGS.readingSize, measure: SETTINGS.measure, sidebarCollapsed: SETTINGS.sidebarCollapsed, sidebarSide: SETTINGS.sidebarSide, topbarCollapsed: SETTINGS.topbarCollapsed, tocVisible: SETTINGS.tocVisible, zoom: SETTINGS.zoom, autoReload: SETTINGS.autoReload };
   if (postToHost('__scratch_settings', '/settings', payload)) return;
   try {
     localStorage.setItem('scratch.themeMode', SETTINGS.themeMode);
@@ -3386,6 +3402,7 @@ function persistSettings() {
     localStorage.setItem('scratch.readingSize', SETTINGS.readingSize);
     localStorage.setItem('scratch.measure', String(SETTINGS.measure));
     localStorage.setItem('scratch.zoom', String(SETTINGS.zoom));
+    localStorage.setItem('scratch.sidebarSide', SETTINGS.sidebarSide);
     // '1'/'0' (not String(bool)): keeps reading values that older exports wrote
     // when these keys were localStorage-only.
     localStorage.setItem('scratch.sidebarCollapsed', SETTINGS.sidebarCollapsed ? '1' : '0');
@@ -3467,6 +3484,7 @@ function applyTheme() {
   }
   r.dataset.grid = SETTINGS.gridStyle;
   r.toggleAttribute('data-wide', !!SETTINGS.wideMode);
+  if (SETTINGS.sidebarSide === 'right') r.dataset.sidebar = 'right'; else delete r.dataset.sidebar;
   if (SETTINGS.fontPreset === 'bundled') r.dataset.fonts = 'bundled'; else delete r.dataset.fonts;
   r.dataset.read = SETTINGS.readingFont;
   r.dataset.readSize = SETTINGS.readingSize;
@@ -3477,6 +3495,7 @@ function applyTheme() {
   syncThemeCards();
   document.querySelectorAll('#gridSeg button').forEach((b) => b.classList.toggle('on', b.dataset.grid === SETTINGS.gridStyle));
   document.querySelectorAll('#widthSeg button').forEach((b) => b.classList.toggle('on', b.dataset.wide === (SETTINGS.wideMode ? 'on' : 'off')));
+  document.querySelectorAll('#sideSeg button').forEach((b) => b.classList.toggle('on', b.dataset.side === SETTINGS.sidebarSide));
   document.querySelectorAll('#fontsSeg button').forEach((b) => b.classList.toggle('on', b.dataset.fonts === SETTINGS.fontPreset));  document.querySelectorAll('#readSeg button').forEach((b) => b.classList.toggle('on', b.dataset.read === SETTINGS.readingFont));
   document.querySelectorAll('#readSizeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.size === SETTINGS.readingSize));
   document.querySelectorAll('#autoReloadSeg button').forEach((b) => b.classList.toggle('on', b.dataset.auto === (SETTINGS.autoReload ? 'on' : 'off')));
@@ -3679,6 +3698,7 @@ settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal)
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));
 document.querySelectorAll('#gridSeg button').forEach((b) => b.addEventListener('click', () => setSetting('gridStyle', b.dataset.grid)));
 document.querySelectorAll('#widthSeg button').forEach((b) => b.addEventListener('click', () => setSetting('wideMode', b.dataset.wide === 'on')));
+document.querySelectorAll('#sideSeg button').forEach((b) => b.addEventListener('click', () => setSetting('sidebarSide', b.dataset.side)));
 document.querySelectorAll('#fontsSeg button').forEach((b) => b.addEventListener('click', () => setSetting('fontPreset', b.dataset.fonts)));
 document.querySelectorAll('#readSeg button').forEach((b) => b.addEventListener('click', () => setSetting('readingFont', b.dataset.read)));
 document.querySelectorAll('#readSizeSeg button').forEach((b) => b.addEventListener('click', () => setSetting('readingSize', b.dataset.size)));
@@ -3771,6 +3791,7 @@ window.__scratchSettings = function (cfg) {
   if (validMeasure(cfg.measure) && cfg.measure !== SETTINGS.measure) { SETTINGS.measure = cfg.measure; drift = true; }
   if (typeof cfg.autoReload === 'boolean' && cfg.autoReload !== SETTINGS.autoReload) { SETTINGS.autoReload = cfg.autoReload; drift = true; }
   if (typeof cfg.sidebarCollapsed === 'boolean' && cfg.sidebarCollapsed !== SETTINGS.sidebarCollapsed) { SETTINGS.sidebarCollapsed = cfg.sidebarCollapsed; drift = true; }
+  if (SIDEBAR_SIDES.includes(cfg.sidebarSide) && cfg.sidebarSide !== SETTINGS.sidebarSide) { SETTINGS.sidebarSide = cfg.sidebarSide; drift = true; }
   if (typeof cfg.topbarCollapsed === 'boolean' && cfg.topbarCollapsed !== SETTINGS.topbarCollapsed) { SETTINGS.topbarCollapsed = cfg.topbarCollapsed; drift = true; }
   if (typeof cfg.tocVisible === 'boolean' && cfg.tocVisible !== SETTINGS.tocVisible) { SETTINGS.tocVisible = cfg.tocVisible; drift = true; }
   if (typeof cfg.zoom === 'number' && cfg.zoom >= 0.5 && cfg.zoom <= 2 && cfg.zoom !== SETTINGS.zoom) { SETTINGS.zoom = cfg.zoom; drift = true; }
@@ -4053,7 +4074,7 @@ function dragHandle(root, selector, cursor, h) {
   try { const saved = parseInt(localStorage.getItem('scratch.treeW'), 10); if (saved) setW(saved); } catch (_) {}
   dragHandle(document.body, '#resizer', 'col-resize', {
     start: () => { tree.classList.add('resizing'); },
-    move: (e) => setW(e.clientX - tree.getBoundingClientRect().left),
+    move: (e) => { const r = tree.getBoundingClientRect(); setW(SETTINGS.sidebarSide === 'right' ? r.right - e.clientX : e.clientX - r.left); },
     end: () => {
       tree.classList.remove('resizing');
       try { localStorage.setItem('scratch.treeW', String(tree.getBoundingClientRect().width | 0)); } catch (_) {}

@@ -188,6 +188,18 @@ describe("loadConfig", () => {
     expect(cfg.ui.topbarCollapsed).toBe(true);
   });
 
+  test("sidebarSide: defaults to left; saveConfig persists right; garbage is ignored", async () => {
+    const f = join(dir, "config.json");
+    process.env.SCRATCHPAD_CONFIG = f;
+    expect((await loadConfig()).ui.sidebarSide).toBe("left");
+    await saveConfig({ sidebarSide: "right" });
+    expect((await loadConfig()).ui.sidebarSide).toBe("right");
+    await saveConfig({ sidebarSide: "top" as any });
+    expect((await loadConfig()).ui.sidebarSide).toBe("right");
+    await writeFile(f, JSON.stringify({ ui: { sidebarSide: 1 } }), "utf8");
+    expect((await loadConfig()).ui.sidebarSide).toBe("left");
+  });
+
   test("tocVisible: default false; saveConfig persists it; garbage is ignored", async () => {
     const f = join(dir, "config.json");
     process.env.SCRATCHPAD_CONFIG = f;

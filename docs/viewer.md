@@ -6,7 +6,7 @@ Try it live on the [demo page](/demo).
 
 ## Layout & rendering
 
-A 2-pane view (pad/file tree + preview) that **auto-detects** OS light/dark. It shows **all** files in the pad dir (unregistered ones dimmed; `hidden` entries revealed with `h`), and files sharing a `--group` are listed together under a header. Per-file preview:
+A 2-pane view (pad/file tree + preview) that **auto-detects** OS light/dark. It shows **all** files in the pad dir (unregistered ones dimmed; `hidden` entries revealed with `h`), and files sharing a `--group` are listed together under a header. Settings > Sidebar docks the tree on the left (default) or the right. Per-file preview:
 
 - **Markdown** rendered (GFM tables, footnotes, alerts like `> [!TIP]`), with a **raw/rendered toggle** (`v`) and a table of contents (`o`).
 - **Code** syntax-highlighted (highlight.js).
@@ -39,7 +39,7 @@ Toggle visibility with `c`; `Ctrl+Alt+C` copies a file's comments as JSON.
 
 ## Themes & settings
 
-17 color themes (`ember` default — full list in the [CLI reference](/cli-reference#appearance)), each with a dark and a light variant, plus a dark/light/**system** mode toggle. Settings — theme, zoom, wide mode, sidebar/top-bar state — **persist across launches** via the config file below.
+17 color themes (`ember` default — full list in the [CLI reference](/cli-reference#appearance)), each with a dark and a light variant, plus a dark/light/**system** mode toggle. Settings — theme, zoom, wide mode, sidebar side, sidebar/top-bar state — **persist across launches** via the config file below.
 
 Press `?` in the viewer for the full keyboard shortcut list (navigation, vim-style scrolling, zoom, toggles).
 
@@ -92,6 +92,7 @@ User-level viewer preferences live in a single JSON file (machine-wide, not per-
     "colorTheme": "ember",  // any theme id
     "zoom": 1,
     "fontPreset": "system", // system | bundled
+    "sidebarSide": "left",  // left | right
     "fonts": {              // optional, hand-edited only
       "prose": "'Iosevka Term', monospace",
       "heading": "Georgia, serif",

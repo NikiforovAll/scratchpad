@@ -597,12 +597,18 @@ html:not([data-native]) .sc-native { display: none; }
 .sidebar.collapsed ~ #sidebarOpen { display: flex; }
 /* Collapse zeroes the width instantly (no transition). Rows are
    nowrap+ellipsis, so the clipped width never reflows mid-collapse. */
-.sidebar.collapsed { width: 0; border-right: none; }
+.sidebar.collapsed { width: 0; border: none; }
 .sidebar.collapsed + .resizer { display: none; }
 /* data-solo = a one-file save (Ctrl+Shift+S): nothing left for a tree to list.
    !important beats the .collapsed ~ #sidebarOpen rule above. */
 :root[data-solo] .sidebar, :root[data-solo] .resizer,
 :root[data-solo] #sidebarOpen { display: none !important; }
+/* Mirrored layout: the sidebar docks to the right edge. The collapsed
+   show-sidebar floater then shares the TOC's corner, so the TOC drops below it. */
+:root[data-sidebar="right"] .body { flex-direction: row-reverse; }
+:root[data-sidebar="right"] .sidebar:not(.collapsed) { border-right: none; border-left: 1px solid var(--border); }
+:root[data-sidebar="right"] #sidebarOpen { left: auto; right: 20px; }
+:root[data-sidebar="right"] .sidebar.collapsed ~ .stage .toc { top: 44px; }
 /* Narrow layout (data-narrow, set by the client from the zoomed width): the
    sidebar slides over the preview as a drawer, top bar actions move into ⋯. */
 #drawerBtn { width: 30px; height: 30px; flex: none; align-self: center;
@@ -614,11 +620,12 @@ html:not([data-native]) .sc-native { display: none; }
 :root[data-narrow] :is(.wordmark, #reloadBtn, #themeToggle, #settingsBtn, .tb-div, .resizer, #sidebarOpen) { display: none; }
 :root[data-narrow] .sidebar {
   position: absolute; top: 0; bottom: 0; left: 0; z-index: 40; width: min(320px, 85%);
-  border-right: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-  transform: translateX(-100%); visibility: hidden;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+  transform: translateX(var(--drawer-x, -100%)); visibility: hidden;
   transition: transform 0.2s ease, visibility 0s linear 0.2s; }
 :root[data-drawer] .sidebar { transform: none; visibility: visible; transition: transform 0.2s ease; }
 :root[data-drawer] .drawer-scrim { display: block; }
+:root[data-narrow][data-sidebar="right"] .sidebar { left: auto; right: 0; --drawer-x: 100%; }
 :root[data-narrow] .topbar.collapsed ~ .body #sidebarOpen { display: flex; }
 :root[data-narrow] .toc { display: none !important; }
 :root[data-narrow] .preview { padding: 10px 8px 0; }
@@ -644,6 +651,8 @@ html:not([data-native]) .sc-native { display: none; }
 /* padding-bottom omitted on purpose: a scroll container's bottom padding is
    dropped from the scroll range (Chromium/WebView2), clipping the last line.
    The bottom gap lives on .pbody's margin instead, which the scroll range keeps. */
+/* Positions the TOC against the preview column, whichever side the sidebar is on. */
+.stage { flex: 1; min-width: 0; display: flex; position: relative; }
 .preview { flex: 1; min-width: 0; overflow-y: auto; padding: 28px 28px 0;
   --grid: color-mix(in srgb, var(--ink-muted) 30%, transparent);
   background-color: var(--field); background-size: 22px 22px; }

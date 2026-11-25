@@ -1836,6 +1836,43 @@ test("'[' / ']' collapse the panes and persist through the host", async () => {
   }
 });
 
+test("settings > Sidebar mirrors the layout and persists through the host", async () => {
+  const html = await renderPad();
+  const posted: any[] = [];
+  await boot(html, undefined, (w) => {
+    w.window.chrome = { webview: { postMessage: (m: any) => posted.push(m) } };
+  });
+  try {
+    const root = document.documentElement;
+    const btn = (side: string) => document.querySelector(`#sideSeg button[data-side="${side}"]`) as any;
+    expect(root.hasAttribute("data-sidebar")).toBe(false);
+    expect(btn("left").classList.contains("on")).toBe(true);
+    btn("right").click();
+    expect(root.getAttribute("data-sidebar")).toBe("right");
+    expect(btn("right").classList.contains("on")).toBe(true);
+    expect(posted.filter((m) => m && m.__scratch_settings).pop().__scratch_settings.sidebarSide).toBe("right");
+    btn("left").click();
+    expect(root.hasAttribute("data-sidebar")).toBe(false);
+    expect(posted.filter((m) => m && m.__scratch_settings).pop().__scratch_settings.sidebarSide).toBe("left");
+    (window as any).__scratchSettings({ sidebarSide: "right" });
+    expect(root.getAttribute("data-sidebar")).toBe("right");
+  } finally {
+    await teardown();
+  }
+});
+
+test("sidebarSide persists to localStorage without a host", async () => {
+  const html = await renderPad();
+  await boot(html, { "scratch.sidebarSide": "right" });
+  try {
+    expect(document.documentElement.getAttribute("data-sidebar")).toBe("right");
+    (document.querySelector('#sideSeg button[data-side="left"]') as any).click();
+    expect(localStorage.getItem("scratch.sidebarSide")).toBe("left");
+  } finally {
+    await teardown();
+  }
+});
+
 test("after a native reload, __scratchSettings re-applies config saved since launch", async () => {
   // Page presented at launch with default settings (dark-first system + ember +
   // dots); a WebView2 reload re-runs this same HTML, so the island is stale.

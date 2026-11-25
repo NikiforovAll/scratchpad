@@ -323,6 +323,17 @@ describe("renderHtml", () => {
     expect(plain).toContain('"wideMode":false');
   });
 
+  test("sidebarSide right bakes data-sidebar; default leaves <html> clean", async () => {
+    const pad = await seedPad();
+    const view = await buildView([pad]);
+    const right = await renderHtml(view, "Notes", { themeMode: "system", colorTheme: "ember", sidebarSide: "right" });
+    expect(right).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-sidebar="right" data-export-name="notes">');
+    expect(right).toContain('"sidebarSide":"right"');
+    const plain = await renderHtml(view, "Notes");
+    expect(plain).toContain('<html lang="en" data-color-theme="ember" data-grid="dots" data-export-name="notes">');
+    expect(plain).toContain('"sidebarSide":"left"');
+  });
+
   test("collapsed panes are baked into the boot markup", async () => {
     const pad = await seedPad();
     const view = await buildView([pad]);

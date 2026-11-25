@@ -26,6 +26,8 @@ export type FontSlot = (typeof FONT_SLOTS)[number];
 export type FontOverrides = Partial<Record<FontSlot, string>>;
 export const READING_FONTS = ["sans", "serif", "mono"] as const;
 export type ReadingFont = (typeof READING_FONTS)[number];
+export const SIDEBAR_SIDES = ["left", "right"] as const;
+export type SidebarSide = (typeof SIDEBAR_SIDES)[number];
 export const READING_SIZES = ["s", "m", "l", "xl"] as const;
 export type ReadingSize = (typeof READING_SIZES)[number];
 export const MEASURE_MIN = 40, MEASURE_DEFAULT = 70, MEASURE_MAX = 400;
@@ -60,6 +62,8 @@ export interface ScratchConfig {
     measure: number;
     /** Sidebar (file tree) collapsed away — toggled with '[' or the pane button. */
     sidebarCollapsed: boolean;
+    /** Edge the sidebar docks to; "right" mirrors the layout. */
+    sidebarSide: SidebarSide;
     /** Top bar collapsed away — toggled with ']'. */
     topbarCollapsed: boolean;
     /** Outline (table of contents) shown — toggled with 'o'. */
@@ -88,6 +92,7 @@ const DEFAULTS: ScratchConfig = {
     readingSize: "m",
     measure: MEASURE_DEFAULT,
     sidebarCollapsed: false,
+    sidebarSide: "left",
     topbarCollapsed: false,
     tocVisible: false,
     zoom: 1,
@@ -98,6 +103,7 @@ const DEFAULTS: ScratchConfig = {
 const oneOf = <T extends string>(list: readonly T[]) => (v: unknown): v is T =>
   typeof v === "string" && (list as readonly string[]).includes(v);
 export const validThemeMode = oneOf(THEME_MODES);
+export const validSidebarSide = oneOf(SIDEBAR_SIDES);
 export function validColorTheme(v: unknown): v is string {
   return typeof v === "string" && COLOR_THEME_IDS.includes(v);
 }
@@ -171,6 +177,7 @@ export async function loadConfig(): Promise<ScratchConfig> {
         readingSize: validReadingSize(raw?.ui?.readingSize) ? raw.ui.readingSize : DEFAULTS.ui.readingSize,
         measure: validMeasure(raw?.ui?.measure) ? raw.ui.measure : DEFAULTS.ui.measure,
         sidebarCollapsed: bool(raw?.ui?.sidebarCollapsed, DEFAULTS.ui.sidebarCollapsed),
+        sidebarSide: validSidebarSide(raw?.ui?.sidebarSide) ? raw.ui.sidebarSide : DEFAULTS.ui.sidebarSide,
         topbarCollapsed: bool(raw?.ui?.topbarCollapsed, DEFAULTS.ui.topbarCollapsed),
         tocVisible: bool(raw?.ui?.tocVisible, DEFAULTS.ui.tocVisible),
         zoom: validZoom(raw?.ui?.zoom) ? raw.ui.zoom : DEFAULTS.ui.zoom,
@@ -211,6 +218,7 @@ export async function saveConfig(patch: Partial<ScratchConfig["ui"]>): Promise<v
   if (validReadingSize(patch.readingSize)) ui.readingSize = patch.readingSize;
   if (validMeasure(patch.measure)) ui.measure = patch.measure;
   if (typeof patch.sidebarCollapsed === "boolean") ui.sidebarCollapsed = patch.sidebarCollapsed;
+  if (validSidebarSide(patch.sidebarSide)) ui.sidebarSide = patch.sidebarSide;
   if (typeof patch.topbarCollapsed === "boolean") ui.topbarCollapsed = patch.topbarCollapsed;
   if (typeof patch.tocVisible === "boolean") ui.tocVisible = patch.tocVisible;
   if (validZoom(patch.zoom)) ui.zoom = patch.zoom;
